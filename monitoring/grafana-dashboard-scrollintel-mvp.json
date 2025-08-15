@@ -1,0 +1,180 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "ScrollIntel Launch MVP - System Overview",
+    "tags": ["scrollintel", "mvp", "production"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Health Overview",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "up{job=\"scrollintel-backend\"}",
+            "legendFormat": "Backend Status",
+            "refId": "A"
+          },
+          {
+            "expr": "scrollintel_system_cpu_percent",
+            "legendFormat": "CPU Usage %",
+            "refId": "B"
+          },
+          {
+            "expr": "scrollintel_system_memory_percent",
+            "legendFormat": "Memory Usage %",
+            "refId": "C"
+          },
+          {
+            "expr": "scrollintel_system_disk_percent",
+            "legendFormat": "Disk Usage %",
+            "refId": "D"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 70},
+                {"color": "red", "value": 90}
+              ]
+            },
+            "unit": "percent"
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Request Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(scrollintel_requests_total[5m])",
+            "legendFormat": "{{method}} {{endpoint}}",
+            "refId": "A"
+          }
+        ],
+        "yAxes": [
+          {"label": "Requests/sec", "min": 0}
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Response Time (95th percentile)",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(scrollintel_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(scrollintel_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "50th percentile",
+            "refId": "B"
+          }
+        ],
+        "yAxes": [
+          {"label": "Seconds", "min": 0}
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Error Rate",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "rate(scrollintel_errors_total[5m])",
+            "legendFormat": "{{error_type}} - {{component}}",
+            "refId": "A"
+          }
+        ],
+        "yAxes": [
+          {"label": "Errors/sec", "min": 0}
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Agent Performance",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(scrollintel_agent_processing_seconds_bucket[5m]))",
+            "legendFormat": "{{agent_type}} - 95th percentile",
+            "refId": "A"
+          }
+        ],
+        "yAxes": [
+          {"label": "Seconds", "min": 0}
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Database Performance",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+        "targets": [
+          {
+            "expr": "scrollintel_db_connections",
+            "legendFormat": "Active Connections",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(scrollintel_db_query_duration_seconds_bucket[5m]))",
+            "legendFormat": "Query Time (95th percentile)",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "User Activity",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+        "targets": [
+          {
+            "expr": "scrollintel_active_user_sessions",
+            "legendFormat": "Active Sessions",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(scrollintel_user_actions_total[5m])",
+            "legendFormat": "{{action_type}} Actions/sec",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "AI Service Performance",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 32},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(scrollintel_ai_service_latency_seconds_bucket[5m]))",
+            "legendFormat": "{{service}} - Latency (95th percentile)",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(scrollintel_ai_service_requests_total{status=\"error\"}[5m])",
+            "legendFormat": "{{service}} - Error Rate",
+            "refId": "B"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,117 @@
+{
+  "binary_classification": {
+    "name": "Binary Classification",
+    "description": "Classify data into two categories",
+    "recommended_algorithms": [
+      "logistic_regression",
+      "random_forest",
+      "svm"
+    ],
+    "default_parameters": {
+      "test_size": 0.2,
+      "validation_strategy": "stratified_split",
+      "scoring_metric": "accuracy"
+    },
+    "preprocessing": [
+      "standard_scaler"
+    ],
+    "evaluation_metrics": [
+      "accuracy",
+      "precision",
+      "recall",
+      "f1_score",
+      "roc_auc"
+    ]
+  },
+  "multiclass_classification": {
+    "name": "Multiclass Classification",
+    "description": "Classify data into multiple categories",
+    "recommended_algorithms": [
+      "random_forest",
+      "svm",
+      "decision_tree"
+    ],
+    "default_parameters": {
+      "test_size": 0.2,
+      "validation_strategy": "stratified_split",
+      "scoring_metric": "accuracy"
+    },
+    "preprocessing": [
+      "standard_scaler"
+    ],
+    "evaluation_metrics": [
+      "accuracy",
+      "precision_macro",
+      "recall_macro",
+      "f1_macro"
+    ]
+  },
+  "regression": {
+    "name": "Regression",
+    "description": "Predict continuous numerical values",
+    "recommended_algorithms": [
+      "linear_regression",
+      "random_forest",
+      "decision_tree"
+    ],
+    "default_parameters": {
+      "test_size": 0.2,
+      "validation_strategy": "train_test_split",
+      "scoring_metric": "r2"
+    },
+    "preprocessing": [
+      "standard_scaler"
+    ],
+    "evaluation_metrics": [
+      "r2",
+      "mse",
+      "mae",
+      "rmse"
+    ]
+  },
+  "time_series_forecasting": {
+    "name": "Time Series Forecasting",
+    "description": "Predict future values based on historical time series data",
+    "recommended_algorithms": [
+      "linear_regression",
+      "random_forest",
+      "decision_tree"
+    ],
+    "default_parameters": {
+      "test_size": 0.2,
+      "validation_strategy": "time_series_split",
+      "scoring_metric": "mse"
+    },
+    "preprocessing": [
+      "time_features",
+      "lag_features"
+    ],
+    "evaluation_metrics": [
+      "mse",
+      "mae",
+      "mape"
+    ]
+  },
+  "anomaly_detection": {
+    "name": "Anomaly Detection",
+    "description": "Identify unusual patterns or outliers in data",
+    "recommended_algorithms": [
+      "random_forest",
+      "svm"
+    ],
+    "default_parameters": {
+      "test_size": 0.2,
+      "validation_strategy": "train_test_split",
+      "scoring_metric": "f1"
+    },
+    "preprocessing": [
+      "standard_scaler",
+      "outlier_detection"
+    ],
+    "evaluation_metrics": [
+      "precision",
+      "recall",
+      "f1_score"
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "model_id": "f34a1e07-76c7-42f4-b666-fae73b06f0eb",
+  "endpoint_name": "demo_classification_endpoint",
+  "api_endpoint": "/api/models/f34a1e07-76c7-42f4-b666-fae73b06f0eb/predict",
+  "model_path": "models\\custom\\f34a1e07-76c7-42f4-b666-fae73b06f0eb.pkl",
+  "deployment_timestamp": "2025-07-25T12:11:28.542867",
+  "status": "deployed"
+}

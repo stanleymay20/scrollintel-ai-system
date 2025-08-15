@@ -1,0 +1,104 @@
+{
+  "report_generated_at": "2025-08-14T05:55:33.045467",
+  "period": "Last 30 days",
+  "analytics_summary": {
+    "total_users": 100,
+    "total_events": 9738,
+    "total_sessions": 1190,
+    "conversion_rate": 187.0,
+    "top_pages": [
+      {
+        "page": "https://scrollintel.com/",
+        "views": 883
+      },
+      {
+        "page": "https://scrollintel.com/analytics",
+        "views": 874
+      },
+      {
+        "page": "https://scrollintel.com/agents",
+        "views": 868
+      },
+      {
+        "page": "https://scrollintel.com/pricing",
+        "views": 868
+      },
+      {
+        "page": "https://scrollintel.com/settings",
+        "views": 859
+      }
+    ],
+    "top_events": [
+      {
+        "event": "feature_used",
+        "count": 623
+      },
+      {
+        "event": "report_generated",
+        "count": 608
+      },
+      {
+        "event": "export_data",
+        "count": 599
+      },
+      {
+        "event": "button_click",
+        "count": 587
+      },
+      {
+        "event": "agent_interaction",
+        "count": 585
+      }
+    ]
+  },
+  "conversion_funnels": {
+    "total_funnels": 3,
+    "funnel_performance": {
+      "user_onboarding": {
+        "total_users": 59,
+        "overall_conversion_rate": 10.16949152542373,
+        "optimization_suggestions": 4
+      },
+      "subscription": {
+        "total_users": 0,
+        "overall_conversion_rate": 0,
+        "optimization_suggestions": 1
+      },
+      "feature_adoption": {
+        "total_users": 0,
+        "overall_conversion_rate": 0,
+        "optimization_suggestions": 1
+      }
+    }
+  },
+  "ab_testing": {
+    "total_experiments": 2,
+    "running_experiments": 2,
+    "users_in_experiments": 76
+  },
+  "marketing_attribution": {
+    "total_revenue": 396.0,
+    "total_spend": 10500.0,
+    "roi": -96.22857142857143,
+    "roas": 0.037714285714285714,
+    "top_campaigns": 4,
+    "top_channels": 4
+  },
+  "user_segmentation": {
+    "total_users": 100,
+    "total_segments": 7,
+    "engagement_distribution": {
+      "high": 29,
+      "medium": 34,
+      "low": 37
+    },
+    "lifecycle_distribution": {
+      "new": 21,
+      "active": 19,
+      "engaged": 20,
+      "at_risk": 16,
+      "churned": 24
+    },
+    "avg_behavioral_score": 59.25
+  }
+}

@@ -223,7 +223,7 @@ class TestDatabaseManager(DatabaseManager):
     
     def __init__(self):
         """Initialize test database manager with SQLite in-memory database."""
-        self.config = get_config()
+        # Don't use get_config() for testing to avoid validation issues
         self.database_url = "sqlite:///:memory:"
         self.echo = False
         
@@ -236,6 +236,14 @@ class TestDatabaseManager(DatabaseManager):
                 "check_same_thread": False,
             },
         )
+        
+        # Enable foreign key constraints for SQLite
+        from sqlalchemy import event
+        @event.listens_for(self.engine, "connect")
+        def set_sqlite_pragma(dbapi_connection, connection_record):
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA foreign_keys=ON")
+            cursor.close()
         
         # SQLite doesn't support async, so we use the same engine
         self.async_engine = self.engine
@@ -276,6 +284,28 @@ class TestDatabaseManager(DatabaseManager):
             raise
         finally:
             session.close()
+    
+    async def create_tables(self) -> None:
+        """Create all database tables."""
+        try:
+            Base.metadata.create_all(bind=self.engine)
+            logger.info("Test database tables created successfully")
+        except Exception as e:
+            logger.error(f"Failed to create test database tables: {e}")
+            raise
+    
+    async def drop_tables(self) -> None:
+        """Drop all database tables."""
+        try:
+            Base.metadata.drop_all(bind=self.engine)
+            logger.info("Test database tables dropped successfully")
+        except Exception as e:
+            logger.error(f"Failed to drop test database tables: {e}")
+            raise
+    
+    async def close(self) -> None:
+        """Close connections (no-op for test database)."""
+        pass
     
     async def check_health(self) -> Dict[str, Any]:
         """Check test database health."""
@@ -329,6 +359,32 @@ async def get_db() -> AsyncGenerator[AsyncSession, None]:
     manager = await get_db_manager()
     async with manager.get_async_session() as session:
         yield session
+
+
+def get_sync_db() -> Generator[Session, None, None]:
+    """FastAPI dependency to get synchronous database session."""
+    # For now, we'll use a simple approach
+    from ..core.config import get_config
+    config = get_config()
+    
+    engine = create_engine(
+        config.database_url,
+        pool_size=config.db_pool_size,
+        max_overflow=config.db_max_overflow,
+        pool_pre_ping=True,
+        pool_recycle=3600,
+    )
+    
+    SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+    session = SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
 
 async def get_redis() -> Optional[redis.Redis]:

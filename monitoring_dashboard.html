@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Data Readiness Monitoring Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <style>
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+            line-height: 1.6;
+        }
+        
+        .monitoring-container {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .monitoring-header {
+            background: #1e293b;
+            padding: 25px;
+            border-radius: 12px;
+            margin-bottom: 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border: 1px solid #334155;
+        }
+        
+        .monitoring-header h1 {
+            color: #60a5fa;
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        
+        .monitoring-controls {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+        }
+        
+        .refresh-indicator {
+            color: #10b981;
+            font-size: 0.9rem;
+        }
+        
+        .control-btn {
+            background: #3b82f6;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+        }
+        
+        .control-btn:hover {
+            background: #2563eb;
+        }
+        
+        .monitoring-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 25px;
+        }
+        
+        .card {
+            background: #1e293b;
+            border-radius: 12px;
+            padding: 25px;
+            border: 1px solid #334155;
+        }
+        
+        .card h3 {
+            color: #f1f5f9;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #3b82f6;
+            padding-bottom: 10px;
+        }
+        
+        .status-indicators {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        
+        .status-dot.green {
+            background: #10b981;
+        }
+        
+        .status-dot.yellow {
+            background: #f59e0b;
+        }
+        
+        .status-dot.red {
+            background: #ef4444;
+        }
+        
+        .datasets-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .dataset-item {
+            padding: 12px;
+            background: #0f172a;
+            border-radius: 6px;
+            margin-bottom: 10px;
+            border: 1px solid #334155;
+        }
+        
+        .alerts-list {
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .alert-item {
+            display: flex;
+            gap: 12px;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        
+        .alert-item.warning {
+            background: rgba(245, 158, 11, 0.1);
+            border: 1px solid #f59e0b;
+        }
+        
+        .alert-item.error {
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid #ef4444;
+        }
+        
+        .alert-icon {
+            font-size: 1.2rem;
+        }
+        
+        .alert-content strong {
+            color: #f1f5f9;
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .alert-time {
+            font-size: 0.8rem;
+            color: #94a3b8;
+        }
+        
+    </style>
+</head>
+<body>
+    <div class="monitoring-container">
+        <header class="monitoring-header">
+            <h1>Real-time AI Data Readiness Monitoring</h1>
+            <div class="monitoring-controls">
+                <span class="refresh-indicator">🔄 Auto-refresh: 30s</span>
+                <button id="pauseBtn" class="control-btn">⏸️ Pause</button>
+                <button id="refreshBtn" class="control-btn">🔄 Refresh</button>
+            </div>
+        </header>
+        
+        <div class="monitoring-grid">
+            <!-- System Status -->
+            <div class="card status-card">
+                <h3>System Status</h3>
+                <div class="status-indicators">
+                    <div class="status-item">
+                        <span class="status-dot green"></span>
+                        <span>Data Ingestion: Active</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-dot green"></span>
+                        <span>Quality Assessment: Running</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-dot yellow"></span>
+                        <span>Bias Analysis: Warning</span>
+                    </div>
+                    <div class="status-item">
+                        <span class="status-dot green"></span>
+                        <span>Compliance Check: Passed</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Dataset Overview -->
+            <div class="card datasets-card">
+                <h3>Monitored Datasets (4)</h3>
+                <div class="datasets-list">
+                    
+            <div class="dataset-item">
+                <div class="dataset-name">customer_analytics_2024</div>
+                <div class="dataset-status">Status: healthy</div>
+                <div class="dataset-score">Score: 85.0%</div>
+            </div>
+            
+            <div class="dataset-item">
+                <div class="dataset-name">sales_transactions_2024</div>
+                <div class="dataset-status">Status: healthy</div>
+                <div class="dataset-score">Score: 85.0%</div>
+            </div>
+            
+            <div class="dataset-item">
+                <div class="dataset-name">product_catalog_2024</div>
+                <div class="dataset-status">Status: healthy</div>
+                <div class="dataset-score">Score: 85.0%</div>
+            </div>
+            
+            <div class="dataset-item">
+                <div class="dataset-name">user_behavior_2024</div>
+                <div class="dataset-status">Status: healthy</div>
+                <div class="dataset-score">Score: 85.0%</div>
+            </div>
+            
+                </div>
+            </div>
+            
+            <!-- Real-time Metrics -->
+            <div class="card metrics-card">
+                <h3>Real-time Metrics</h3>
+                <div class="metrics-chart">
+                    <canvas id="metricsChart"></canvas>
+                </div>
+            </div>
+            
+            <!-- Alerts -->
+            <div class="card alerts-card">
+                <h3>Active Alerts</h3>
+                <div class="alerts-list" id="alertsList">
+                    <div class="alert-item warning">
+                        <span class="alert-icon">⚠️</span>
+                        <div class="alert-content">
+                            <strong>Bias Score Below Threshold</strong>
+                            <p>Dataset: customer_data_2024 - Score: 0.72</p>
+                            <span class="alert-time">2 minutes ago</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Performance Trends -->
+            <div class="card trends-card">
+                <h3>Performance Trends</h3>
+                <div class="trends-chart">
+                    <canvas id="trendsChart"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        
+        // Monitoring data
+        const monitoringData = {"datasets": ["customer_analytics_2024", "sales_transactions_2024", "product_catalog_2024", "user_behavior_2024"], "refresh_interval": 30, "alert_thresholds": {"overall_score_min": 0.75, "data_quality_min": 0.8, "bias_score_min": 0.7, "compliance_score_min": 0.85, "drift_threshold": 0.25}, "generated_at": "2025-08-11T09:57:28.021049"};
+        let isPaused = false;
+        let refreshInterval;
+        
+        // Initialize monitoring when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeMonitoringCharts();
+            startAutoRefresh();
+            setupControls();
+        });
+        
+        function initializeMonitoringCharts() {
+            initializeMetricsChart();
+            initializeTrendsChart();
+        }
+        
+        function initializeMetricsChart() {
+            const ctx = document.getElementById('metricsChart').getContext('2d');
+            
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: generateTimeLabels(),
+                    datasets: [{
+                        label: 'Overall Score',
+                        data: generateRandomData(20, 0.7, 0.9),
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        tension: 0.4
+                    }, {
+                        label: 'Data Quality',
+                        data: generateRandomData(20, 0.75, 0.95),
+                        borderColor: '#10b981',
+                        backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#e2e8f0'
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 1,
+                            grid: {
+                                color: '#334155'
+                            },
+                            ticks: {
+                                color: '#e2e8f0'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                color: '#334155'
+                            },
+                            ticks: {
+                                color: '#e2e8f0'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function initializeTrendsChart() {
+            const ctx = document.getElementById('trendsChart').getContext('2d');
+            
+            new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Excellent', 'Good', 'Fair', 'Poor'],
+                    datasets: [{
+                        data: [30, 45, 20, 5],
+                        backgroundColor: ['#10b981', '#3b82f6', '#f59e0b', '#ef4444']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            labels: {
+                                color: '#e2e8f0'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function startAutoRefresh() {
+            refreshInterval = setInterval(() => {
+                if (!isPaused) {
+                    updateMonitoringData();
+                }
+            }, monitoringData.refresh_interval * 1000);
+        }
+        
+        function setupControls() {
+            document.getElementById('pauseBtn').addEventListener('click', togglePause);
+            document.getElementById('refreshBtn').addEventListener('click', forceRefresh);
+        }
+        
+        function togglePause() {
+            isPaused = !isPaused;
+            const btn = document.getElementById('pauseBtn');
+            btn.textContent = isPaused ? '▶️ Resume' : '⏸️ Pause';
+        }
+        
+        function forceRefresh() {
+            updateMonitoringData();
+        }
+        
+        function updateMonitoringData() {
+            // Simulate data updates
+            console.log('Updating monitoring data...');
+            
+            // Add new alert occasionally
+            if (Math.random() < 0.1) {
+                addNewAlert();
+            }
+        }
+        
+        function addNewAlert() {
+            const alertsList = document.getElementById('alertsList');
+            const alertTypes = ['warning', 'error'];
+            const alertType = alertTypes[Math.floor(Math.random() * alertTypes.length)];
+            
+            const alertHtml = `
+                <div class="alert-item ${alertType}">
+                    <span class="alert-icon">${alertType === 'warning' ? '⚠️' : '🚨'}</span>
+                    <div class="alert-content">
+                        <strong>${alertType === 'warning' ? 'Quality Warning' : 'Critical Error'}</strong>
+                        <p>Dataset: dataset_${Math.floor(Math.random() * 100)} - Issue detected</p>
+                        <span class="alert-time">Just now</span>
+                    </div>
+                </div>
+            `;
+            
+            alertsList.insertAdjacentHTML('afterbegin', alertHtml);
+            
+            // Remove old alerts (keep only 5)
+            const alerts = alertsList.children;
+            while (alerts.length > 5) {
+                alertsList.removeChild(alerts[alerts.length - 1]);
+            }
+        }
+        
+        function generateTimeLabels() {
+            const labels = [];
+            const now = new Date();
+            for (let i = 19; i >= 0; i--) {
+                const time = new Date(now.getTime() - i * 60000); // 1 minute intervals
+                labels.push(time.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'}));
+            }
+            return labels;
+        }
+        
+        function generateRandomData(count, min, max) {
+            const data = [];
+            for (let i = 0; i < count; i++) {
+                data.push(Math.random() * (max - min) + min);
+            }
+            return data;
+        }
+        
+    </script>
+</body>
+</html>

@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Data Readiness Dashboard - customer_analytics_2024</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/date-fns@2.29.3/index.min.js"></script>
+    <style>
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f8fafc;
+            color: #334155;
+            line-height: 1.6;
+        }
+        
+        .dashboard-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .dashboard-header {
+            background: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .dashboard-header h1 {
+            color: #2563eb;
+            font-size: 2.5rem;
+            font-weight: 700;
+        }
+        
+        .dataset-info h2 {
+            color: #1e293b;
+            font-size: 1.5rem;
+            margin-bottom: 5px;
+        }
+        
+        .timestamp {
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+        
+        .live-indicator {
+            background: #10b981;
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            margin-left: 10px;
+        }
+        
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 30px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border: 1px solid #e2e8f0;
+        }
+        
+        .card h3 {
+            color: #1e293b;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #2563eb;
+            padding-bottom: 10px;
+        }
+        
+        .score-card {
+            text-align: center;
+            background: linear-gradient(135deg, #2563eb, #3b82f6);
+            color: white;
+        }
+        
+        .score-card h3 {
+            color: white;
+            border-bottom-color: rgba(255,255,255,0.3);
+        }
+        
+        .score-circle {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 20px auto;
+            border: 4px solid rgba(255,255,255,0.3);
+        }
+        
+        .score-value {
+            font-size: 2rem;
+            font-weight: 700;
+        }
+        
+        .score-label {
+            font-size: 1.1rem;
+            margin-top: 10px;
+            opacity: 0.9;
+        }
+        
+        .dimensions-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+        }
+        
+        .dimension-item {
+            text-align: center;
+            padding: 15px;
+            background: #f8fafc;
+            border-radius: 8px;
+            border: 1px solid #e2e8f0;
+        }
+        
+        .dimension-score {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #2563eb;
+            margin-bottom: 5px;
+        }
+        
+        .dimension-label {
+            font-size: 0.9rem;
+            color: #64748b;
+            text-transform: capitalize;
+        }
+        
+        .actions-list {
+            space-y: 15px;
+        }
+        
+        .action-item {
+            padding: 15px;
+            border-left: 4px solid #2563eb;
+            background: #f8fafc;
+            border-radius: 0 8px 8px 0;
+            margin-bottom: 15px;
+        }
+        
+        .action-item.high {
+            border-left-color: #ef4444;
+        }
+        
+        .action-item.medium {
+            border-left-color: #f59e0b;
+        }
+        
+        .action-item.low {
+            border-left-color: #10b981;
+        }
+        
+        .action-title {
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 5px;
+        }
+        
+        .action-meta {
+            font-size: 0.9rem;
+            color: #64748b;
+            display: flex;
+            gap: 15px;
+        }
+        
+        .compliance-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        
+        .compliance-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            border-radius: 6px;
+            background: #f8fafc;
+        }
+        
+        .compliance-item.compliant {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        .compliance-item.non-compliant {
+            background: #fef2f2;
+            color: #991b1b;
+        }
+        
+        .compliance-icon {
+            margin-right: 10px;
+            font-size: 1.2rem;
+        }
+        
+        .risk-items {
+            space-y: 10px;
+        }
+        
+        .risk-item {
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 10px;
+        }
+        
+        .risk-item.low {
+            background: #dcfce7;
+            color: #166534;
+        }
+        
+        .risk-item.medium {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        
+        .risk-item.high {
+            background: #fef2f2;
+            color: #991b1b;
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .dashboard-header {
+                flex-direction: column;
+                text-align: center;
+                gap: 15px;
+            }
+        }
+        
+    </style>
+</head>
+<body>
+    <div class="dashboard-container">
+        <header class="dashboard-header">
+            <h1>AI Data Readiness Dashboard</h1>
+            <div class="dataset-info">
+                <h2>customer_analytics_2024</h2>
+                <span class="timestamp">Generated: 2025-08-11T09:57:28.011253</span>
+                <span class="live-indicator">🟢 Live</span>
+            </div>
+        </header>
+        
+        <div class="dashboard-grid">
+            <!-- Overall Score Card -->
+            <div class="card score-card">
+                <h3>Overall AI Readiness</h3>
+                <div class="score-display">
+                    <div class="score-circle" data-score="0.78">
+                        <span class="score-value">78.0%</span>
+                    </div>
+                    <div class="score-label">
+                        Fair
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Dimension Scores -->
+            <div class="card dimensions-card">
+                <h3>Dimension Scores</h3>
+                <div class="dimensions-grid">
+                    
+            <div class="dimension-item">
+                <div class="dimension-score">82.0%</div>
+                <div class="dimension-label">data quality</div>
+            </div>
+            
+            <div class="dimension-item">
+                <div class="dimension-score">74.0%</div>
+                <div class="dimension-label">feature quality</div>
+            </div>
+            
+            <div class="dimension-item">
+                <div class="dimension-score">76.0%</div>
+                <div class="dimension-label">bias score</div>
+            </div>
+            
+            <div class="dimension-item">
+                <div class="dimension-score">88.0%</div>
+                <div class="dimension-label">compliance score</div>
+            </div>
+            
+            <div class="dimension-item">
+                <div class="dimension-score">72.0%</div>
+                <div class="dimension-label">scalability score</div>
+            </div>
+            
+                </div>
+            </div>
+            
+            <!-- Benchmark Comparison -->
+            <div class="card benchmark-card">
+                <h3>Industry Benchmark Comparison</h3>
+                <div class="benchmark-chart">
+                    <canvas id="benchmarkChart"></canvas>
+                </div>
+                <div class="industry-info">
+                    Industry: <strong>Retail</strong>
+                </div>
+            </div>
+            
+            <!-- Improvement Actions -->
+            <div class="card actions-card">
+                <h3>Priority Improvement Actions</h3>
+                <div class="actions-list">
+                    
+            <div class="action-item high">
+                <div class="action-title">Address Data Completeness Issues</div>
+                <div class="action-description">Implement data validation and collection processes to reduce missing values</div>
+                <div class="action-meta">
+                    <span>Priority: High</span>
+                    <span>Timeline: 14 days</span>
+                    <span>Impact: +1.2%</span>
+                </div>
+            </div>
+            
+            <div class="action-item high">
+                <div class="action-title">Improve Data Accuracy</div>
+                <div class="action-description">Implement data validation rules and automated quality checks</div>
+                <div class="action-meta">
+                    <span>Priority: High</span>
+                    <span>Timeline: 21 days</span>
+                    <span>Impact: +0.9%</span>
+                </div>
+            </div>
+            
+            <div class="action-item medium">
+                <div class="action-title">Optimize Feature Engineering</div>
+                <div class="action-description">Apply advanced feature engineering techniques and selection methods</div>
+                <div class="action-meta">
+                    <span>Priority: Medium</span>
+                    <span>Timeline: 10 days</span>
+                    <span>Impact: +3.6%</span>
+                </div>
+            </div>
+            
+                </div>
+            </div>
+            
+            <!-- Compliance Status -->
+            <div class="card compliance-card">
+                <h3>Compliance Status</h3>
+                <div class="compliance-grid">
+                    
+            <div class="compliance-item non-compliant">
+                <span class="compliance-icon">✗</span>
+                <span>Gdpr Compliant</span>
+            </div>
+            
+            <div class="compliance-item compliant">
+                <span class="compliance-icon">✓</span>
+                <span>Ccpa Compliant</span>
+            </div>
+            
+            <div class="compliance-item non-compliant">
+                <span class="compliance-icon">✗</span>
+                <span>Sox Compliant</span>
+            </div>
+            
+            <div class="compliance-item non-compliant">
+                <span class="compliance-icon">✗</span>
+                <span>Fair Lending Compliant</span>
+            </div>
+            
+            <div class="compliance-item non-compliant">
+                <span class="compliance-icon">✗</span>
+                <span>Model Governance Ready</span>
+            </div>
+            
+                </div>
+            </div>
+            
+            <!-- Risk Assessment -->
+            <div class="card risk-card">
+                <h3>Risk Assessment</h3>
+                <div class="risk-items">
+                    
+            <div class="risk-item medium">
+                <strong>Data Quality Risk</strong>
+                <p>Medium - Some data quality issues may impact model performance</p>
+            </div>
+            
+            <div class="risk-item medium">
+                <strong>Bias Risk</strong>
+                <p>Medium - Some bias detected, monitoring recommended</p>
+            </div>
+            
+            <div class="risk-item medium">
+                <strong>Compliance Risk</strong>
+                <p>Medium - Some compliance gaps need attention</p>
+            </div>
+            
+                </div>
+            </div>
+            
+            <div class="card monitoring-card"><h3>Real-time Monitoring</h3><div id="realTimeChart"><canvas id="monitoringChart"></canvas></div></div>
+        </div>
+    </div>
+    
+    <script>
+        
+        // Dashboard data
+        const dashboardData = {"dataset_id": "customer_analytics_2024", "overall_score": 0.78, "dimension_scores": {"data_quality": 0.82, "feature_quality": 0.74, "bias_score": 0.76, "compliance_score": 0.88, "scalability_score": 0.72}, "benchmark_comparison": {"data_quality_gap": -0.030000000000000027, "feature_quality_gap": -0.06000000000000005, "bias_score_gap": 0.010000000000000009, "compliance_gap": 0.030000000000000027, "overall_gap": -0.030000000000000027}, "improvement_actions": [{"title": "Address Data Completeness Issues", "priority": "high", "category": "data_quality", "description": "Implement data validation and collection processes to reduce missing values", "timeline": 14, "impact": 0.01200000000000001, "effort": "medium"}, {"title": "Improve Data Accuracy", "priority": "high", "category": "data_quality", "description": "Implement data validation rules and automated quality checks", "timeline": 21, "impact": 0.009000000000000008, "effort": "high"}, {"title": "Optimize Feature Engineering", "priority": "medium", "category": "feature_engineering", "description": "Apply advanced feature engineering techniques and selection methods", "timeline": 10, "impact": 0.03600000000000003, "effort": "medium"}], "compliance_status": {"gdpr_compliant": false, "ccpa_compliant": true, "sox_compliant": false, "fair_lending_compliant": false, "model_governance_ready": false}, "risk_assessment": {"data_quality_risk": "Medium - Some data quality issues may impact model performance", "bias_risk": "Medium - Some bias detected, monitoring recommended", "compliance_risk": "Medium - Some compliance gaps need attention"}, "industry": "retail", "generated_at": "2025-08-11T09:57:28.011253"};
+        
+        // Initialize charts when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeBenchmarkChart();
+            initializeRealTimeMonitoring();
+            initializeScoreCircles();
+        });
+        
+        function initializeBenchmarkChart() {
+            const ctx = document.getElementById('benchmarkChart').getContext('2d');
+            const benchmarkData = dashboardData.benchmark_comparison;
+            
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: Object.keys(benchmarkData).map(key => key.replace('_', ' ').replace('gap', '').trim()),
+                    datasets: [{
+                        label: 'Gap from Industry Standard',
+                        data: Object.values(benchmarkData),
+                        backgroundColor: function(context) {
+                            const value = context.parsed.y;
+                            return value >= 0 ? '#10b981' : '#ef4444';
+                        },
+                        borderColor: function(context) {
+                            const value = context.parsed.y;
+                            return value >= 0 ? '#059669' : '#dc2626';
+                        },
+                        borderWidth: 1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            grid: {
+                                color: '#e2e8f0'
+                            }
+                        },
+                        x: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function initializeScoreCircles() {
+            const circles = document.querySelectorAll('.score-circle');
+            circles.forEach(circle => {
+                const score = parseFloat(circle.dataset.score);
+                const circumference = 2 * Math.PI * 50; // radius = 50
+                const strokeDasharray = circumference;
+                const strokeDashoffset = circumference - (score * circumference);
+                
+                // Add SVG circle animation (simplified version)
+                circle.style.background = `conic-gradient(#10b981 ${score * 360}deg, rgba(255,255,255,0.2) 0deg)`;
+            });
+        }
+        
+        function initializeRealTimeMonitoring() { setInterval(updateRealTimeData, 30000); }
+        
+        function updateRealTimeData() { console.log("Updating real-time data..."); }
+        
+    </script>
+</body>
+</html>

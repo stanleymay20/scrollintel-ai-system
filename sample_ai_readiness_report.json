@@ -1,0 +1,223 @@
+{
+  "dataset_id": "customer_transactions_2024",
+  "report_type": "ReportType.EXECUTIVE_SUMMARY",
+  "generated_at": "2025-08-11 09:47:41.190355",
+  "overall_score": 0.75,
+  "dimension_scores": {
+    "data_quality": 0.8,
+    "feature_quality": 0.7,
+    "bias_score": 0.75,
+    "compliance_score": 0.85,
+    "scalability_score": 0.7
+  },
+  "industry_benchmark": {
+    "industry": "IndustryStandard.FINANCIAL_SERVICES",
+    "data_quality_threshold": 0.95,
+    "feature_quality_threshold": 0.9,
+    "bias_score_threshold": 0.85,
+    "compliance_score_threshold": 0.98,
+    "overall_readiness_threshold": 0.92,
+    "typical_improvement_timeline": 90
+  },
+  "benchmark_comparison": {
+    "data_quality_gap": -0.1499999999999999,
+    "feature_quality_gap": -0.20000000000000007,
+    "bias_score_gap": -0.09999999999999998,
+    "compliance_gap": -0.13,
+    "overall_gap": -0.17000000000000004
+  },
+  "improvement_actions": [
+    {
+      "priority": "high",
+      "category": "compliance",
+      "title": "Enhance Regulatory Compliance",
+      "description": "Implement privacy-preserving techniques and compliance validation",
+      "estimated_effort": "high",
+      "estimated_timeline": 35,
+      "expected_impact": 0.10400000000000001,
+      "dependencies": [],
+      "resources_required": [
+        "compliance_officer",
+        "privacy_engineer",
+        "legal_counsel"
+      ]
+    },
+    {
+      "priority": "high",
+      "category": "bias_mitigation",
+      "title": "Implement Bias Mitigation Strategies",
+      "description": "Apply bias detection and mitigation techniques to ensure fairness",
+      "estimated_effort": "high",
+      "estimated_timeline": 28,
+      "expected_impact": 0.06999999999999998,
+      "dependencies": [],
+      "resources_required": [
+        "ml_engineer",
+        "ethics_specialist",
+        "domain_expert"
+      ]
+    },
+    {
+      "priority": "high",
+      "category": "data_quality",
+      "title": "Address Data Completeness Issues",
+      "description": "Implement data validation and collection processes to reduce missing values",
+      "estimated_effort": "medium",
+      "estimated_timeline": 14,
+      "expected_impact": 0.05999999999999997,
+      "dependencies": [],
+      "resources_required": [
+        "data_engineer",
+        "domain_expert"
+      ]
+    },
+    {
+      "priority": "high",
+      "category": "data_quality",
+      "title": "Improve Data Accuracy",
+      "description": "Implement data validation rules and automated quality checks",
+      "estimated_effort": "high",
+      "estimated_timeline": 21,
+      "expected_impact": 0.04499999999999997,
+      "dependencies": [],
+      "resources_required": [
+        "data_engineer",
+        "qa_specialist"
+      ]
+    },
+    {
+      "priority": "medium",
+      "category": "feature_engineering",
+      "title": "Optimize Feature Engineering",
+      "description": "Apply advanced feature engineering techniques and selection methods",
+      "estimated_effort": "medium",
+      "estimated_timeline": 10,
+      "expected_impact": 0.12,
+      "dependencies": [],
+      "resources_required": [
+        "ml_engineer",
+        "data_scientist"
+      ]
+    }
+  ],
+  "executive_summary": "EXECUTIVE SUMMARY - AI Data Readiness Assessment\n        \n        Overall Readiness Level: Significant Issues\n        Current AI Readiness Score: 0.75\n        Industry Benchmark Gap: -0.17\n        \n        Key Findings:\n        \u2022 Data Quality Score: 0.80 (Gap: -0.15)\n        \u2022 Feature Quality Score: 0.70 (Gap: -0.20)\n        \u2022 Bias Score: 0.75 (Gap: -0.10)\n        \u2022 Compliance Score: 0.85 (Gap: -0.13)\n        \n        Improvement Plan:\n        \u2022 5 improvement actions identified\n        \u2022 4 high-priority actions require immediate attention\n        \u2022 Estimated timeline for full readiness: 35 days\n        \n        Recommendation: Address critical issues before AI deployment",
+  "detailed_findings": {
+    "ai_readiness_dimensions": {
+      "data_quality": {
+        "score": 0.8,
+        "weight": 0.25,
+        "details": {
+          "completeness": 0.85,
+          "accuracy": 0.8,
+          "consistency": 0.75,
+          "validity": 0.8
+        }
+      },
+      "feature_quality": {
+        "score": 0.7,
+        "weight": 0.2,
+        "details": {
+          "feature_correlation": 0.75,
+          "feature_importance": 0.7,
+          "encoding_quality": 0.65
+        }
+      },
+      "bias_score": {
+        "score": 0.75,
+        "weight": 0.2,
+        "details": {
+          "demographic_parity": 0.75,
+          "equalized_odds": 0.8,
+          "statistical_parity": 0.7
+        }
+      },
+      "compliance_score": {
+        "score": 0.85,
+        "weight": 0.2,
+        "details": {
+          "gdpr_compliance": 0.9,
+          "privacy_protection": 0.85,
+          "data_governance": 0.8
+        }
+      },
+      "scalability_score": {
+        "score": 0.7,
+        "weight": 0.15,
+        "details": {
+          "processing_efficiency": 0.75,
+          "storage_optimization": 0.7,
+          "compute_scalability": 0.65
+        }
+      }
+    },
+    "quality_issues": [
+      {
+        "type": "",
+        "dimension": "completeness",
+        "severity": "medium",
+        "description": "Missing values detected in transaction_amount column",
+        "affected_columns": [
+          "transaction_amount"
+        ],
+        "affected_rows": 1250,
+        "affected_percentage": 0.0
+      },
+      {
+        "type": "",
+        "dimension": "consistency",
+        "severity": "low",
+        "description": "Date format inconsistencies in transaction_date column",
+        "affected_columns": [
+          "transaction_date"
+        ],
+        "affected_rows": 350,
+        "affected_percentage": 0.0
+      },
+      {
+        "type": "",
+        "dimension": "validity",
+        "severity": "medium",
+        "description": "Invalid customer_id values (negative numbers)",
+        "affected_columns": [
+          "customer_id"
+        ],
+        "affected_rows": 75,
+        "affected_percentage": 0.0
+      }
+    ],
+    "bias_analysis": {
+      "protected_attributes": [
+        "gender",
+        "age_group",
+        "income_bracket"
+      ],
+      "bias_metrics": {
+        "demographic_parity": 0.75,
+        "equalized_odds": 0.8,
+        "statistical_parity": 0.7,
+        "disparate_impact": 0.78
+      },
+      "fairness_violations": []
+    }
+  },
+  "compliance_status": {
+    "gdpr_compliant": false,
+    "ccpa_compliant": true,
+    "sox_compliant": false,
+    "fair_lending_compliant": false,
+    "model_governance_ready": false
+  },
+  "risk_assessment": {
+    "data_quality_risk": "Medium - Some data quality issues may impact model performance",
+    "bias_risk": "Medium - Some bias detected, monitoring recommended",
+    "compliance_risk": "Medium - Some compliance gaps need attention"
+  },
+  "recommendations": [
+    "Address 4 high-priority issues before AI deployment",
+    "Significant improvement needed to meet industry standards",
+    "Focus on data quality improvements as highest priority",
+    "Implement bias mitigation strategies before model training",
+    "Address compliance gaps to ensure regulatory approval"
+  ],
+  "estimated_improvement_timeline": 40
+}

@@ -373,10 +373,10 @@ def create_sample_dashboards(session: Session, users: List[User]) -> List[Dashbo
                 "value": "total_amount"
             }
         ],
-        refresh_interval=300,
+        refresh_interval_minutes=300,
         is_public=False,
         is_active=True,
-        tags=["sales", "performance", "revenue"],
+
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow()
     )
@@ -410,7 +410,7 @@ def create_sample_dashboards(session: Session, users: List[User]) -> List[Dashbo
                 "y_axis": "count"
             }
         ],
-        refresh_interval=600,
+        refresh_interval_minutes=600,
         is_public=True,
         is_active=True,
         tags=["customers", "analytics", "segments"],

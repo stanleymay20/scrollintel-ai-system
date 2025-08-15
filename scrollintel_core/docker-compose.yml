@@ -1,0 +1,133 @@
+# ================================
+# ScrollIntel Core - Docker Compose Configuration
+# Focused AI-CTO replacement platform with 7 core agents
+# ================================
+
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: scrollintel-core-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-scrollintel_core}
+      POSTGRES_USER: ${POSTGRES_USER:-scrollintel}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-scrollintel_secure_password}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    networks:
+      - scrollintel-core-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-scrollintel}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Redis Cache and Session Management
+  redis:
+    image: redis:7-alpine
+    container_name: scrollintel-core-redis
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - scrollintel-core-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+
+  # ScrollIntel Core Backend
+  scrollintel-core:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: scrollintel-core-backend
+    environment:
+      # Database Configuration
+      - DATABASE_URL=postgresql://scrollintel:${POSTGRES_PASSWORD:-scrollintel_secure_password}@postgres:5432/scrollintel_core
+      
+      # Redis Configuration
+      - REDIS_URL=redis://redis:6379/0
+      
+      # Application Configuration
+      - DEBUG=${DEBUG:-false}
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production}
+      - APP_NAME=ScrollIntel Core
+      - APP_VERSION=1.0.0
+      
+      # API Configuration
+      - API_V1_PREFIX=/api/v1
+      - CORS_ORIGINS=["http://localhost:3000", "http://localhost:8000"]
+      
+      # File Processing
+      - MAX_FILE_SIZE=104857600  # 100MB
+      - UPLOAD_DIR=/app/uploads
+      
+      # AI Service Keys
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      
+      # Security
+      - ACCESS_TOKEN_EXPIRE_MINUTES=30
+      - REFRESH_TOKEN_EXPIRE_DAYS=7
+      
+    ports:
+      - "${API_PORT:-8001}:8000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+      - .:/app
+    networks:
+      - scrollintel-core-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+
+  # Frontend (Optional - for development)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: scrollintel-core-frontend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8001
+      - NODE_ENV=${NODE_ENV:-development}
+    ports:
+      - "3001:3000"
+    networks:
+      - scrollintel-core-network
+    depends_on:
+      - scrollintel-core
+    profiles:
+      - with-frontend
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  scrollintel-core-network:
+    driver: bridge
+    name: scrollintel-core-network

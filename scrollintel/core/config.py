@@ -1,278 +1,292 @@
 """
-Configuration management system for ScrollIntel.
-Handles API keys, database connections, and system settings.
+ScrollIntel Configuration Management
+Handles environment-specific configuration with validation
 """
 
 import os
-from typing import Optional, Dict, Any
-from pydantic import Field, field_validator
+from typing import Optional, List
+from pydantic import validator
 from pydantic_settings import BaseSettings
-from functools import lru_cache
-
-from .interfaces import ConfigurationError
+from enum import Enum
 
 
-class DatabaseConfig(BaseSettings):
-    """Database configuration settings."""
-    
-    # PostgreSQL settings
-    postgres_host: str = Field(default="localhost", env="POSTGRES_HOST")
-    postgres_port: int = Field(default=5432, env="POSTGRES_PORT")
-    postgres_db: str = Field(default="scrollintel", env="POSTGRES_DB")
-    postgres_user: str = Field(default="postgres", env="POSTGRES_USER")
-    postgres_password: str = Field(default="", env="POSTGRES_PASSWORD")
-    
-    # Redis settings
-    redis_host: str = Field(default="localhost", env="REDIS_HOST")
-    redis_port: int = Field(default=6379, env="REDIS_PORT")
-    redis_password: Optional[str] = Field(default=None, env="REDIS_PASSWORD")
-    redis_db: int = Field(default=0, env="REDIS_DB")
-    
-    # Vector database settings
-    pinecone_api_key: Optional[str] = Field(default=None, env="PINECONE_API_KEY")
-    pinecone_environment: Optional[str] = Field(default=None, env="PINECONE_ENVIRONMENT")
-    supabase_url: Optional[str] = Field(default=None, env="SUPABASE_URL")
-    supabase_key: Optional[str] = Field(default=None, env="SUPABASE_KEY")
-    
-    @property
-    def postgres_url(self) -> str:
-        """Get PostgreSQL connection URL."""
-        return f"postgresql://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
-    
-    @property
-    def redis_url(self) -> str:
-        """Get Redis connection URL."""
-        auth = f":{self.redis_password}@" if self.redis_password else ""
-        return f"redis://{auth}{self.redis_host}:{self.redis_port}/{self.redis_db}"
+class Environment(str, Enum):
+    DEVELOPMENT = "development"
+    STAGING = "staging"
+    PRODUCTION = "production"
+    TEST = "test"
 
 
-class AIServiceConfig(BaseSettings):
-    """AI service configuration settings."""
-    
-    # OpenAI settings
-    openai_api_key: Optional[str] = Field(default=None, env="OPENAI_API_KEY")
-    openai_model: str = Field(default="gpt-4", env="OPENAI_MODEL")
-    openai_max_tokens: int = Field(default=4000, env="OPENAI_MAX_TOKENS")
-    
-    # Anthropic Claude settings
-    anthropic_api_key: Optional[str] = Field(default=None, env="ANTHROPIC_API_KEY")
-    anthropic_model: str = Field(default="claude-3-sonnet-20240229", env="ANTHROPIC_MODEL")
-    anthropic_max_tokens: int = Field(default=4000, env="ANTHROPIC_MAX_TOKENS")
-    
-    # Whisper settings
-    whisper_model: str = Field(default="whisper-1", env="WHISPER_MODEL")
-    
-    @field_validator("openai_api_key", "anthropic_api_key")
-    @classmethod
-    def validate_api_keys(cls, v):
-        """Validate that required API keys are provided."""
-        # Allow None for migration purposes, but warn
-        if v is None or (isinstance(v, str) and v.strip() == ""):
-            import warnings
-            warnings.warn("API key not provided - some features may not work")
-            return None
-        return v
+class LogLevel(str, Enum):
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+    CRITICAL = "CRITICAL"
 
 
-class SecurityConfig(BaseSettings):
-    """Security configuration settings for EXOUSIA system."""
+class Settings(BaseSettings):
+    """
+    Application settings with environment-specific configuration
+    """
     
-    # JWT settings
-    jwt_secret_key: str = Field(default="", env="JWT_SECRET_KEY")
-    jwt_algorithm: str = Field(default="HS256", env="JWT_ALGORITHM")
-    jwt_expiration_hours: int = Field(default=24, env="JWT_EXPIRATION_HOURS")
+    # === Environment Settings ===
+    environment: Environment = Environment.DEVELOPMENT
+    debug: bool = True
+    log_level: LogLevel = LogLevel.INFO
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
     
-    # Session settings
-    session_timeout_minutes: int = Field(default=60, env="SESSION_TIMEOUT_MINUTES")
-    max_sessions_per_user: int = Field(default=5, env="MAX_SESSIONS_PER_USER")
+    # === Database Configuration ===
+    postgres_host: str = "localhost"
+    postgres_port: int = 5432
+    postgres_db: str = "scrollintel"
+    postgres_user: str = "postgres"
+    postgres_password: str
     
-    # Rate limiting
-    rate_limit_requests: int = Field(default=100, env="RATE_LIMIT_REQUESTS")
-    rate_limit_window_minutes: int = Field(default=15, env="RATE_LIMIT_WINDOW_MINUTES")
+    # === Redis Configuration ===
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_password: Optional[str] = None
+    redis_db: int = 0
     
-    @field_validator("jwt_secret_key")
-    @classmethod
-    def validate_jwt_secret(cls, v):
-        """Validate JWT secret key is provided."""
-        if not v or len(v) < 32:
-            raise ValueError("JWT secret key must be at least 32 characters long")
-        return v
-
-
-class SystemConfig(BaseSettings):
-    """System-wide configuration settings."""
+    # === JWT & Security Configuration ===
+    jwt_secret_key: str
+    jwt_algorithm: str = "HS256"
+    jwt_expiration_hours: int = 24
+    session_timeout_minutes: int = 60
+    max_sessions_per_user: int = 5
+    rate_limit_requests: int = 100
     
-    # Environment
-    environment: str = Field(default="development", env="ENVIRONMENT")
-    debug: bool = Field(default=False, env="DEBUG")
-    log_level: str = Field(default="INFO", env="LOG_LEVEL")
+    # === AI Services ===
+    openai_api_key: Optional[str] = None
+    openai_model: str = "gpt-4"
+    anthropic_api_key: Optional[str] = None
+    anthropic_model: str = "claude-3-sonnet-20240229"
     
-    # API settings
-    api_host: str = Field(default="0.0.0.0", env="API_HOST")
-    api_port: int = Field(default=8000, env="API_PORT")
-    api_workers: int = Field(default=1, env="API_WORKERS")
+    # === Vector Database ===
+    pinecone_api_key: Optional[str] = None
+    pinecone_environment: str = "us-east-1"
     
-    # File storage
-    upload_max_size_mb: int = Field(default=100, env="UPLOAD_MAX_SIZE_MB")
-    storage_path: str = Field(default="./storage", env="STORAGE_PATH")
+    # === Supabase ===
+    supabase_url: Optional[str] = None
+    supabase_key: Optional[str] = None
+    supabase_service_role: Optional[str] = None
+    supabase_jwt_secret: Optional[str] = None
     
-    # Agent settings
-    max_concurrent_agents: int = Field(default=10, env="MAX_CONCURRENT_AGENTS")
-    agent_timeout_seconds: int = Field(default=300, env="AGENT_TIMEOUT_SECONDS")
+    # === File Storage ===
+    upload_dir: str = "./uploads"
+    max_file_size: str = "100MB"
     
-    @field_validator("environment")
-    @classmethod
+    # === Database Connection Pool Settings ===
+    db_pool_size: int = 20
+    db_max_overflow: int = 30
+    db_pool_timeout: int = 30
+    db_pool_recycle: int = 3600
+    db_pool_pre_ping: bool = True
+    
+    # === File Processing Settings ===
+    upload_max_size_mb: int = 100
+    file_processing_timeout: int = 300  # 5 minutes
+    file_processing_chunk_size: int = 8192  # 8KB chunks
+    max_concurrent_uploads: int = 10
+    background_job_timeout: int = 1800  # 30 minutes
+    
+    # === Performance Settings ===
+    enable_query_cache: bool = True
+    cache_ttl_seconds: int = 300  # 5 minutes
+    enable_compression: bool = True
+    max_memory_usage_mb: int = 1024  # 1GB
+    
+    # === Monitoring & Analytics ===
+    sentry_dsn: Optional[str] = None
+    posthog_api_key: Optional[str] = None
+    
+    # === External Services ===
+    stripe_api_key: Optional[str] = None
+    stripe_webhook_secret: Optional[str] = None
+    
+    # === Backup System ===
+    backup_directory: str = "./backups"
+    backup_retention_days: int = 30
+    backup_s3_bucket: Optional[str] = None
+    aws_access_key_id: Optional[str] = None
+    aws_secret_access_key: Optional[str] = None
+    aws_region: str = "us-east-1"
+    
+    # === Production Settings ===
+    workers: int = 1
+    worker_class: str = "uvicorn.workers.UvicornWorker"
+    worker_connections: int = 1000
+    max_requests: int = 1000
+    max_requests_jitter: int = 100
+    preload_app: bool = False
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+        
+    @validator("environment", pre=True)
     def validate_environment(cls, v):
-        """Validate environment is one of allowed values."""
-        allowed = ["development", "staging", "production"]
-        if v not in allowed:
-            raise ValueError(f"Environment must be one of: {allowed}")
+        if isinstance(v, str):
+            return Environment(v.lower())
         return v
-
-
-class ScrollIntelConfig:
-    """Main configuration class that combines all configuration sections."""
     
-    def __init__(self):
-        self.database = DatabaseConfig()
-        self.ai_services = AIServiceConfig()
-        self.security = SecurityConfig()
-        self.system = SystemConfig()
+    @validator("log_level", pre=True)
+    def validate_log_level(cls, v):
+        if isinstance(v, str):
+            return LogLevel(v.upper())
+        return v
+    
+    @validator("max_file_size")
+    def validate_max_file_size(cls, v):
+        """Convert file size string to bytes"""
+        if isinstance(v, str):
+            v = v.upper()
+            if v.endswith("MB"):
+                return int(v[:-2]) * 1024 * 1024
+            elif v.endswith("GB"):
+                return int(v[:-2]) * 1024 * 1024 * 1024
+            elif v.endswith("KB"):
+                return int(v[:-2]) * 1024
+        return int(v)
     
     @property
     def database_url(self) -> str:
-        """Get database URL for SQLAlchemy."""
-        return self.database.postgres_url
+        """Get PostgreSQL database URL"""
+        return f"postgresql://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
     
     @property
-    def environment(self) -> str:
-        """Get current environment."""
-        return self.system.environment
+    def async_database_url(self) -> str:
+        """Get async PostgreSQL database URL"""
+        return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
     
     @property
-    def debug(self) -> bool:
-        """Get debug mode status."""
-        return self.system.debug
+    def redis_url(self) -> str:
+        """Get Redis URL"""
+        if self.redis_password:
+            return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/{self.redis_db}"
+        return f"redis://{self.redis_host}:{self.redis_port}/{self.redis_db}"
     
     @property
-    def db_pool_size(self) -> int:
-        """Get database pool size."""
-        return 5
+    def is_development(self) -> bool:
+        return self.environment == Environment.DEVELOPMENT
     
     @property
-    def db_max_overflow(self) -> int:
-        """Get database max overflow."""
-        return 10
-    
-    @property
-    def redis_host(self) -> str:
-        """Get Redis host."""
-        return self.database.redis_host
-    
-    @property
-    def redis_port(self) -> int:
-        """Get Redis port."""
-        return self.database.redis_port
-    
-    @property
-    def redis_password(self) -> Optional[str]:
-        """Get Redis password."""
-        return self.database.redis_password
-    
-    @property
-    def redis_db(self) -> int:
-        """Get Redis database number."""
-        return self.database.redis_db
-    
-    def validate(self) -> None:
-        """Validate all configuration sections."""
-        try:
-            # Validate database config
-            if not self.database.postgres_password:
-                raise ConfigurationError("PostgreSQL password is required")
-            
-            # Validate AI service config (warn if missing but don't fail)
-            if not self.ai_services.openai_api_key:
-                import warnings
-                warnings.warn("OpenAI API key not configured - AI features will not work")
-            
-            if not self.ai_services.anthropic_api_key:
-                import warnings
-                warnings.warn("Anthropic API key not configured - AI features will not work")
-            
-            # Validate security config
-            if not self.security.jwt_secret_key:
-                raise ConfigurationError("JWT secret key is required")
-            
-            # Validate vector database (at least one must be configured)
-            has_pinecone = bool(self.database.pinecone_api_key and self.database.pinecone_environment)
-            has_supabase = bool(self.database.supabase_url and self.database.supabase_key)
-            
-            if not (has_pinecone or has_supabase):
-                raise ConfigurationError("At least one vector database (Pinecone or Supabase) must be configured")
-            
-        except Exception as e:
-            raise ConfigurationError(f"Configuration validation failed: {str(e)}")
-    
-    def get_database_connections(self) -> Dict[str, str]:
-        """Get database connection strings."""
-        return {
-            "postgres": self.database.postgres_url,
-            "redis": self.database.redis_url,
-        }
-    
-    def get_ai_service_config(self) -> Dict[str, Any]:
-        """Get AI service configuration."""
-        return {
-            "openai": {
-                "api_key": self.ai_services.openai_api_key,
-                "model": self.ai_services.openai_model,
-                "max_tokens": self.ai_services.openai_max_tokens,
-            },
-            "anthropic": {
-                "api_key": self.ai_services.anthropic_api_key,
-                "model": self.ai_services.anthropic_model,
-                "max_tokens": self.ai_services.anthropic_max_tokens,
-            },
-            "whisper": {
-                "model": self.ai_services.whisper_model,
-            }
-        }
-    
     def is_production(self) -> bool:
-        """Check if running in production environment."""
-        return self.system.environment == "production"
+        return self.environment == Environment.PRODUCTION
     
-    def is_debug(self) -> bool:
-        """Check if debug mode is enabled."""
-        return self.system.debug
+    @property
+    def is_test(self) -> bool:
+        return self.environment == Environment.TEST
 
 
-@lru_cache()
-def get_config() -> ScrollIntelConfig:
-    """Get cached configuration instance."""
-    config = ScrollIntelConfig()
-    config.validate()
-    return config
-
-
-@lru_cache()
-def get_settings() -> ScrollIntelConfig:
-    """Alias for get_config() for compatibility."""
-    return get_config()
-
-
-def load_config_from_file(file_path: str) -> ScrollIntelConfig:
-    """Load configuration from a file."""
-    if not os.path.exists(file_path):
-        raise ConfigurationError(f"Configuration file not found: {file_path}")
+class DeploymentConfig:
+    """
+    Deployment-specific configuration management
+    """
     
-    # Load environment variables from file
-    with open(file_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line and not line.startswith('#'):
-                key, value = line.split('=', 1)
-                os.environ[key.strip()] = value.strip()
+    @staticmethod
+    def get_environment_file(env: str) -> str:
+        """Get the appropriate environment file"""
+        env_files = {
+            "development": ".env",
+            "staging": ".env.staging",
+            "production": ".env.production",
+            "test": ".env.test"
+        }
+        return env_files.get(env, ".env")
     
-    return get_config()
+    @staticmethod
+    def load_settings(env: Optional[str] = None) -> Settings:
+        """Load settings for specific environment"""
+        if env:
+            env_file = DeploymentConfig.get_environment_file(env)
+            if os.path.exists(env_file):
+                return Settings(_env_file=env_file)
+        return Settings()
+    
+    @staticmethod
+    def get_docker_compose_file(env: str) -> str:
+        """Get appropriate docker-compose file"""
+        compose_files = {
+            "development": "docker-compose.yml",
+            "staging": "docker-compose.staging.yml",
+            "production": "docker-compose.prod.yml",
+            "test": "docker-compose.test.yml"
+        }
+        return compose_files.get(env, "docker-compose.yml")
+
+
+# Global settings instance
+settings = Settings()
+
+
+def get_settings() -> Settings:
+    """Get application settings"""
+    return settings
+
+
+def reload_settings(env: Optional[str] = None) -> Settings:
+    """Reload settings for specific environment"""
+    global settings
+    settings = DeploymentConfig.load_settings(env)
+    return settings
+
+
+# Legacy config classes for backward compatibility
+class ScrollIntelConfig:
+    """Legacy config class - use Settings instead"""
+    def __init__(self):
+        self.settings = get_settings()
+    
+    def __getattr__(self, name):
+        return getattr(self.settings, name)
+
+class DatabaseConfig:
+    """Legacy database config class"""
+    def __init__(self):
+        self.settings = get_settings()
+    
+    @property
+    def url(self):
+        return self.settings.database_url
+    
+    @property
+    def async_url(self):
+        return self.settings.async_database_url
+
+class AIServiceConfig:
+    """Legacy AI service config class"""
+    def __init__(self):
+        self.settings = get_settings()
+    
+    @property
+    def openai_api_key(self):
+        return self.settings.openai_api_key
+    
+    @property
+    def anthropic_api_key(self):
+        return self.settings.anthropic_api_key
+
+class SecurityConfig:
+    """Legacy security config class"""
+    def __init__(self):
+        self.settings = get_settings()
+    
+    @property
+    def jwt_secret_key(self):
+        return self.settings.jwt_secret_key
+
+class SystemConfig:
+    """Legacy system config class"""
+    def __init__(self):
+        self.settings = get_settings()
+
+def get_config():
+    """Get legacy config object"""
+    return ScrollIntelConfig()
+
+def load_config_from_file(file_path: str):
+    """Load config from file - legacy function"""
+    return ScrollIntelConfig()

@@ -1,0 +1,252 @@
+"""
+Integration Test Configuration and Fixtures
+Provides shared fixtures and utilities for integration testing
+"""
+import pytest
+import asyncio
+import tempfile
+import shutil
+from pathlib import Path
+from typing import Dict, Any, List
+from unittest.mock import Mock, AsyncMock
+import pandas as pd
+import numpy as np
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+import redis
+from fastapi.testclient import TestClient
+
+from scrollintel.core.config import get_settings
+from scrollintel.models.database import Base
+from scrollintel.api.gateway import app
+from scrollintel.core.registry import AgentRegistry
+from scrollintel.security.auth import create_access_token
+from scrollintel.models.schemas import UserCreate, UserRole
+
+
+@pytest.fixture(scope="session")
+def event_loop():
+    """Create an instance of the default event loop for the test session."""
+    loop = asyncio.get_event_loop_policy().new_event_loop()
+    yield loop
+    loop.close()
+
+
+@pytest.fixture(scope="session")
+def test_settings():
+    """Test configuration settings"""
+    settings = get_settings()
+    settings.database_url = "sqlite:///./test_integration.db"
+    settings.redis_url = "redis://localhost:6379/1"
+    settings.testing = True
+    return settings
+
+
+@pytest.fixture(scope="session")
+def test_engine(test_settings):
+    """Create test database engine"""
+    engine = create_engine(
+        test_settings.database_url,
+        connect_args={"check_same_thread": False}
+    )
+    Base.metadata.create_all(bind=engine)
+    yield engine
+    Base.metadata.drop_all(bind=engine)
+
+
+@pytest.fixture(scope="session")
+def test_db_session(test_engine):
+    """Create test database session"""
+    TestingSessionLocal = sessionmaker(
+        autocommit=False, 
+        autoflush=False, 
+        bind=test_engine
+    )
+    session = TestingSessionLocal()
+    yield session
+    session.close()
+
+
+@pytest.fixture(scope="session")
+def test_redis():
+    """Create test Redis connection"""
+    try:
+        r = redis.Redis(host='localhost', port=6379, db=1, decode_responses=True)
+        r.ping()
+        yield r
+        r.flushdb()
+    except redis.ConnectionError:
+        # Mock Redis if not available
+        yield Mock()
+
+
+@pytest.fixture(scope="session")
+def test_client(test_db_session, test_redis):
+    """Create test FastAPI client"""
+    with TestClient(app) as client:
+        yield client
+
+
+@pytest.fixture
+def test_user_token(test_db_session):
+    """Create test user and return JWT token"""
+    from scrollintel.models.schemas import User
+    
+    # Create test user
+    user_data = {
+        "email": "test@scrollintel.com",
+        "role": UserRole.ADMIN,
+        "permissions": ["read", "write", "admin"]
+    }
+    
+    user = User(**user_data)
+    test_db_session.add(user)
+    test_db_session.commit()
+    
+    # Generate token
+    token = create_access_token(data={"sub": user.email, "role": user.role.value})
+    return {"Authorization": f"Bearer {token}"}
+
+
+@pytest.fixture
+def sample_datasets():
+    """Create sample datasets for testing"""
+    # Sample CSV data
+    csv_data = pd.DataFrame({
+        'id': range(1, 101),
+        'name': [f'Item_{i}' for i in range(1, 101)],
+        'value': np.random.randn(100),
+        'category': np.random.choice(['A', 'B', 'C'], 100),
+        'date': pd.date_range('2023-01-01', periods=100)
+    })
+    
+    # Sample time series data
+    ts_data = pd.DataFrame({
+        'timestamp': pd.date_range('2023-01-01', periods=365, freq='D'),
+        'sales': np.random.randn(365).cumsum() + 1000,
+        'temperature': 20 + 10 * np.sin(np.arange(365) * 2 * np.pi / 365) + np.random.randn(365)
+    })
+    
+    # Sample ML data
+    ml_data = pd.DataFrame({
+        'feature_1': np.random.randn(1000),
+        'feature_2': np.random.randn(1000),
+        'feature_3': np.random.randn(1000),
+        'target': np.random.choice([0, 1], 1000)
+    })
+    
+    return {
+        'csv_data': csv_data,
+        'time_series': ts_data,
+        'ml_data': ml_data
+    }
+
+
+@pytest.fixture
+def temp_files(sample_datasets):
+    """Create temporary files for testing"""
+    temp_dir = tempfile.mkdtemp()
+    temp_path = Path(temp_dir)
+    
+    files = {}
+    
+    # Save datasets as files
+    for name, data in sample_datasets.items():
+        csv_path = temp_path / f"{name}.csv"
+        data.to_csv(csv_path, index=False)
+        files[f"{name}_csv"] = str(csv_path)
+        
+        # Also save as Excel
+        xlsx_path = temp_path / f"{name}.xlsx"
+        data.to_excel(xlsx_path, index=False)
+        files[f"{name}_xlsx"] = str(xlsx_path)
+    
+    # Create JSON file
+    json_data = {
+        "users": [
+            {"id": 1, "name": "John", "age": 30},
+            {"id": 2, "name": "Jane", "age": 25}
+        ]
+    }
+    json_path = temp_path / "sample.json"
+    import json
+    with open(json_path, 'w') as f:
+        json.dump(json_data, f)
+    files['json'] = str(json_path)
+    
+    yield files
+    
+    # Cleanup
+    shutil.rmtree(temp_dir)
+
+
+@pytest.fixture
+def mock_ai_services():
+    """Mock external AI services"""
+    mocks = {
+        'openai': Mock(),
+        'anthropic': Mock(),
+        'huggingface': Mock(),
+        'pinecone': Mock()
+    }
+    
+    # Configure mock responses
+    mocks['openai'].chat.completions.create.return_value = Mock(
+        choices=[Mock(message=Mock(content="Mocked OpenAI response"))]
+    )
+    
+    mocks['anthropic'].messages.create.return_value = Mock(
+        content=[Mock(text="Mocked Claude response")]
+    )
+    
+    return mocks
+
+
+@pytest.fixture
+def agent_registry():
+    """Create test agent registry"""
+    registry = AgentRegistry()
+    return registry
+
+
+@pytest.fixture
+def performance_metrics():
+    """Track performance metrics during tests"""
+    metrics = {
+        'response_times': [],
+        'memory_usage': [],
+        'cpu_usage': [],
+        'error_counts': {}
+    }
+    return metrics
+
+
+class IntegrationTestHelper:
+    """Helper class for integration testing"""
+    
+    @staticmethod
+    def assert_response_structure(response: Dict[str, Any], expected_keys: List[str]):
+        """Assert response has expected structure"""
+        for key in expected_keys:
+            assert key in response, f"Missing key: {key}"
+    
+    @staticmethod
+    def assert_agent_response(response: Dict[str, Any]):
+        """Assert agent response has correct structure"""
+        expected_keys = ['status', 'content', 'agent_id', 'execution_time']
+        IntegrationTestHelper.assert_response_structure(response, expected_keys)
+        assert response['status'] in ['success', 'error', 'partial']
+    
+    @staticmethod
+    def create_test_file(content: str, filename: str, temp_dir: Path) -> str:
+        """Create a test file with given content"""
+        file_path = temp_dir / filename
+        with open(file_path, 'w') as f:
+            f.write(content)
+        return str(file_path)
+
+
+@pytest.fixture
+def test_helper():
+    """Provide test helper utilities"""
+    return IntegrationTestHelper()

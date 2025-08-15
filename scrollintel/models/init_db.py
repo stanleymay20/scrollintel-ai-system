@@ -12,7 +12,7 @@ from .seed_data import seed_database, clear_seed_data
 logger = logging.getLogger(__name__)
 
 
-def initialize_database(seed: bool = True, force_recreate: bool = False) -> Dict[str, Any]:
+async def initialize_database(seed: bool = True, force_recreate: bool = False) -> Dict[str, Any]:
     """
     Initialize the database with tables and optional seed data.
     
@@ -26,12 +26,16 @@ def initialize_database(seed: bool = True, force_recreate: bool = False) -> Dict
     try:
         logger.info("Starting database initialization...")
         
+        # Get or create database manager
+        from .database_utils import get_db_manager
+        manager = await get_db_manager()
+        
         if force_recreate:
             logger.warning("Force recreate enabled - dropping all tables")
-            db_manager.drop_tables()
+            await manager.drop_tables()
         
-        # Initialize database and create tables
-        init_database()
+        # Create tables
+        await manager.create_tables()
         
         result = {
             "success": True,
@@ -43,7 +47,7 @@ def initialize_database(seed: bool = True, force_recreate: bool = False) -> Dict
         # Seed database if requested
         if seed:
             logger.info("Seeding database with initial data...")
-            with db_manager.session_scope() as session:
+            async with manager.get_async_session() as session:
                 seed_result = seed_database(session)
                 result["seed_data"] = seed_result
                 
@@ -75,7 +79,7 @@ def initialize_database(seed: bool = True, force_recreate: bool = False) -> Dict
         }
 
 
-def reset_database(reseed: bool = True) -> Dict[str, Any]:
+async def reset_database(reseed: bool = True) -> Dict[str, Any]:
     """
     Reset the database by dropping and recreating all tables.
     
@@ -88,12 +92,16 @@ def reset_database(reseed: bool = True) -> Dict[str, Any]:
     try:
         logger.warning("Resetting database - all data will be lost!")
         
+        # Get database manager
+        from .database_utils import get_db_manager
+        manager = await get_db_manager()
+        
         # Drop all tables
-        db_manager.drop_tables()
+        await manager.drop_tables()
         logger.info("All tables dropped")
         
         # Reinitialize
-        return initialize_database(seed=reseed, force_recreate=False)
+        return await initialize_database(seed=reseed, force_recreate=False)
         
     except Exception as e:
         logger.error(f"Failed to reset database: {e}")
@@ -103,7 +111,7 @@ def reset_database(reseed: bool = True) -> Dict[str, Any]:
         }
 
 
-def clear_all_data() -> Dict[str, Any]:
+async def clear_all_data() -> Dict[str, Any]:
     """
     Clear all data from the database without dropping tables.
     
@@ -113,7 +121,10 @@ def clear_all_data() -> Dict[str, Any]:
     try:
         logger.warning("Clearing all data from database...")
         
-        with db_manager.session_scope() as session:
+        from .database_utils import get_db_manager
+        manager = await get_db_manager()
+        
+        async with manager.get_async_session() as session:
             result = clear_seed_data(session)
             
         if result["success"]:
@@ -131,7 +142,7 @@ def clear_all_data() -> Dict[str, Any]:
         }
 
 
-def check_database_status() -> Dict[str, Any]:
+async def check_database_status() -> Dict[str, Any]:
     """
     Check the current status of the database.
     
@@ -139,9 +150,13 @@ def check_database_status() -> Dict[str, Any]:
         Dictionary with database status information
     """
     try:
+        from .database_utils import get_db_manager
+        manager = await get_db_manager()
+        
         # Test database connection
-        db_connected = db_manager.test_connection()
-        redis_connected = db_manager.test_redis_connection()
+        health = await manager.check_health()
+        db_connected = health["database"]
+        redis_connected = health["redis"]
         
         # Check if tables exist
         tables_exist = False
@@ -149,10 +164,12 @@ def check_database_status() -> Dict[str, Any]:
         
         if db_connected:
             try:
-                with db_manager.session_scope() as session:
+                async with manager.get_async_session() as session:
                     # Try to query a table to see if schema exists
                     from .database import User
-                    result = session.query(User).limit(1).all()
+                    from sqlalchemy import select
+                    result = await session.execute(select(User).limit(1))
+                    result.fetchall()
                     tables_exist = True
                     
                     # Count tables (approximate)
@@ -166,15 +183,22 @@ def check_database_status() -> Dict[str, Any]:
         data_counts = {}
         if tables_exist:
             try:
-                with db_manager.session_scope() as session:
+                async with manager.get_async_session() as session:
                     from .database import User, Agent, Dataset, Dashboard, AuditLog
+                    from sqlalchemy import select, func
+                    
+                    user_count = await session.execute(select(func.count(User.id)))
+                    agent_count = await session.execute(select(func.count(Agent.id)))
+                    dataset_count = await session.execute(select(func.count(Dataset.id)))
+                    dashboard_count = await session.execute(select(func.count(Dashboard.id)))
+                    audit_count = await session.execute(select(func.count(AuditLog.id)))
                     
                     data_counts = {
-                        "users": session.query(User).count(),
-                        "agents": session.query(Agent).count(),
-                        "datasets": session.query(Dataset).count(),
-                        "dashboards": session.query(Dashboard).count(),
-                        "audit_logs": session.query(AuditLog).count()
+                        "users": user_count.scalar(),
+                        "agents": agent_count.scalar(),
+                        "datasets": dataset_count.scalar(),
+                        "dashboards": dashboard_count.scalar(),
+                        "audit_logs": audit_count.scalar()
                     }
             except Exception as e:
                 logger.warning(f"Could not get data counts: {e}")

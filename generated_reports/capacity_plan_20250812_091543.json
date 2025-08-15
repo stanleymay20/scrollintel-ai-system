@@ -1,0 +1,21 @@
+{
+  "generated_at": "2025-08-12T07:15:43.259265",
+  "time_horizon_days": 30,
+  "forecasts": [],
+  "recommendations": [],
+  "risk_assessment": {
+    "overall_risk_level": "low",
+    "risk_factors": [],
+    "mitigation_strategies": [],
+    "business_impact": []
+  },
+  "cost_analysis": {
+    "total_monthly_cost": 0,
+    "total_annual_cost": 0,
+    "cost_breakdown": {},
+    "potential_monthly_savings": 0,
+    "roi_break_even_months": 6,
+    "cost_benefit_ratio": 0.0
+  },
+  "executive_summary": "Overall capacity risk level: LOW. No immediate capacity adjustments required."
+}

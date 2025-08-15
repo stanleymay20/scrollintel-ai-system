@@ -1,0 +1,69 @@
+
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>Executive Summary - AI Data Readiness Platform</title>
+            <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+            <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+            <style>
+                .dashboard-grid {
+                    display: grid;
+                    grid-template-columns: repeat(12, 1fr);
+                    grid-template-rows: repeat(8, 1fr);
+                    gap: 1rem;
+                    height: 100vh;
+                    padding: 1rem;
+                }
+                .widget {
+                    background: white;
+                    border-radius: 0.5rem;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+                    padding: 1rem;
+                    overflow: hidden;
+                }
+                .widget-title {
+                    font-size: 1.1rem;
+                    font-weight: 600;
+                    margin-bottom: 0.5rem;
+                    color: #374151;
+                }
+                .metric-value {
+                    font-size: 2rem;
+                    font-weight: 700;
+                    color: #1f2937;
+                }
+                .metric-label {
+                    font-size: 0.875rem;
+                    color: #6b7280;
+                }
+                .status-healthy { color: #10b981; }
+                .status-warning { color: #f59e0b; }
+                .status-critical { color: #ef4444; }
+            </style>
+        </head>
+        <body class="bg-gray-100">
+            <div class="dashboard-header bg-white shadow-sm p-4 mb-4">
+                <h1 class="text-2xl font-bold text-gray-900">Executive Summary</h1>
+                <p class="text-gray-600">High-level executive dashboard with key metrics</p>
+                <div class="text-sm text-gray-500 mt-2">
+                    Last updated: <span id="last-updated">{timestamp}</span>
+                    | Auto-refresh: 300s
+                </div>
+            </div>
+            <div class="dashboard-grid">
+                {widgets_html}
+            </div>
+            <script>
+                // Auto-refresh functionality
+                setInterval(function() {
+                    location.reload();
+                }, 300000);
+                
+                // Update timestamp
+                document.getElementById('last-updated').textContent = new Date().toLocaleString();
+            </script>
+        </body>
+        </html>
+        

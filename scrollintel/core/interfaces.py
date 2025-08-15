@@ -17,6 +17,16 @@ class AgentType(str, Enum):
     AI_ENGINEER = "ai_engineer"
     ANALYST = "analyst"
     BI_DEVELOPER = "bi_developer"
+    # Additional agent types for orchestration
+    AUTODEV = "autodev"
+    RL_AGENT = "rl_agent"
+    ETHICS_AGENT = "ethics_agent"
+    MULTIMODAL_AGENT = "multimodal_agent"
+    SCIENTIFIC_AGENT = "scientific_agent"
+    EDGE_DEPLOY_AGENT = "edge_deploy_agent"
+    COMPLIANCE_AGENT = "compliance_agent"
+    NARRATIVE_AGENT = "narrative_agent"
+    STUDIO_AGENT = "studio_agent"
 
 
 class AgentStatus(str, Enum):
@@ -204,3 +214,21 @@ class EngineError(Exception):
 class SecurityError(Exception):
     """Exception raised for security-related errors."""
     pass
+
+
+class DataError(Exception):
+    """Exception raised for data-related errors."""
+    pass
+
+
+class ValidationError(Exception):
+    """Exception raised for validation errors."""
+    pass
+
+
+class ExternalServiceError(Exception):
+    """Exception raised for external service errors."""
+    
+    def __init__(self, message: str, service_name: str = None):
+        super().__init__(message)
+        self.service_name = service_name

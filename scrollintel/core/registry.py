@@ -134,8 +134,12 @@ class AgentRegistry:
         
         # Check for specific agent type hints in context
         if "agent_type" in context:
-            agent_type = AgentType(context["agent_type"])
-            suitable_agents.extend(self.get_agents_by_type(agent_type))
+            try:
+                agent_type = AgentType(context["agent_type"])
+                suitable_agents.extend(self.get_agents_by_type(agent_type))
+            except ValueError:
+                # Invalid agent type, skip this filter
+                pass
         
         # Check for capability requirements
         if "required_capabilities" in context:
@@ -197,80 +201,32 @@ class AgentRegistry:
         return health_results
 
 
-class TaskOrchestrator:
-    """Orchestrates complex tasks across multiple agents."""
-    
-    def __init__(self, registry: AgentRegistry):
-        self.registry = registry
-        self._active_tasks: Dict[str, Dict[str, Any]] = {}
-    
-    async def execute_workflow(self, workflow_steps: List[Dict[str, Any]], context: Dict[str, Any] = None) -> List[AgentResponse]:
-        """Execute a multi-step workflow across agents."""
-        task_id = str(uuid4())
-        context = context or {}
-        
-        self._active_tasks[task_id] = {
-            "steps": workflow_steps,
-            "context": context,
-            "results": [],
-            "started_at": datetime.utcnow(),
-            "status": "running"
-        }
-        
-        try:
-            results = []
-            
-            for i, step in enumerate(workflow_steps):
-                # Create request for this step
-                request = AgentRequest(
-                    id=str(uuid4()),
-                    user_id=context.get("user_id", "system"),
-                    agent_id=step.get("agent_id"),
-                    prompt=step["prompt"],
-                    context={
-                        **context,
-                        **step.get("context", {}),
-                        "workflow_task_id": task_id,
-                        "step_number": i + 1,
-                        "previous_results": results,
-                    },
-                    priority=step.get("priority", 1),
-                    created_at=datetime.utcnow()
-                )
-                
-                # Execute the step
-                response = await self.registry.route_request(request)
-                results.append(response)
-                
-                # Update task progress
-                self._active_tasks[task_id]["results"] = results
-                
-                # Check if step failed and handle accordingly
-                if response.status != "success":
-                    if step.get("continue_on_error", False):
-                        continue
-                    else:
-                        raise AgentError(f"Workflow step {i + 1} failed: {response.error_message}")
-            
-            self._active_tasks[task_id]["status"] = "completed"
-            return results
-            
-        except Exception as e:
-            self._active_tasks[task_id]["status"] = "failed"
-            self._active_tasks[task_id]["error"] = str(e)
-            raise
-        
-        finally:
-            self._active_tasks[task_id]["completed_at"] = datetime.utcnow()
-    
-    def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
-        """Get the status of a running task."""
-        return self._active_tasks.get(task_id)
-    
-    def get_active_tasks(self) -> Dict[str, Dict[str, Any]]:
-        """Get all active tasks."""
-        return {
-            task_id: task_info 
-            for task_id, task_info in self._active_tasks.items() 
-            if task_info["status"] == "running"
-        }
+# TaskOrchestrator has been moved to orchestrator.py for enhanced functionality
+# This is kept for backward compatibility
+from .orchestrator import TaskOrchestrator
+
+# Global registry instance
+_global_agent_registry = None
+_global_engine_registry = {}
+
+def get_agent_registry() -> AgentRegistry:
+    """Get the global agent registry instance."""
+    global _global_agent_registry
+    if _global_agent_registry is None:
+        _global_agent_registry = AgentRegistry()
+    return _global_agent_registry
+
+def get_engine_registry() -> Dict[str, Any]:
+    """Get the global engine registry."""
+    global _global_engine_registry
+    return _global_engine_registry
+
+def register_engine(name: str, engine: Any) -> None:
+    """Register an engine in the global registry."""
+    global _global_engine_registry
+    _global_engine_registry[name] = engine
+
+def get_engine(name: str) -> Optional[Any]:
+    """Get an engine from the global registry."""
+    global _global_engine_registry
+    return _global_engine_registry.get(name)

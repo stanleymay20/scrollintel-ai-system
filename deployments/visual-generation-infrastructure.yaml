@@ -1,0 +1,237 @@
+# Visual Generation Infrastructure Deployment Configuration
+
+# AWS Configuration
+aws:
+  enabled: true
+  region: us-west-2
+  vpc_cidr: "10.0.0.0/16"
+  availability_zones:
+    - us-west-2a
+    - us-west-2b
+    - us-west-2c
+  
+  # Instance configurations
+  gpu_instances:
+    instance_type: g4dn.xlarge
+    min_size: 0
+    max_size: 20
+    desired_capacity: 0
+    spot_instances: true
+    max_spot_price: "0.50"
+  
+  cpu_instances:
+    instance_type: c5.2xlarge
+    min_size: 1
+    max_size: 50
+    desired_capacity: 1
+    spot_instances: true
+    max_spot_price: "0.30"
+  
+  # Storage
+  s3_bucket: scrollintel-visual-generation
+  
+  # Monitoring
+  cloudwatch_enabled: true
+  
+  # Cost optimization
+  cost_optimization:
+    enabled: true
+    reserved_instances: false
+    savings_plans: true
+
+# Google Cloud Platform Configuration
+gcp:
+  enabled: false
+  project_id: scrollintel-visual-generation
+  region: us-west1
+  zones:
+    - us-west1-a
+    - us-west1-b
+    - us-west1-c
+  
+  # Instance configurations
+  gpu_instances:
+    machine_type: n1-standard-4
+    gpu_type: nvidia-tesla-k80
+    gpu_count: 1
+    min_size: 0
+    max_size: 20
+    preemptible: true
+  
+  cpu_instances:
+    machine_type: n1-standard-8
+    min_size: 1
+    max_size: 50
+    preemptible: true
+  
+  # Storage
+  storage_bucket: scrollintel-visual-generation-gcp
+
+# Microsoft Azure Configuration
+azure:
+  enabled: false
+  subscription_id: "your-subscription-id"
+  resource_group: scrollintel-visual-generation
+  location: West US 2
+  
+  # Instance configurations
+  gpu_instances:
+    vm_size: Standard_NC6
+    min_size: 0
+    max_size: 20
+    low_priority: true
+  
+  cpu_instances:
+    vm_size: Standard_D8s_v3
+    min_size: 1
+    max_size: 50
+    low_priority: true
+  
+  # Storage
+  storage_account: scrollintelvg
+
+# Kubernetes Configuration
+kubernetes:
+  enabled: true
+  in_cluster: false  # Set to true if running inside cluster
+  namespace: scrollintel-visual-generation
+  
+  # Node selectors and tolerations
+  gpu_nodes:
+    node_selector:
+      accelerator: nvidia-tesla-k80
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+  
+  cpu_nodes:
+    node_selector:
+      node-type: compute-optimized
+  
+  # Resource requests and limits
+  gpu_resources:
+    requests:
+      cpu: "4"
+      memory: "16Gi"
+      nvidia.com/gpu: "1"
+    limits:
+      cpu: "4"
+      memory: "16Gi"
+      nvidia.com/gpu: "1"
+  
+  cpu_resources:
+    requests:
+      cpu: "8"
+      memory: "16Gi"
+    limits:
+      cpu: "8"
+      memory: "16Gi"
+  
+  # Auto-scaling
+  hpa:
+    gpu_workers:
+      min_replicas: 0
+      max_replicas: 20
+      target_cpu_utilization: 70
+      target_memory_utilization: 80
+    
+    cpu_workers:
+      min_replicas: 1
+      max_replicas: 50
+      target_cpu_utilization: 80
+      target_memory_utilization: 85
+
+# Global Configuration
+global:
+  # Container images
+  images:
+    worker: scrollintel/visual-generation-worker:latest
+    redis: redis:7-alpine
+    monitoring: prom/prometheus:latest
+  
+  # Networking
+  networking:
+    redis_port: 6379
+    worker_port: 8000
+    monitoring_port: 9090
+  
+  # Security
+  security:
+    enable_tls: true
+    certificate_manager: cert-manager
+    ingress_class: nginx
+  
+  # Monitoring and logging
+  monitoring:
+    prometheus_enabled: true
+    grafana_enabled: true
+    log_aggregation: fluentd
+    metrics_retention: 30d
+    log_retention: 7d
+  
+  # Cost management
+  cost_management:
+    budget_alerts: true
+    daily_budget_limit: 1000.0
+    monthly_budget_limit: 30000.0
+    cost_optimization_enabled: true
+    
+  # Auto-scaling policies
+  auto_scaling:
+    scale_up_threshold: 0.8
+    scale_down_threshold: 0.3
+    scale_up_cooldown: 300  # seconds
+    scale_down_cooldown: 600  # seconds
+    
+    # Queue-based scaling
+    queue_scaling:
+      enabled: true
+      target_queue_length: 5
+      scale_factor: 1.5
+    
+    # Predictive scaling
+    predictive_scaling:
+      enabled: true
+      forecast_horizon: 3600  # seconds
+      confidence_threshold: 0.8
+
+# Environment-specific overrides
+environments:
+  development:
+    aws:
+      gpu_instances:
+        max_size: 2
+      cpu_instances:
+        max_size: 5
+    global:
+      cost_management:
+        daily_budget_limit: 100.0
+        monthly_budget_limit: 3000.0
+  
+  staging:
+    aws:
+      gpu_instances:
+        max_size: 5
+      cpu_instances:
+        max_size: 10
+    global:
+      cost_management:
+        daily_budget_limit: 300.0
+        monthly_budget_limit: 9000.0
+  
+  production:
+    aws:
+      gpu_instances:
+        max_size: 20
+        desired_capacity: 2
+      cpu_instances:
+        max_size: 50
+        desired_capacity: 3
+    global:
+      cost_management:
+        daily_budget_limit: 1000.0
+        monthly_budget_limit: 30000.0
+      monitoring:
+        metrics_retention: 90d
+        log_retention: 30d

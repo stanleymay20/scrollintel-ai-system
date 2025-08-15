@@ -1,0 +1,3983 @@
+"""Core quality assessment engine for AI Data Readiness Platform."""
+
+import pandas as pd
+import numpy as np
+from typing import Dict, List, Any, Optional, Tuple
+from datetime import datetime, timedelta
+import logging
+from dataclasses import dataclass
+import re
+from scipy import stats
+from sklearn.feature_selection import mutual_info_regression, mutual_info_classif
+from sklearn.preprocessing import LabelEncoder
+from sklearn.ensemble import IsolationForest
+from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score
+from sklearn.cluster import KMeans
+import warnings
+warnings.filterwarnings('ignore')
+
+from ..models.base_models import (
+    QualityReport, QualityIssue, Recommendation, QualityDimension,
+    Dataset, DatasetMetadata, Schema, AIReadinessScore, DimensionScore,
+    ImprovementArea
+)
+from ..core.config import Config
+from .ai_quality_metrics import AIQualityMetrics
+
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass
+class QualityMetrics:
+    """Container for quality assessment metrics."""
+    completeness: float = 0.0
+    accuracy: float = 0.0
+    consistency: float = 0.0
+    validity: float = 0.0
+    uniqueness: float = 0.0
+    timeliness: float = 0.0
+
+
+class QualityAssessmentEngine:
+    """
+    Core quality assessment engine with multi-dimensional scoring.
+    
+    Implements completeness, accuracy, consistency, and validity metrics
+    as specified in requirements 1.1, 1.2, and 5.1.
+    """
+    
+    def __init__(self, config: Optional[Config] = None):
+        """Initialize the quality assessment engine."""
+        self.config = config or Config()
+        self.logger = logging.getLogger(__name__)
+        
+        # Initialize AI-specific quality metrics
+        self.ai_metrics = AIQualityMetrics()
+        
+        # Quality dimension weights for overall score calculation
+        self.dimension_weights = {
+            QualityDimension.COMPLETENESS: 0.25,
+            QualityDimension.ACCURACY: 0.20,
+            QualityDimension.CONSISTENCY: 0.20,
+            QualityDimension.VALIDITY: 0.20,
+            QualityDimension.UNIQUENESS: 0.10,
+            QualityDimension.TIMELINESS: 0.05
+        }
+    
+    def assess_quality(self, dataset: Dataset, data: pd.DataFrame) -> QualityReport:
+        """
+        Perform comprehensive quality assessment on a dataset.
+        
+        Args:
+            dataset: Dataset metadata and schema information
+            data: The actual data to assess
+            
+        Returns:
+            QualityReport with scores and recommendations
+        """
+        try:
+            self.logger.info(f"Starting quality assessment for dataset {dataset.id}")
+            
+            # Calculate individual quality metrics
+            metrics = self._calculate_quality_metrics(data, dataset.schema)
+            
+            # Generate quality issues and recommendations
+            issues = self._identify_quality_issues(data, metrics, dataset.schema)
+            recommendations = self._generate_recommendations(issues, metrics)
+            
+            # Calculate overall score
+            overall_score = self._calculate_overall_score(metrics)
+            
+            # Create quality report
+            report = QualityReport(
+                dataset_id=dataset.id,
+                overall_score=overall_score,
+                completeness_score=metrics.completeness,
+                accuracy_score=metrics.accuracy,
+                consistency_score=metrics.consistency,
+                validity_score=metrics.validity,
+                uniqueness_score=metrics.uniqueness,
+                timeliness_score=metrics.timeliness,
+                issues=issues,
+                recommendations=recommendations,
+                generated_at=datetime.utcnow()
+            )
+            
+            self.logger.info(f"Quality assessment completed. Overall score: {overall_score:.3f}")
+            return report
+            
+        except Exception as e:
+            self.logger.error(f"Error during quality assessment: {str(e)}")
+            raise
+    
+    def _calculate_quality_metrics(self, data: pd.DataFrame, schema: Optional[Schema]) -> QualityMetrics:
+        """Calculate all quality dimension scores."""
+        metrics = QualityMetrics()
+        
+        # Completeness: Measure missing data
+        metrics.completeness = self._calculate_completeness(data)
+        
+        # Accuracy: Measure data correctness based on patterns and constraints
+        metrics.accuracy = self._calculate_accuracy(data, schema)
+        
+        # Consistency: Measure data consistency across columns and formats
+        metrics.consistency = self._calculate_consistency(data, schema)
+        
+        # Validity: Measure adherence to business rules and constraints
+        metrics.validity = self._calculate_validity(data, schema)
+        
+        # Uniqueness: Measure duplicate records
+        metrics.uniqueness = self._calculate_uniqueness(data)
+        
+        # Timeliness: Measure data freshness (if temporal columns exist)
+        metrics.timeliness = self._calculate_timeliness(data)
+        
+        return metrics
+    
+    def _calculate_completeness(self, data: pd.DataFrame) -> float:
+        """
+        Calculate completeness score based on missing values.
+        
+        Completeness = (Total cells - Missing cells) / Total cells
+        """
+        if data.empty:
+            return 0.0
+        
+        total_cells = data.size
+        missing_cells = data.isnull().sum().sum()
+        
+        if total_cells == 0:
+            return 1.0
+        
+        completeness = (total_cells - missing_cells) / total_cells
+        return max(0.0, min(1.0, completeness))
+    
+    def _calculate_accuracy(self, data: pd.DataFrame, schema: Optional[Schema]) -> float:
+        """
+        Calculate accuracy score based on data type conformity and pattern matching.
+        """
+        if data.empty:
+            return 0.0
+        
+        accuracy_scores = []
+        
+        for column in data.columns:
+            column_accuracy = self._calculate_column_accuracy(data[column], column, schema)
+            accuracy_scores.append(column_accuracy)
+        
+        return np.mean(accuracy_scores) if accuracy_scores else 0.0
+    
+    def _calculate_column_accuracy(self, series: pd.Series, column_name: str, schema: Optional[Schema]) -> float:
+        """Calculate accuracy for a single column."""
+        if series.empty or series.isnull().all():
+            return 0.0
+        
+        # Remove null values for accuracy calculation
+        non_null_series = series.dropna()
+        if len(non_null_series) == 0:
+            return 0.0
+        
+        # Get expected data type from schema
+        expected_type = None
+        if schema and column_name in schema.columns:
+            expected_type = schema.columns[column_name]
+        
+        # Calculate type conformity
+        type_accuracy = self._calculate_type_conformity(non_null_series, expected_type)
+        
+        # Calculate pattern conformity for specific types
+        pattern_accuracy = self._calculate_pattern_conformity(non_null_series, expected_type)
+        
+        # Combine scores
+        return (type_accuracy + pattern_accuracy) / 2
+    
+    def _calculate_type_conformity(self, series: pd.Series, expected_type: Optional[str]) -> float:
+        """Calculate how well data conforms to expected type."""
+        if expected_type is None:
+            return 1.0  # No expectation, assume correct
+        
+        total_values = len(series)
+        conforming_values = 0
+        
+        for value in series:
+            if self._value_matches_type(value, expected_type):
+                conforming_values += 1
+        
+        return conforming_values / total_values if total_values > 0 else 0.0
+    
+    def _value_matches_type(self, value: Any, expected_type: str) -> bool:
+        """Check if a value matches the expected type."""
+        try:
+            if expected_type == 'integer':
+                return isinstance(value, (int, np.integer)) or (isinstance(value, str) and value.isdigit())
+            elif expected_type == 'float':
+                float(value)
+                return True
+            elif expected_type == 'string':
+                return isinstance(value, str)
+            elif expected_type == 'boolean':
+                return isinstance(value, (bool, np.bool_)) or str(value).lower() in ['true', 'false', '1', '0']
+            elif expected_type == 'datetime':
+                pd.to_datetime(value)
+                return True
+            elif expected_type == 'categorical':
+                return isinstance(value, str)
+            else:
+                return True  # Unknown type, assume valid
+        except (ValueError, TypeError):
+            return False
+    
+    def _calculate_pattern_conformity(self, series: pd.Series, expected_type: Optional[str]) -> float:
+        """Calculate conformity to expected patterns."""
+        if expected_type is None:
+            return 1.0
+        
+        # Define common patterns for validation
+        patterns = {
+            'email': r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$',
+            'phone': r'^\+?1?-?\.?\s?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})$',
+            'url': r'^https?://[^\s/$.?#].[^\s]*$',
+            'ip_address': r'^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$'
+        }
+        
+        # Check if column name suggests a pattern
+        column_pattern = None
+        for pattern_name, pattern in patterns.items():
+            if pattern_name in str(series.name).lower():
+                column_pattern = pattern
+                break
+        
+        if column_pattern is None:
+            return 1.0  # No specific pattern expected
+        
+        # Calculate pattern conformity
+        total_values = len(series)
+        conforming_values = sum(1 for value in series if re.match(column_pattern, str(value)))
+        
+        return conforming_values / total_values if total_values > 0 else 0.0
+    
+    def _calculate_consistency(self, data: pd.DataFrame, schema: Optional[Schema]) -> float:
+        """
+        Calculate consistency score based on format uniformity and cross-column relationships.
+        """
+        if data.empty:
+            return 0.0
+        
+        consistency_scores = []
+        
+        # Format consistency within columns
+        for column in data.columns:
+            format_consistency = self._calculate_format_consistency(data[column])
+            consistency_scores.append(format_consistency)
+        
+        # Cross-column consistency (if applicable)
+        cross_column_consistency = self._calculate_cross_column_consistency(data)
+        consistency_scores.append(cross_column_consistency)
+        
+        return np.mean(consistency_scores) if consistency_scores else 0.0
+    
+    def _calculate_format_consistency(self, series: pd.Series) -> float:
+        """Calculate format consistency within a column."""
+        if series.empty or series.isnull().all():
+            return 1.0
+        
+        non_null_series = series.dropna()
+        if len(non_null_series) <= 1:
+            return 1.0
+        
+        # For datetime columns, check format consistency
+        if pd.api.types.is_datetime64_any_dtype(non_null_series):
+            # For datetime columns, consistency is based on whether all values are valid dates
+            return 1.0  # If they're already datetime objects, they're consistent
+        
+        # For string columns, check format consistency
+        elif non_null_series.dtype == 'object':
+            # Check length consistency
+            lengths = non_null_series.astype(str).str.len()
+            length_std = lengths.std()
+            length_consistency = 1.0 - min(1.0, length_std / lengths.mean()) if lengths.mean() > 0 else 1.0
+            
+            # Check case consistency
+            strings = non_null_series.astype(str)
+            upper_count = sum(1 for s in strings if s.isupper())
+            lower_count = sum(1 for s in strings if s.islower())
+            title_count = sum(1 for s in strings if s.istitle())
+            
+            total_strings = len(strings)
+            case_consistency = max(upper_count, lower_count, title_count) / total_strings
+            
+            return (length_consistency + case_consistency) / 2
+        
+        # For numeric columns, check distribution consistency
+        else:
+            # Use coefficient of variation as consistency measure
+            if non_null_series.std() == 0:
+                return 1.0
+            mean_val = non_null_series.mean()
+            if mean_val == 0:
+                return 1.0
+            cv = non_null_series.std() / abs(mean_val)
+            return max(0.0, 1.0 - min(1.0, cv))
+    
+    def _calculate_cross_column_consistency(self, data: pd.DataFrame) -> float:
+        """Calculate consistency across related columns."""
+        # This is a simplified implementation
+        # In practice, this would involve domain-specific rules
+        
+        # Check for obvious inconsistencies like start_date > end_date
+        consistency_violations = 0
+        total_checks = 0
+        
+        # Look for date column pairs
+        date_columns = [col for col in data.columns if 'date' in col.lower() or 'time' in col.lower()]
+        
+        for i, col1 in enumerate(date_columns):
+            for col2 in date_columns[i+1:]:
+                if 'start' in col1.lower() and 'end' in col2.lower():
+                    try:
+                        date1 = pd.to_datetime(data[col1], errors='coerce')
+                        date2 = pd.to_datetime(data[col2], errors='coerce')
+                        violations = sum((date1 > date2) & date1.notna() & date2.notna())
+                        consistency_violations += violations
+                        total_checks += len(data)
+                    except:
+                        continue
+        
+        if total_checks == 0:
+            return 1.0
+        
+        return 1.0 - (consistency_violations / total_checks)
+    
+    def _calculate_validity(self, data: pd.DataFrame, schema: Optional[Schema]) -> float:
+        """
+        Calculate validity score based on business rules and constraints.
+        """
+        if data.empty:
+            return 0.0
+        
+        validity_scores = []
+        
+        # Range validity for numeric columns
+        for column in data.select_dtypes(include=[np.number]).columns:
+            range_validity = self._calculate_range_validity(data[column])
+            validity_scores.append(range_validity)
+        
+        # Domain validity for categorical columns
+        for column in data.select_dtypes(include=['object']).columns:
+            domain_validity = self._calculate_domain_validity(data[column])
+            validity_scores.append(domain_validity)
+        
+        # Constraint validity (if schema provides constraints)
+        if schema and schema.constraints:
+            constraint_validity = self._calculate_constraint_validity(data, schema.constraints)
+            validity_scores.append(constraint_validity)
+        
+        return np.mean(validity_scores) if validity_scores else 1.0
+    
+    def _calculate_range_validity(self, series: pd.Series) -> float:
+        """Calculate validity based on reasonable ranges for numeric data."""
+        if series.empty or series.isnull().all():
+            return 1.0
+        
+        non_null_series = series.dropna()
+        if len(non_null_series) == 0:
+            return 1.0
+        
+        # Use IQR method to detect outliers
+        Q1 = non_null_series.quantile(0.25)
+        Q3 = non_null_series.quantile(0.75)
+        IQR = Q3 - Q1
+        
+        if IQR == 0:
+            return 1.0  # All values are the same
+        
+        lower_bound = Q1 - 1.5 * IQR
+        upper_bound = Q3 + 1.5 * IQR
+        
+        valid_values = sum((non_null_series >= lower_bound) & (non_null_series <= upper_bound))
+        return valid_values / len(non_null_series)
+    
+    def _calculate_domain_validity(self, series: pd.Series) -> float:
+        """Calculate validity based on domain reasonableness."""
+        if series.empty or series.isnull().all():
+            return 1.0
+        
+        non_null_series = series.dropna()
+        if len(non_null_series) == 0:
+            return 1.0
+        
+        # Check for obviously invalid values (empty strings, special characters only, etc.)
+        invalid_count = 0
+        
+        for value in non_null_series:
+            str_value = str(value).strip()
+            
+            # Empty or whitespace-only strings
+            if not str_value:
+                invalid_count += 1
+                continue
+            
+            # Strings with only special characters
+            if re.match(r'^[^a-zA-Z0-9\s]+$', str_value):
+                invalid_count += 1
+                continue
+            
+            # Extremely long strings (likely data corruption)
+            if len(str_value) > 1000:
+                invalid_count += 1
+                continue
+        
+        return 1.0 - (invalid_count / len(non_null_series))
+    
+    def _calculate_constraint_validity(self, data: pd.DataFrame, constraints: List[str]) -> float:
+        """Calculate validity based on schema constraints."""
+        # This is a simplified implementation
+        # In practice, constraints would be parsed and evaluated
+        return 1.0  # Placeholder
+    
+    def _calculate_uniqueness(self, data: pd.DataFrame) -> float:
+        """Calculate uniqueness score based on duplicate records."""
+        if data.empty:
+            return 1.0
+        
+        total_rows = len(data)
+        unique_rows = len(data.drop_duplicates())
+        
+        return unique_rows / total_rows if total_rows > 0 else 1.0
+    
+    def _calculate_timeliness(self, data: pd.DataFrame) -> float:
+        """Calculate timeliness score based on data freshness."""
+        # Look for datetime columns
+        datetime_columns = []
+        
+        for column in data.columns:
+            if pd.api.types.is_datetime64_any_dtype(data[column]) or 'date' in column.lower() or 'time' in column.lower():
+                try:
+                    # Try to convert to datetime if not already
+                    if not pd.api.types.is_datetime64_any_dtype(data[column]):
+                        pd.to_datetime(data[column], errors='raise')
+                    datetime_columns.append(column)
+                except:
+                    continue
+        
+        if not datetime_columns:
+            return 1.0  # No temporal data, assume timely
+        
+        # Calculate freshness based on most recent timestamp
+        most_recent_dates = []
+        
+        for column in datetime_columns:
+            try:
+                if pd.api.types.is_datetime64_any_dtype(data[column]):
+                    dates = data[column].dropna()
+                else:
+                    dates = pd.to_datetime(data[column], errors='coerce').dropna()
+                
+                if not dates.empty:
+                    most_recent_dates.append(dates.max())
+            except:
+                continue
+        
+        if not most_recent_dates:
+            return 1.0
+        
+        most_recent = max(most_recent_dates)
+        
+        # Convert to datetime if it's a Timestamp
+        if hasattr(most_recent, 'to_pydatetime'):
+            most_recent = most_recent.to_pydatetime()
+        
+        days_old = (datetime.now() - most_recent).days
+        
+        # Timeliness decreases exponentially with age
+        # Data is considered fully timely if less than 1 day old
+        # Timeliness approaches 0 as data approaches 365 days old
+        timeliness = np.exp(-days_old / 365.0)
+        
+        return max(0.0, min(1.0, timeliness))
+    
+    def _calculate_overall_score(self, metrics: QualityMetrics) -> float:
+        """Calculate weighted overall quality score."""
+        scores = {
+            QualityDimension.COMPLETENESS: metrics.completeness,
+            QualityDimension.ACCURACY: metrics.accuracy,
+            QualityDimension.CONSISTENCY: metrics.consistency,
+            QualityDimension.VALIDITY: metrics.validity,
+            QualityDimension.UNIQUENESS: metrics.uniqueness,
+            QualityDimension.TIMELINESS: metrics.timeliness
+        }
+        
+        # If completeness is 0 (empty data), overall score should be 0
+        if metrics.completeness == 0.0:
+            return 0.0
+        
+        weighted_sum = sum(
+            scores[dimension] * weight 
+            for dimension, weight in self.dimension_weights.items()
+        )
+        
+        return max(0.0, min(1.0, weighted_sum))
+    
+    def _identify_quality_issues(self, data: pd.DataFrame, metrics: QualityMetrics, schema: Optional[Schema]) -> List[QualityIssue]:
+        """Identify specific quality issues based on assessment results."""
+        issues = []
+        
+        # Completeness issues
+        if metrics.completeness < self.config.quality.completeness_threshold:
+            missing_data_issue = self._create_completeness_issue(data)
+            if missing_data_issue:
+                issues.append(missing_data_issue)
+        
+        # Accuracy issues
+        if metrics.accuracy < self.config.quality.accuracy_threshold:
+            accuracy_issues = self._create_accuracy_issues(data, schema)
+            issues.extend(accuracy_issues)
+        
+        # Consistency issues
+        if metrics.consistency < self.config.quality.consistency_threshold:
+            consistency_issues = self._create_consistency_issues(data)
+            issues.extend(consistency_issues)
+        
+        # Validity issues
+        if metrics.validity < self.config.quality.validity_threshold:
+            validity_issues = self._create_validity_issues(data)
+            issues.extend(validity_issues)
+        
+        return issues
+    
+    def _create_completeness_issue(self, data: pd.DataFrame) -> Optional[QualityIssue]:
+        """Create completeness quality issue."""
+        missing_counts = data.isnull().sum()
+        columns_with_missing = missing_counts[missing_counts > 0]
+        
+        if columns_with_missing.empty:
+            return None
+        
+        total_missing = missing_counts.sum()
+        affected_columns = columns_with_missing.index.tolist()
+        
+        severity = "critical" if total_missing > len(data) * 0.5 else "high" if total_missing > len(data) * 0.2 else "medium"
+        
+        return QualityIssue(
+            dimension=QualityDimension.COMPLETENESS,
+            severity=severity,
+            description=f"Missing values detected in {len(affected_columns)} columns with {total_missing} total missing values",
+            affected_columns=affected_columns,
+            affected_rows=int(total_missing),
+            recommendation="Consider data imputation, collection of missing values, or removal of incomplete records"
+        )
+    
+    def _create_accuracy_issues(self, data: pd.DataFrame, schema: Optional[Schema]) -> List[QualityIssue]:
+        """Create accuracy quality issues."""
+        issues = []
+        
+        if schema is None:
+            return issues
+        
+        for column in data.columns:
+            # Check for type mismatches
+            if column in schema.columns:
+                expected_type = schema.columns[column]
+                non_null_data = data[column].dropna()
+                
+                if not non_null_data.empty:
+                    type_violations = sum(1 for value in non_null_data if not self._value_matches_type(value, expected_type))
+                    
+                    # Only create issue if violations exceed threshold
+                    if type_violations > len(non_null_data) * 0.1:  # More than 10% violations
+                        severity = "high" if type_violations > len(non_null_data) * 0.3 else "medium"
+                        
+                        issues.append(QualityIssue(
+                            dimension=QualityDimension.ACCURACY,
+                            severity=severity,
+                            description=f"Type mismatch in column '{column}': {type_violations} values don't match expected type '{expected_type}'",
+                            affected_columns=[column],
+                            affected_rows=type_violations,
+                            recommendation=f"Convert values to correct type or update schema definition for column '{column}'"
+                        ))
+        
+        return issues
+    
+    def _create_consistency_issues(self, data: pd.DataFrame) -> List[QualityIssue]:
+        """Create consistency quality issues."""
+        issues = []
+        
+        # Check for format inconsistencies in string columns
+        for column in data.select_dtypes(include=['object']).columns:
+            non_null_data = data[column].dropna().astype(str)
+            
+            if len(non_null_data) > 1:
+                # Check case consistency
+                upper_count = sum(1 for s in non_null_data if s.isupper())
+                lower_count = sum(1 for s in non_null_data if s.islower())
+                mixed_case = len(non_null_data) - upper_count - lower_count
+                
+                if mixed_case > len(non_null_data) * 0.3:  # More than 30% mixed case
+                    issues.append(QualityIssue(
+                        dimension=QualityDimension.CONSISTENCY,
+                        severity="medium",
+                        description=f"Inconsistent case formatting in column '{column}'",
+                        affected_columns=[column],
+                        affected_rows=mixed_case,
+                        recommendation=f"Standardize case formatting for column '{column}'"
+                    ))
+        
+        return issues
+    
+    def _create_validity_issues(self, data: pd.DataFrame) -> List[QualityIssue]:
+        """Create validity quality issues."""
+        issues = []
+        
+        # Check for outliers in numeric columns
+        for column in data.select_dtypes(include=[np.number]).columns:
+            non_null_data = data[column].dropna()
+            
+            if len(non_null_data) > 0:
+                # Use IQR method to detect outliers
+                Q1 = non_null_data.quantile(0.25)
+                Q3 = non_null_data.quantile(0.75)
+                IQR = Q3 - Q1
+                
+                if IQR > 0:
+                    lower_bound = Q1 - 1.5 * IQR
+                    upper_bound = Q3 + 1.5 * IQR
+                    
+                    outliers = sum((non_null_data < lower_bound) | (non_null_data > upper_bound))
+                    
+                    if outliers > 0:
+                        severity = "high" if outliers > len(non_null_data) * 0.1 else "medium"
+                        
+                        issues.append(QualityIssue(
+                            dimension=QualityDimension.VALIDITY,
+                            severity=severity,
+                            description=f"Outliers detected in column '{column}': {outliers} values outside normal range",
+                            affected_columns=[column],
+                            affected_rows=outliers,
+                            recommendation=f"Review and validate outlier values in column '{column}'"
+                        ))
+        
+        return issues
+    
+    def _generate_recommendations(self, issues: List[QualityIssue], metrics: QualityMetrics) -> List[Recommendation]:
+        """Generate actionable recommendations based on quality issues."""
+        recommendations = []
+        
+        # Group issues by dimension
+        issues_by_dimension = {}
+        for issue in issues:
+            if issue.dimension not in issues_by_dimension:
+                issues_by_dimension[issue.dimension] = []
+            issues_by_dimension[issue.dimension].append(issue)
+        
+        # Generate dimension-specific recommendations
+        for dimension, dimension_issues in issues_by_dimension.items():
+            if dimension == QualityDimension.COMPLETENESS:
+                recommendations.extend(self._generate_completeness_recommendations(dimension_issues))
+            elif dimension == QualityDimension.ACCURACY:
+                recommendations.extend(self._generate_accuracy_recommendations(dimension_issues))
+            elif dimension == QualityDimension.CONSISTENCY:
+                recommendations.extend(self._generate_consistency_recommendations(dimension_issues))
+            elif dimension == QualityDimension.VALIDITY:
+                recommendations.extend(self._generate_validity_recommendations(dimension_issues))
+        
+        return recommendations
+    
+    def _generate_completeness_recommendations(self, issues: List[QualityIssue]) -> List[Recommendation]:
+        """Generate recommendations for completeness issues."""
+        recommendations = []
+        
+        for issue in issues:
+            if "Missing values" in issue.description:
+                recommendations.append(Recommendation(
+                    type="data_imputation",
+                    priority="high",
+                    description="Implement data imputation strategy for missing values",
+                    implementation="Use statistical methods (mean, median, mode) or advanced techniques (KNN, regression) to fill missing values",
+                    estimated_impact=0.8,
+                    estimated_effort="medium"
+                ))
+        
+        return recommendations
+    
+    def calculate_ai_readiness_score(self, dataset: Dataset, data: pd.DataFrame) -> AIReadinessScore:
+        """
+        Calculate comprehensive AI readiness score with AI-specific metrics.
+        
+        Implements AI readiness scoring algorithm as specified in requirements 1.3, 1.4, and 5.1.
+        
+        Args:
+            dataset: Dataset metadata and schema information
+            data: The actual data to assess
+            
+        Returns:
+            AIReadinessScore with detailed scoring across multiple dimensions
+        """
+        try:
+            self.logger.info(f"Calculating AI readiness score for dataset {dataset.id}")
+            
+            # Calculate base quality metrics
+            quality_report = self.assess_quality(dataset, data)
+            
+            # Calculate AI-specific metrics
+            feature_quality_score = self._calculate_feature_quality_score(data)
+            bias_score = self._calculate_bias_score(data)
+            compliance_score = self._calculate_compliance_score(data, dataset.schema)
+            scalability_score = self._calculate_scalability_score(data)
+            
+            # Calculate dimension scores with details
+            dimensions = {
+                "data_quality": DimensionScore(
+                    dimension="data_quality",
+                    score=quality_report.overall_score,
+                    weight=0.3,
+                    details={
+                        "completeness": quality_report.completeness_score,
+                        "accuracy": quality_report.accuracy_score,
+                        "consistency": quality_report.consistency_score,
+                        "validity": quality_report.validity_score
+                    }
+                ),
+                "feature_quality": DimensionScore(
+                    dimension="feature_quality",
+                    score=feature_quality_score,
+                    weight=0.25,
+                    details=self._get_feature_quality_details(data)
+                ),
+                "bias_fairness": DimensionScore(
+                    dimension="bias_fairness",
+                    score=bias_score,
+                    weight=0.2,
+                    details=self._get_bias_details(data)
+                ),
+                "compliance": DimensionScore(
+                    dimension="compliance",
+                    score=compliance_score,
+                    weight=0.15,
+                    details=self._get_compliance_details(data, dataset.schema)
+                ),
+                "scalability": DimensionScore(
+                    dimension="scalability",
+                    score=scalability_score,
+                    weight=0.1,
+                    details=self._get_scalability_details(data)
+                )
+            }
+            
+            # Calculate overall AI readiness score
+            overall_score = sum(
+                dim.score * dim.weight for dim in dimensions.values()
+            )
+            
+            # Identify improvement areas
+            improvement_areas = self._identify_improvement_areas(dimensions)
+            
+            ai_readiness_score = AIReadinessScore(
+                overall_score=overall_score,
+                data_quality_score=quality_report.overall_score,
+                feature_quality_score=feature_quality_score,
+                bias_score=bias_score,
+                compliance_score=compliance_score,
+                scalability_score=scalability_score,
+                dimensions=dimensions,
+                improvement_areas=improvement_areas
+            )
+            
+            self.logger.info(f"AI readiness score calculated: {overall_score:.3f}")
+            return ai_readiness_score
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating AI readiness score: {str(e)}")
+            raise
+    
+    def _calculate_feature_quality_score(self, data: pd.DataFrame) -> float:
+        """
+        Calculate feature quality score including correlation analysis and target leakage detection.
+        
+        Implements feature correlation and target leakage detection as specified in requirement 1.3.
+        """
+        if data.empty:
+            return 0.0
+        
+        scores = []
+        
+        # Feature correlation analysis
+        correlation_score = self._analyze_feature_correlations(data)
+        scores.append(correlation_score)
+        
+        # Target leakage detection
+        leakage_score = self._detect_target_leakage(data)
+        scores.append(leakage_score)
+        
+        # Feature distribution analysis
+        distribution_score = self._analyze_feature_distributions(data)
+        scores.append(distribution_score)
+        
+        # Feature variance analysis
+        variance_score = self._analyze_feature_variance(data)
+        scores.append(variance_score)
+        
+        return np.mean(scores) if scores else 0.0
+    
+    def _analyze_feature_correlations(self, data: pd.DataFrame) -> float:
+        """Analyze feature correlations to detect multicollinearity issues."""
+        numeric_data = data.select_dtypes(include=[np.number])
+        
+        if numeric_data.shape[1] < 2:
+            return 1.0  # No correlation issues with less than 2 numeric features
+        
+        try:
+            # Calculate correlation matrix
+            corr_matrix = numeric_data.corr().abs()
+            
+            # Remove diagonal elements
+            np.fill_diagonal(corr_matrix.values, 0)
+            
+            # Count high correlations (> 0.9)
+            high_correlations = (corr_matrix > 0.9).sum().sum() / 2  # Divide by 2 for symmetry
+            total_pairs = (corr_matrix.shape[0] * (corr_matrix.shape[0] - 1)) / 2
+            
+            if total_pairs == 0:
+                return 1.0
+            
+            # Score decreases with more high correlations
+            correlation_ratio = high_correlations / total_pairs
+            return max(0.0, 1.0 - correlation_ratio)
+            
+        except Exception:
+            return 0.5  # Default score if correlation calculation fails
+    
+    def _detect_target_leakage(self, data: pd.DataFrame) -> float:
+        """
+        Detect potential target leakage by analyzing feature relationships.
+        
+        This is a simplified implementation that looks for suspicious patterns.
+        """
+        if data.empty:
+            return 1.0
+        
+        # Look for columns that might be targets or derived from targets
+        suspicious_columns = []
+        
+        for column in data.columns:
+            column_lower = column.lower()
+            
+            # Check for common target-like column names
+            target_indicators = [
+                'target', 'label', 'outcome', 'result', 'prediction',
+                'score', 'rating', 'class', 'category'
+            ]
+            
+            if any(indicator in column_lower for indicator in target_indicators):
+                suspicious_columns.append(column)
+                continue
+            
+            # Check for perfect correlations with other columns (potential leakage)
+            if data[column].dtype in [np.number]:
+                for other_column in data.select_dtypes(include=[np.number]).columns:
+                    if column != other_column:
+                        try:
+                            correlation = data[column].corr(data[other_column])
+                            if abs(correlation) > 0.99:  # Near-perfect correlation
+                                suspicious_columns.append(column)
+                                break
+                        except:
+                            continue
+        
+        # Score decreases with more suspicious columns
+        if len(data.columns) == 0:
+            return 1.0
+        
+        leakage_ratio = len(suspicious_columns) / len(data.columns)
+        return max(0.0, 1.0 - leakage_ratio)
+    
+    def _analyze_feature_distributions(self, data: pd.DataFrame) -> float:
+        """Analyze feature distributions for AI suitability."""
+        if data.empty:
+            return 0.0
+        
+        scores = []
+        
+        # Analyze numeric features
+        numeric_data = data.select_dtypes(include=[np.number])
+        for column in numeric_data.columns:
+            series = numeric_data[column].dropna()
+            if len(series) > 0:
+                # Check for reasonable variance
+                if series.std() == 0:
+                    scores.append(0.0)  # No variance is bad for ML
+                else:
+                    # Check for extreme skewness
+                    skewness = abs(stats.skew(series))
+                    skew_score = max(0.0, 1.0 - min(1.0, skewness / 3.0))
+                    scores.append(skew_score)
+        
+        # Analyze categorical features
+        categorical_data = data.select_dtypes(include=['object'])
+        for column in categorical_data.columns:
+            series = categorical_data[column].dropna()
+            if len(series) > 0:
+                # Check for reasonable number of categories
+                unique_count = series.nunique()
+                total_count = len(series)
+                
+                if unique_count == 1:
+                    scores.append(0.0)  # Single category is not useful
+                elif unique_count == total_count:
+                    scores.append(0.3)  # Too many unique values (might need encoding)
+                else:
+                    # Optimal range is 2-20 categories
+                    if 2 <= unique_count <= 20:
+                        scores.append(1.0)
+                    else:
+                        scores.append(0.7)
+        
+        return np.mean(scores) if scores else 0.5
+    
+    def _analyze_feature_variance(self, data: pd.DataFrame) -> float:
+        """Analyze feature variance to identify low-variance features."""
+        numeric_data = data.select_dtypes(include=[np.number])
+        
+        if numeric_data.empty:
+            return 1.0
+        
+        low_variance_count = 0
+        total_features = len(numeric_data.columns)
+        
+        for column in numeric_data.columns:
+            series = numeric_data[column].dropna()
+            if len(series) > 1:
+                # Normalize variance by mean to handle different scales
+                if series.mean() != 0:
+                    cv = series.std() / abs(series.mean())  # Coefficient of variation
+                    if cv < 0.01:  # Very low variance
+                        low_variance_count += 1
+                elif series.std() == 0:  # Zero variance
+                    low_variance_count += 1
+        
+        if total_features == 0:
+            return 1.0
+        
+        # Score decreases with more low-variance features
+        low_variance_ratio = low_variance_count / total_features
+        return max(0.0, 1.0 - low_variance_ratio)
+    
+    def _calculate_bias_score(self, data: pd.DataFrame) -> float:
+        """
+        Calculate bias score by detecting potential bias in the dataset.
+        
+        This is a simplified implementation that looks for statistical imbalances.
+        """
+        if data.empty:
+            return 1.0
+        
+        bias_indicators = []
+        
+        # Check for class imbalance in categorical columns
+        categorical_data = data.select_dtypes(include=['object'])
+        for column in categorical_data.columns:
+            series = categorical_data[column].dropna()
+            if len(series) > 0:
+                value_counts = series.value_counts()
+                if len(value_counts) > 1:
+                    # Calculate imbalance ratio
+                    max_count = value_counts.max()
+                    min_count = value_counts.min()
+                    imbalance_ratio = max_count / min_count
+                    
+                    # High imbalance indicates potential bias
+                    if imbalance_ratio > 10:  # 10:1 ratio threshold
+                        bias_indicators.append(0.3)  # Significant bias
+                    elif imbalance_ratio > 5:  # 5:1 ratio threshold
+                        bias_indicators.append(0.6)  # Moderate bias
+                    else:
+                        bias_indicators.append(1.0)  # Acceptable balance
+        
+        # Check for outliers in numeric columns (can indicate bias)
+        numeric_data = data.select_dtypes(include=[np.number])
+        for column in numeric_data.columns:
+            series = numeric_data[column].dropna()
+            if len(series) > 0:
+                # Use IQR method to detect outliers
+                Q1 = series.quantile(0.25)
+                Q3 = series.quantile(0.75)
+                IQR = Q3 - Q1
+                
+                if IQR > 0:
+                    outlier_count = sum((series < Q1 - 1.5 * IQR) | (series > Q3 + 1.5 * IQR))
+                    outlier_ratio = outlier_count / len(series)
+                    
+                    # High outlier ratio might indicate bias
+                    if outlier_ratio > 0.1:  # More than 10% outliers
+                        bias_indicators.append(0.7)
+                    else:
+                        bias_indicators.append(1.0)
+        
+        return np.mean(bias_indicators) if bias_indicators else 1.0
+    
+    def _calculate_compliance_score(self, data: pd.DataFrame, schema: Optional[Schema]) -> float:
+        """Calculate compliance score based on data governance requirements."""
+        if data.empty:
+            return 0.0
+        
+        compliance_scores = []
+        
+        # Check for potential PII (simplified detection)
+        pii_score = self._detect_pii_compliance(data)
+        compliance_scores.append(pii_score)
+        
+        # Check schema compliance
+        if schema:
+            schema_compliance = self._check_schema_compliance(data, schema)
+            compliance_scores.append(schema_compliance)
+        
+        # Check data format compliance
+        format_compliance = self._check_format_compliance(data)
+        compliance_scores.append(format_compliance)
+        
+        return np.mean(compliance_scores) if compliance_scores else 0.5
+    
+    def _detect_pii_compliance(self, data: pd.DataFrame) -> float:
+        """Detect potential PII and assess compliance risk."""
+        pii_indicators = [
+            'email', 'phone', 'ssn', 'social', 'address', 'name',
+            'firstname', 'lastname', 'dob', 'birthdate', 'id'
+        ]
+        
+        potential_pii_columns = []
+        
+        for column in data.columns:
+            column_lower = column.lower()
+            if any(indicator in column_lower for indicator in pii_indicators):
+                potential_pii_columns.append(column)
+                continue
+            
+            # Check data patterns for PII
+            if data[column].dtype == 'object':
+                sample_values = data[column].dropna().head(100).astype(str)
+                
+                # Email pattern
+                email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+                if any(re.match(email_pattern, str(val)) for val in sample_values):
+                    potential_pii_columns.append(column)
+                    continue
+                
+                # Phone pattern
+                phone_pattern = r'^\+?1?-?\.?\s?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})$'
+                if any(re.match(phone_pattern, str(val)) for val in sample_values):
+                    potential_pii_columns.append(column)
+        
+        # Score decreases with more potential PII
+        if len(data.columns) == 0:
+            return 1.0
+        
+        pii_ratio = len(potential_pii_columns) / len(data.columns)
+        return max(0.0, 1.0 - pii_ratio)
+    
+    def _check_schema_compliance(self, data: pd.DataFrame, schema: Schema) -> float:
+        """Check compliance with defined schema."""
+        if not schema.validate_data_types():
+            return 0.0
+        
+        compliance_scores = []
+        
+        for column, expected_type in schema.columns.items():
+            if column in data.columns:
+                # Check type compliance
+                actual_data = data[column].dropna()
+                if not actual_data.empty:
+                    type_matches = sum(1 for val in actual_data if self._value_matches_type(val, expected_type))
+                    type_compliance = type_matches / len(actual_data)
+                    compliance_scores.append(type_compliance)
+        
+        return np.mean(compliance_scores) if compliance_scores else 1.0
+    
+    def _check_format_compliance(self, data: pd.DataFrame) -> float:
+        """Check general format compliance."""
+        # This is a simplified check for common format issues
+        format_scores = []
+        
+        # Check for consistent encoding
+        for column in data.select_dtypes(include=['object']).columns:
+            series = data[column].dropna().astype(str)
+            if len(series) > 0:
+                # Check for encoding issues (simplified)
+                encoding_issues = sum(1 for val in series if any(ord(char) > 127 for char in str(val)))
+                encoding_score = 1.0 - (encoding_issues / len(series))
+                format_scores.append(encoding_score)
+        
+        return np.mean(format_scores) if format_scores else 1.0
+    
+    def _calculate_scalability_score(self, data: pd.DataFrame) -> float:
+        """Calculate scalability score based on data characteristics."""
+        if data.empty:
+            return 0.0
+        
+        scalability_factors = []
+        
+        # Data size factor
+        size_score = self._assess_data_size_scalability(data)
+        scalability_factors.append(size_score)
+        
+        # Memory efficiency factor
+        memory_score = self._assess_memory_efficiency(data)
+        scalability_factors.append(memory_score)
+        
+        # Processing complexity factor
+        complexity_score = self._assess_processing_complexity(data)
+        scalability_factors.append(complexity_score)
+        
+        return np.mean(scalability_factors) if scalability_factors else 0.5
+    
+    def _assess_data_size_scalability(self, data: pd.DataFrame) -> float:
+        """Assess scalability based on data size."""
+        row_count = len(data)
+        col_count = len(data.columns)
+        
+        # Optimal size ranges for different ML scenarios
+        if row_count < 1000:
+            size_score = 0.3  # Too small for robust ML
+        elif row_count < 10000:
+            size_score = 0.7  # Adequate for simple models
+        elif row_count < 1000000:
+            size_score = 1.0  # Good size for most ML tasks
+        else:
+            size_score = 0.8  # Large but manageable
+        
+        # Adjust for feature count
+        if col_count > 1000:
+            size_score *= 0.8  # High dimensionality penalty
+        elif col_count > 100:
+            size_score *= 0.9  # Moderate dimensionality penalty
+        
+        return size_score
+    
+    def _assess_memory_efficiency(self, data: pd.DataFrame) -> float:
+        """Assess memory efficiency of the dataset."""
+        try:
+            # Calculate memory usage
+            memory_usage = data.memory_usage(deep=True).sum()
+            
+            # Assess efficiency based on data types
+            efficiency_scores = []
+            
+            for column in data.columns:
+                if data[column].dtype == 'object':
+                    # String columns are less memory efficient
+                    unique_ratio = data[column].nunique() / len(data)
+                    if unique_ratio > 0.5:
+                        efficiency_scores.append(0.6)  # High cardinality strings
+                    else:
+                        efficiency_scores.append(0.8)  # Could be categorical
+                elif data[column].dtype in ['int64', 'float64']:
+                    # Check if smaller types could be used
+                    if data[column].dtype == 'int64':
+                        max_val = data[column].max()
+                        min_val = data[column].min()
+                        if pd.isna(max_val) or pd.isna(min_val):
+                            efficiency_scores.append(0.8)
+                        elif -32768 <= min_val and max_val <= 32767:
+                            efficiency_scores.append(0.7)  # Could use int16
+                        else:
+                            efficiency_scores.append(1.0)  # int64 needed
+                    else:
+                        efficiency_scores.append(0.9)  # float64 is reasonable
+                else:
+                    efficiency_scores.append(1.0)  # Other types are fine
+            
+            return np.mean(efficiency_scores) if efficiency_scores else 0.5
+            
+        except Exception:
+            return 0.5  # Default score if assessment fails
+    
+    def _assess_processing_complexity(self, data: pd.DataFrame) -> float:
+        """Assess processing complexity for ML algorithms."""
+        complexity_factors = []
+        
+        # Feature count complexity
+        feature_count = len(data.columns)
+        if feature_count < 10:
+            complexity_factors.append(1.0)  # Low complexity
+        elif feature_count < 100:
+            complexity_factors.append(0.9)  # Moderate complexity
+        elif feature_count < 1000:
+            complexity_factors.append(0.7)  # High complexity
+        else:
+            complexity_factors.append(0.5)  # Very high complexity
+        
+        # Data type complexity
+        object_columns = len(data.select_dtypes(include=['object']).columns)
+        if object_columns == 0:
+            complexity_factors.append(1.0)  # No text processing needed
+        else:
+            text_ratio = object_columns / len(data.columns)
+            complexity_factors.append(max(0.3, 1.0 - text_ratio))
+        
+        # Missing data complexity
+        missing_ratio = data.isnull().sum().sum() / data.size
+        complexity_factors.append(max(0.5, 1.0 - missing_ratio))
+        
+        return np.mean(complexity_factors) if complexity_factors else 0.5
+    
+    def detect_anomalies(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Detect statistical anomalies in the dataset.
+        
+        Implements statistical anomaly detection capabilities as specified in requirement 1.4.
+        """
+        if data.empty:
+            return {"anomalies": [], "anomaly_score": 1.0}
+        
+        anomalies = []
+        
+        # Detect outliers in numeric columns using Isolation Forest
+        numeric_data = data.select_dtypes(include=[np.number])
+        if not numeric_data.empty:
+            try:
+                # Use Isolation Forest for anomaly detection
+                iso_forest = IsolationForest(contamination=0.1, random_state=42)
+                outlier_predictions = iso_forest.fit_predict(numeric_data.fillna(numeric_data.mean()))
+                
+                outlier_indices = np.where(outlier_predictions == -1)[0]
+                
+                for idx in outlier_indices:
+                    anomalies.append({
+                        "type": "statistical_outlier",
+                        "row_index": int(idx),
+                        "description": f"Statistical outlier detected in row {idx}",
+                        "severity": "medium",
+                        "affected_columns": numeric_data.columns.tolist()
+                    })
+            except Exception as e:
+                self.logger.warning(f"Isolation Forest anomaly detection failed: {str(e)}")
+        
+        # Detect anomalies in categorical columns
+        categorical_data = data.select_dtypes(include=['object'])
+        for column in categorical_data.columns:
+            series = categorical_data[column].dropna()
+            if len(series) > 0:
+                value_counts = series.value_counts()
+                
+                # Detect rare categories (less than 1% of data)
+                rare_threshold = len(series) * 0.01
+                rare_values = value_counts[value_counts < rare_threshold]
+                
+                if not rare_values.empty:
+                    anomalies.append({
+                        "type": "rare_category",
+                        "column": column,
+                        "description": f"Rare categories detected in column '{column}': {list(rare_values.index)}",
+                        "severity": "low",
+                        "affected_rows": int(rare_values.sum()),
+                        "rare_values": list(rare_values.index)
+                    })
+        
+        # Calculate overall anomaly score
+        total_rows = len(data)
+        anomalous_rows = sum(
+            anomaly.get("affected_rows", 1) for anomaly in anomalies
+            if anomaly["type"] != "statistical_outlier"
+        ) + len([a for a in anomalies if a["type"] == "statistical_outlier"])
+        
+        anomaly_score = max(0.0, 1.0 - (anomalous_rows / total_rows)) if total_rows > 0 else 1.0
+        
+        return {
+            "anomalies": anomalies,
+            "anomaly_score": anomaly_score,
+            "total_anomalies": len(anomalies),
+            "anomalous_rows": anomalous_rows
+        }
+    
+    def _get_feature_quality_details(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """Get detailed feature quality information."""
+        return {
+            "correlation_analysis": self._analyze_feature_correlations(data),
+            "target_leakage_score": self._detect_target_leakage(data),
+            "distribution_score": self._analyze_feature_distributions(data),
+            "variance_score": self._analyze_feature_variance(data),
+            "numeric_features": len(data.select_dtypes(include=[np.number]).columns),
+            "categorical_features": len(data.select_dtypes(include=['object']).columns)
+        }
+    
+    def _get_bias_details(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """Get detailed bias analysis information."""
+        categorical_data = data.select_dtypes(include=['object'])
+        imbalance_info = {}
+        
+        for column in categorical_data.columns:
+            series = categorical_data[column].dropna()
+            if len(series) > 0:
+                value_counts = series.value_counts()
+                if len(value_counts) > 1:
+                    max_count = value_counts.max()
+                    min_count = value_counts.min()
+                    imbalance_ratio = max_count / min_count
+                    imbalance_info[column] = {
+                        "imbalance_ratio": float(imbalance_ratio),
+                        "categories": len(value_counts),
+                        "most_common": value_counts.index[0],
+                        "least_common": value_counts.index[-1]
+                    }
+        
+        return {
+            "overall_bias_score": self._calculate_bias_score(data),
+            "class_imbalance": imbalance_info,
+            "categorical_columns_analyzed": len(categorical_data.columns)
+        }
+    
+    def _get_compliance_details(self, data: pd.DataFrame, schema: Optional[Schema]) -> Dict[str, Any]:
+        """Get detailed compliance information."""
+        return {
+            "pii_compliance_score": self._detect_pii_compliance(data),
+            "schema_compliance_score": self._check_schema_compliance(data, schema) if schema else None,
+            "format_compliance_score": self._check_format_compliance(data),
+            "potential_pii_columns": self._identify_potential_pii_columns(data)
+        }
+    
+    def _identify_potential_pii_columns(self, data: pd.DataFrame) -> List[str]:
+        """Identify columns that might contain PII."""
+        pii_indicators = [
+            'email', 'phone', 'ssn', 'social', 'address', 'name',
+            'firstname', 'lastname', 'dob', 'birthdate', 'id'
+        ]
+        
+        potential_pii = []
+        for column in data.columns:
+            column_lower = column.lower()
+            if any(indicator in column_lower for indicator in pii_indicators):
+                potential_pii.append(column)
+        
+        return potential_pii
+    
+    def _get_scalability_details(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """Get detailed scalability information."""
+        return {
+            "data_size_score": self._assess_data_size_scalability(data),
+            "memory_efficiency_score": self._assess_memory_efficiency(data),
+            "processing_complexity_score": self._assess_processing_complexity(data),
+            "row_count": len(data),
+            "column_count": len(data.columns),
+            "memory_usage_mb": data.memory_usage(deep=True).sum() / (1024 * 1024)
+        }
+    
+    def _identify_improvement_areas(self, dimensions: Dict[str, DimensionScore]) -> List[ImprovementArea]:
+        """Identify areas for improvement based on dimension scores."""
+        improvement_areas = []
+        
+        for dim_name, dim_score in dimensions.items():
+            if dim_score.score < 0.8:  # Threshold for improvement
+                priority = "high" if dim_score.score < 0.5 else "medium"
+                target_score = min(1.0, dim_score.score + 0.2)
+                
+                actions = self._get_improvement_actions(dim_name, dim_score.score)
+                
+                improvement_areas.append(ImprovementArea(
+                    area=dim_name,
+                    current_score=dim_score.score,
+                    target_score=target_score,
+                    priority=priority,
+                    actions=actions
+                ))
+        
+        return improvement_areas
+    
+    def _get_improvement_actions(self, dimension: str, score: float) -> List[str]:
+        """Get specific improvement actions for a dimension."""
+        actions = []
+        
+        if dimension == "data_quality":
+            if score < 0.5:
+                actions.extend([
+                    "Address missing values through imputation or collection",
+                    "Validate and correct data accuracy issues",
+                    "Standardize data formats for consistency"
+                ])
+            else:
+                actions.extend([
+                    "Fine-tune data validation rules",
+                    "Implement automated quality monitoring"
+                ])
+        
+        elif dimension == "feature_quality":
+            if score < 0.5:
+                actions.extend([
+                    "Remove highly correlated features",
+                    "Address potential target leakage",
+                    "Transform skewed distributions"
+                ])
+            else:
+                actions.extend([
+                    "Optimize feature selection",
+                    "Consider feature engineering techniques"
+                ])
+        
+        elif dimension == "bias_fairness":
+            if score < 0.5:
+                actions.extend([
+                    "Address class imbalance through sampling techniques",
+                    "Investigate potential bias sources",
+                    "Implement fairness constraints"
+                ])
+            else:
+                actions.extend([
+                    "Monitor for emerging bias patterns",
+                    "Validate fairness metrics"
+                ])
+        
+        elif dimension == "compliance":
+            if score < 0.5:
+                actions.extend([
+                    "Implement PII detection and anonymization",
+                    "Ensure schema compliance",
+                    "Address data governance requirements"
+                ])
+            else:
+                actions.extend([
+                    "Maintain compliance monitoring",
+                    "Update governance policies as needed"
+                ])
+        
+        elif dimension == "scalability":
+            if score < 0.5:
+                actions.extend([
+                    "Optimize data types for memory efficiency",
+                    "Consider data sampling strategies",
+                    "Implement distributed processing"
+                ])
+            else:
+                actions.extend([
+                    "Monitor performance metrics",
+                    "Plan for data growth"
+                ])
+        
+        return actions
+    
+    def _generate_accuracy_recommendations(self, issues: List[QualityIssue]) -> List[Recommendation]:
+        """Generate recommendations for accuracy issues."""
+        recommendations = []
+        
+        for issue in issues:
+            if "Type mismatch" in issue.description:
+                recommendations.append(Recommendation(
+                    type="data_transformation",
+                    priority="high",
+                    description="Fix data type inconsistencies",
+                    implementation="Apply appropriate type conversion functions and validate data formats",
+                    estimated_impact=0.9,
+                    estimated_effort="low"
+                ))
+        
+        return recommendations
+    
+    def _generate_consistency_recommendations(self, issues: List[QualityIssue]) -> List[Recommendation]:
+        """Generate recommendations for consistency issues."""
+        recommendations = []
+        
+        for issue in issues:
+            if "case formatting" in issue.description:
+                recommendations.append(Recommendation(
+                    type="data_standardization",
+                    priority="medium",
+                    description="Standardize text formatting",
+                    implementation="Apply consistent case formatting (upper, lower, or title case) across all text fields",
+                    estimated_impact=0.6,
+                    estimated_effort="low"
+                ))
+        
+        return recommendations
+    
+    def _generate_validity_recommendations(self, issues: List[QualityIssue]) -> List[Recommendation]:
+        """Generate recommendations for validity issues."""
+        recommendations = []
+        
+        for issue in issues:
+            if "Outliers detected" in issue.description:
+                recommendations.append(Recommendation(
+                    type="outlier_treatment",
+                    priority="medium",
+                    description="Address outlier values",
+                    implementation="Review outliers for data entry errors, consider capping/transformation, or removal if appropriate",
+                    estimated_impact=0.7,
+                    estimated_effort="medium"
+                ))
+        
+        return recommendations
+    
+    def calculate_ai_readiness_score(self, dataset: Dataset, data: pd.DataFrame, target_column: Optional[str] = None) -> AIReadinessScore:
+        """
+        Calculate comprehensive AI readiness score with AI-specific metrics.
+        
+        Args:
+            dataset: Dataset metadata and schema information
+            data: The actual data to assess
+            target_column: Target variable column name (if applicable)
+            
+        Returns:
+            AIReadinessScore with detailed scoring across multiple dimensions
+        """
+        try:
+            self.logger.info(f"Calculating AI readiness score for dataset {dataset.id}")
+            
+            # Get basic quality report first
+            quality_report = self.assess_quality(dataset, data)
+            
+            # Calculate AI-specific metrics
+            feature_correlation_score = self._calculate_feature_correlation_score(data, target_column)
+            target_leakage_score = self._calculate_target_leakage_score(data, target_column)
+            anomaly_score = self._calculate_anomaly_score(data)
+            feature_importance_score = self._calculate_feature_importance_score(data, target_column)
+            class_balance_score = self._calculate_class_balance_score(data, target_column)
+            dimensionality_score = self._calculate_dimensionality_score(data)
+            
+            # Calculate dimension scores
+            dimensions = {
+                "data_quality": DimensionScore(
+                    dimension="data_quality",
+                    score=quality_report.overall_score,
+                    weight=0.25,
+                    details={
+                        "completeness": quality_report.completeness_score,
+                        "accuracy": quality_report.accuracy_score,
+                        "consistency": quality_report.consistency_score,
+                        "validity": quality_report.validity_score
+                    }
+                ),
+                "feature_quality": DimensionScore(
+                    dimension="feature_quality",
+                    score=(feature_correlation_score + feature_importance_score + dimensionality_score) / 3,
+                    weight=0.25,
+                    details={
+                        "correlation": feature_correlation_score,
+                        "importance": feature_importance_score,
+                        "dimensionality": dimensionality_score
+                    }
+                ),
+                "bias_fairness": DimensionScore(
+                    dimension="bias_fairness",
+                    score=class_balance_score,
+                    weight=0.20,
+                    details={
+                        "class_balance": class_balance_score,
+                        "target_leakage": target_leakage_score
+                    }
+                ),
+                "anomaly_detection": DimensionScore(
+                    dimension="anomaly_detection",
+                    score=anomaly_score,
+                    weight=0.15,
+                    details={
+                        "outlier_ratio": 1.0 - anomaly_score
+                    }
+                ),
+                "scalability": DimensionScore(
+                    dimension="scalability",
+                    score=self._calculate_scalability_score(data),
+                    weight=0.15,
+                    details={
+                        "size": len(data),
+                        "memory_efficiency": self._calculate_memory_efficiency(data)
+                    }
+                )
+            }
+            
+            # Calculate overall AI readiness score
+            overall_score = sum(
+                dim.score * dim.weight for dim in dimensions.values()
+            )
+            
+            # Identify improvement areas
+            improvement_areas = self._identify_improvement_areas(dimensions)
+            
+            ai_readiness = AIReadinessScore(
+                overall_score=overall_score,
+                data_quality_score=dimensions["data_quality"].score,
+                feature_quality_score=dimensions["feature_quality"].score,
+                bias_score=dimensions["bias_fairness"].score,
+                compliance_score=1.0,  # Placeholder - would be calculated based on regulatory requirements
+                scalability_score=dimensions["scalability"].score,
+                dimensions=dimensions,
+                improvement_areas=improvement_areas
+            )
+            
+            self.logger.info(f"AI readiness score calculated: {overall_score:.3f}")
+            return ai_readiness
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating AI readiness score: {str(e)}")
+            raise
+    
+    def _calculate_feature_correlation_score(self, data: pd.DataFrame, target_column: Optional[str] = None) -> float:
+        """
+        Calculate feature correlation score to detect multicollinearity issues.
+        
+        High correlation between features can cause problems for ML models.
+        """
+        try:
+            # Select only numeric columns for correlation analysis
+            numeric_data = data.select_dtypes(include=[np.number])
+            
+            if numeric_data.empty or len(numeric_data.columns) < 2:
+                return 1.0  # No correlation issues if insufficient numeric data
+            
+            # Calculate correlation matrix
+            corr_matrix = numeric_data.corr().abs()
+            
+            # Remove diagonal elements (self-correlation)
+            np.fill_diagonal(corr_matrix.values, 0)
+            
+            # Count high correlations (> 0.8)
+            high_corr_pairs = (corr_matrix > 0.8).sum().sum() / 2  # Divide by 2 to avoid double counting
+            total_pairs = (len(corr_matrix.columns) * (len(corr_matrix.columns) - 1)) / 2
+            
+            if total_pairs == 0:
+                return 1.0
+            
+            # Score decreases with more high correlations
+            correlation_ratio = high_corr_pairs / total_pairs
+            score = max(0.0, 1.0 - correlation_ratio)
+            
+            return score
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating feature correlation score: {str(e)}")
+            return 0.5  # Return neutral score on error
+    
+    def _calculate_target_leakage_score(self, data: pd.DataFrame, target_column: Optional[str] = None) -> float:
+        """
+        Calculate target leakage score by detecting features that are too predictive.
+        
+        Features with perfect or near-perfect correlation with target may indicate leakage.
+        """
+        try:
+            if target_column is None or target_column not in data.columns:
+                return 1.0  # No target column, no leakage possible
+            
+            target = data[target_column].dropna()
+            if target.empty:
+                return 1.0
+            
+            # Check if target is numeric or categorical
+            is_numeric_target = pd.api.types.is_numeric_dtype(target)
+            
+            leakage_scores = []
+            feature_columns = [col for col in data.columns if col != target_column]
+            
+            for column in feature_columns:
+                feature = data[column].dropna()
+                
+                if feature.empty:
+                    continue
+                
+                # Align target and feature (remove rows where either is missing)
+                aligned_data = data[[column, target_column]].dropna()
+                if len(aligned_data) < 10:  # Need minimum samples
+                    continue
+                
+                aligned_feature = aligned_data[column]
+                aligned_target = aligned_data[target_column]
+                
+                try:
+                    if is_numeric_target:
+                        # For numeric targets, use mutual information regression
+                        if pd.api.types.is_numeric_dtype(aligned_feature):
+                            mi_score = mutual_info_regression(
+                                aligned_feature.values.reshape(-1, 1), 
+                                aligned_target.values
+                            )[0]
+                        else:
+                            # Encode categorical feature
+                            le = LabelEncoder()
+                            encoded_feature = le.fit_transform(aligned_feature.astype(str))
+                            mi_score = mutual_info_regression(
+                                encoded_feature.reshape(-1, 1), 
+                                aligned_target.values
+                            )[0]
+                    else:
+                        # For categorical targets, use mutual information classification
+                        if pd.api.types.is_numeric_dtype(aligned_feature):
+                            mi_score = mutual_info_classif(
+                                aligned_feature.values.reshape(-1, 1), 
+                                aligned_target.values
+                            )[0]
+                        else:
+                            # Encode both categorical feature and target
+                            le_feature = LabelEncoder()
+                            le_target = LabelEncoder()
+                            encoded_feature = le_feature.fit_transform(aligned_feature.astype(str))
+                            encoded_target = le_target.fit_transform(aligned_target.astype(str))
+                            mi_score = mutual_info_classif(
+                                encoded_feature.reshape(-1, 1), 
+                                encoded_target
+                            )[0]
+                    
+                    # Normalize MI score (approximate)
+                    normalized_score = min(1.0, mi_score / 2.0)  # MI can be > 1, normalize roughly
+                    leakage_scores.append(normalized_score)
+                    
+                except Exception as e:
+                    self.logger.warning(f"Error calculating MI for column {column}: {str(e)}")
+                    continue
+            
+            if not leakage_scores:
+                return 1.0
+            
+            # Check for potential leakage (very high MI scores)
+            max_mi = max(leakage_scores)
+            
+            # Score decreases if maximum MI is too high (> 0.95 indicates potential leakage)
+            if max_mi > 0.95:
+                return 0.0  # Definite leakage
+            elif max_mi > 0.8:
+                return 0.3  # Likely leakage
+            elif max_mi > 0.6:
+                return 0.7  # Possible leakage
+            else:
+                return 1.0  # No leakage detected
+                
+        except Exception as e:
+            self.logger.warning(f"Error calculating target leakage score: {str(e)}")
+            return 0.5
+    
+    def _calculate_anomaly_score(self, data: pd.DataFrame) -> float:
+        """
+        Calculate anomaly score using statistical methods.
+        
+        High anomaly ratio indicates data quality issues that could affect ML models.
+        """
+        try:
+            # Select numeric columns for anomaly detection
+            numeric_data = data.select_dtypes(include=[np.number]).dropna()
+            
+            if numeric_data.empty or len(numeric_data) < 10:
+                return 1.0  # Insufficient data for anomaly detection
+            
+            # Use Isolation Forest for anomaly detection
+            iso_forest = IsolationForest(
+                contamination=0.1,  # Expect 10% anomalies at most
+                random_state=42,
+                n_estimators=100
+            )
+            
+            # Fit and predict
+            anomaly_labels = iso_forest.fit_predict(numeric_data)
+            
+            # Count anomalies (-1 indicates anomaly, 1 indicates normal)
+            anomaly_count = sum(1 for label in anomaly_labels if label == -1)
+            total_count = len(anomaly_labels)
+            
+            # Calculate anomaly ratio
+            anomaly_ratio = anomaly_count / total_count if total_count > 0 else 0
+            
+            # Score decreases with higher anomaly ratio
+            # Good data should have < 5% anomalies
+            if anomaly_ratio <= 0.05:
+                return 1.0
+            elif anomaly_ratio <= 0.1:
+                return 0.8
+            elif anomaly_ratio <= 0.2:
+                return 0.6
+            else:
+                return max(0.0, 1.0 - anomaly_ratio)
+                
+        except Exception as e:
+            self.logger.warning(f"Error calculating anomaly score: {str(e)}")
+            return 0.5
+    
+    def _calculate_feature_importance_score(self, data: pd.DataFrame, target_column: Optional[str] = None) -> float:
+        """
+        Calculate feature importance score based on feature variance and information content.
+        """
+        try:
+            # Select numeric columns
+            numeric_data = data.select_dtypes(include=[np.number])
+            
+            if numeric_data.empty:
+                return 0.5  # No numeric features to assess
+            
+            # Remove target column if present
+            if target_column and target_column in numeric_data.columns:
+                numeric_data = numeric_data.drop(columns=[target_column])
+            
+            if numeric_data.empty:
+                return 0.5
+            
+            # Calculate variance for each feature
+            variances = numeric_data.var()
+            
+            # Count features with near-zero variance (< 1e-6)
+            zero_variance_features = sum(1 for var in variances if var < 1e-6)
+            total_features = len(variances)
+            
+            if total_features == 0:
+                return 0.5
+            
+            # Score decreases with more zero-variance features
+            zero_variance_ratio = zero_variance_features / total_features
+            variance_score = 1.0 - zero_variance_ratio
+            
+            # Also check for features with very low information content
+            # (constant or near-constant values)
+            low_info_features = 0
+            for column in numeric_data.columns:
+                unique_ratio = numeric_data[column].nunique() / len(numeric_data[column].dropna())
+                if unique_ratio < 0.01:  # Less than 1% unique values
+                    low_info_features += 1
+            
+            low_info_ratio = low_info_features / total_features
+            info_score = 1.0 - low_info_ratio
+            
+            # Combine scores
+            final_score = (variance_score + info_score) / 2
+            return max(0.0, min(1.0, final_score))
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating feature importance score: {str(e)}")
+            return 0.5
+    
+    def _calculate_class_balance_score(self, data: pd.DataFrame, target_column: Optional[str] = None) -> float:
+        """
+        Calculate class balance score for classification tasks.
+        """
+        try:
+            if target_column is None or target_column not in data.columns:
+                return 1.0  # No target column, assume balanced
+            
+            target = data[target_column].dropna()
+            if target.empty:
+                return 1.0
+            
+            # Check if target appears to be categorical (for classification)
+            unique_values = target.nunique()
+            
+            # If too many unique values, likely regression task
+            if unique_values > 20 or pd.api.types.is_numeric_dtype(target):
+                return 1.0  # Not a classification task
+            
+            # Calculate class distribution
+            class_counts = target.value_counts()
+            
+            if len(class_counts) < 2:
+                return 0.0  # Only one class
+            
+            # Calculate balance using entropy-based measure
+            total_samples = len(target)
+            class_proportions = class_counts / total_samples
+            
+            # Calculate entropy (higher entropy = more balanced)
+            entropy = -sum(p * np.log2(p) for p in class_proportions if p > 0)
+            max_entropy = np.log2(len(class_counts))  # Maximum possible entropy
+            
+            if max_entropy == 0:
+                return 1.0
+            
+            # Normalize entropy to [0, 1]
+            balance_score = entropy / max_entropy
+            
+            return balance_score
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating class balance score: {str(e)}")
+            return 0.5
+    
+    def _calculate_dimensionality_score(self, data: pd.DataFrame) -> float:
+        """
+        Calculate dimensionality score based on feature-to-sample ratio.
+        """
+        try:
+            n_samples = len(data)
+            n_features = len(data.columns)
+            
+            if n_samples == 0:
+                return 0.0
+            
+            # Calculate feature-to-sample ratio
+            feature_ratio = n_features / n_samples
+            
+            # Ideal ratio is typically < 0.1 (10 features per 100 samples)
+            if feature_ratio <= 0.01:  # Very good ratio
+                return 1.0
+            elif feature_ratio <= 0.05:  # Good ratio
+                return 0.9
+            elif feature_ratio <= 0.1:  # Acceptable ratio
+                return 0.8
+            elif feature_ratio <= 0.2:  # Concerning ratio
+                return 0.6
+            elif feature_ratio <= 0.5:  # Poor ratio
+                return 0.4
+            else:  # Very poor ratio (curse of dimensionality)
+                return max(0.1, 1.0 - feature_ratio)
+                
+        except Exception as e:
+            self.logger.warning(f"Error calculating dimensionality score: {str(e)}")
+            return 0.5
+    
+    def _calculate_scalability_score(self, data: pd.DataFrame) -> float:
+        """
+        Calculate scalability score based on data size and complexity.
+        """
+        try:
+            n_samples = len(data)
+            n_features = len(data.columns)
+            
+            # Memory usage estimation
+            memory_usage = data.memory_usage(deep=True).sum()
+            memory_mb = memory_usage / (1024 * 1024)
+            
+            # Size score (larger datasets are generally better for ML)
+            if n_samples >= 10000:
+                size_score = 1.0
+            elif n_samples >= 1000:
+                size_score = 0.8
+            elif n_samples >= 100:
+                size_score = 0.6
+            else:
+                size_score = 0.3
+            
+            # Memory efficiency score
+            if memory_mb <= 100:  # < 100MB
+                memory_score = 1.0
+            elif memory_mb <= 500:  # < 500MB
+                memory_score = 0.9
+            elif memory_mb <= 1000:  # < 1GB
+                memory_score = 0.8
+            elif memory_mb <= 5000:  # < 5GB
+                memory_score = 0.6
+            else:  # > 5GB
+                memory_score = 0.4
+            
+            # Combine scores
+            scalability_score = (size_score + memory_score) / 2
+            return scalability_score
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating scalability score: {str(e)}")
+            return 0.5
+    
+    def _calculate_memory_efficiency(self, data: pd.DataFrame) -> float:
+        """Calculate memory efficiency score."""
+        try:
+            # Calculate memory usage per row
+            total_memory = data.memory_usage(deep=True).sum()
+            memory_per_row = total_memory / len(data) if len(data) > 0 else 0
+            
+            # Score based on memory efficiency
+            if memory_per_row <= 1000:  # < 1KB per row
+                return 1.0
+            elif memory_per_row <= 10000:  # < 10KB per row
+                return 0.8
+            elif memory_per_row <= 100000:  # < 100KB per row
+                return 0.6
+            else:
+                return 0.4
+                
+        except Exception as e:
+            self.logger.warning(f"Error calculating memory efficiency: {str(e)}")
+            return 0.5
+    
+    def _identify_improvement_areas(self, dimensions: Dict[str, DimensionScore]) -> List[ImprovementArea]:
+        """Identify areas for improvement based on dimension scores."""
+        improvement_areas = []
+        
+        for dim_name, dim_score in dimensions.items():
+            if dim_score.score < 0.8:  # Threshold for improvement
+                priority = "high" if dim_score.score < 0.5 else "medium"
+                
+                actions = self._get_improvement_actions(dim_name, dim_score.score)
+                
+                improvement_areas.append(ImprovementArea(
+                    area=dim_name,
+                    current_score=dim_score.score,
+                    target_score=0.8,
+                    priority=priority,
+                    actions=actions
+                ))
+        
+        return improvement_areas
+    
+    def _get_improvement_actions(self, dimension: str, score: float) -> List[str]:
+        """Get specific improvement actions for a dimension."""
+        actions = []
+        
+        if dimension == "data_quality":
+            if score < 0.5:
+                actions.extend([
+                    "Implement comprehensive data cleaning pipeline",
+                    "Address missing values through imputation or collection",
+                    "Validate and correct data type inconsistencies",
+                    "Remove or fix outliers and anomalous values"
+                ])
+            else:
+                actions.extend([
+                    "Fine-tune data validation rules",
+                    "Implement automated quality monitoring"
+                ])
+        
+        elif dimension == "feature_quality":
+            if score < 0.5:
+                actions.extend([
+                    "Remove highly correlated features to reduce multicollinearity",
+                    "Apply feature selection techniques",
+                    "Engineer new features from existing ones",
+                    "Remove zero-variance or low-information features"
+                ])
+            else:
+                actions.extend([
+                    "Optimize feature engineering pipeline",
+                    "Consider advanced feature selection methods"
+                ])
+        
+        elif dimension == "bias_fairness":
+            if score < 0.5:
+                actions.extend([
+                    "Address class imbalance through resampling techniques",
+                    "Investigate and remove potential target leakage",
+                    "Apply bias detection and mitigation strategies",
+                    "Ensure representative sampling across groups"
+                ])
+            else:
+                actions.extend([
+                    "Monitor for emerging bias patterns",
+                    "Implement fairness constraints in model training"
+                ])
+        
+        elif dimension == "anomaly_detection":
+            if score < 0.5:
+                actions.extend([
+                    "Investigate and address high anomaly ratio",
+                    "Implement robust outlier detection methods",
+                    "Consider data collection quality improvements",
+                    "Apply anomaly-robust preprocessing techniques"
+                ])
+            else:
+                actions.extend([
+                    "Fine-tune anomaly detection thresholds",
+                    "Implement continuous anomaly monitoring"
+                ])
+        
+        elif dimension == "scalability":
+            if score < 0.5:
+                actions.extend([
+                    "Increase dataset size through additional data collection",
+                    "Optimize data storage and memory usage",
+                    "Consider data sampling strategies for large datasets",
+                    "Implement distributed processing capabilities"
+                ])
+            else:
+                actions.extend([
+                    "Optimize data processing pipelines",
+                    "Consider cloud-based scaling solutions"
+                ])
+        
+        return actions
+    
+    def calculate_ai_readiness_score(self, dataset: Dataset, data: pd.DataFrame, target_column: Optional[str] = None) -> AIReadinessScore:
+        """
+        Calculate comprehensive AI readiness score with AI-specific metrics.
+        
+        Args:
+            dataset: Dataset metadata and schema information
+            data: The actual data to assess
+            target_column: Target variable column name (if applicable)
+            
+        Returns:
+            AIReadinessScore with detailed scoring across multiple dimensions
+        """
+        try:
+            self.logger.info(f"Calculating AI readiness score for dataset {dataset.id}")
+            
+            # Get basic quality report first
+            quality_report = self.assess_quality(dataset, data)
+            
+            # Calculate AI-specific metrics
+            feature_correlation_score = self._calculate_feature_correlation_score(data, target_column)
+            target_leakage_score = self._calculate_target_leakage_score(data, target_column)
+            anomaly_score = self._calculate_anomaly_score(data)
+            feature_importance_score = self._calculate_feature_importance_score(data, target_column)
+            class_balance_score = self._calculate_class_balance_score(data, target_column)
+            dimensionality_score = self._calculate_dimensionality_score(data)
+            
+            # Calculate dimension scores
+            dimensions = {
+                "data_quality": DimensionScore(
+                    dimension="data_quality",
+                    score=quality_report.overall_score,
+                    weight=0.25,
+                    details={
+                        "completeness": quality_report.completeness_score,
+                        "accuracy": quality_report.accuracy_score,
+                        "consistency": quality_report.consistency_score,
+                        "validity": quality_report.validity_score
+                    }
+                ),
+                "feature_quality": DimensionScore(
+                    dimension="feature_quality",
+                    score=(feature_correlation_score + feature_importance_score + dimensionality_score) / 3,
+                    weight=0.25,
+                    details={
+                        "correlation": feature_correlation_score,
+                        "importance": feature_importance_score,
+                        "dimensionality": dimensionality_score
+                    }
+                ),
+                "bias_fairness": DimensionScore(
+                    dimension="bias_fairness",
+                    score=class_balance_score,
+                    weight=0.20,
+                    details={
+                        "class_balance": class_balance_score,
+                        "target_leakage": target_leakage_score
+                    }
+                ),
+                "anomaly_detection": DimensionScore(
+                    dimension="anomaly_detection",
+                    score=anomaly_score,
+                    weight=0.15,
+                    details={
+                        "outlier_ratio": 1.0 - anomaly_score
+                    }
+                ),
+                "scalability": DimensionScore(
+                    dimension="scalability",
+                    score=self._calculate_scalability_score(data),
+                    weight=0.15,
+                    details={
+                        "size": len(data),
+                        "memory_efficiency": self._calculate_memory_efficiency(data)
+                    }
+                )
+            }
+            
+            # Calculate overall AI readiness score
+            overall_score = sum(
+                dim.score * dim.weight for dim in dimensions.values()
+            )
+            
+            # Identify improvement areas
+            improvement_areas = self._identify_improvement_areas(dimensions)
+            
+            ai_readiness = AIReadinessScore(
+                overall_score=overall_score,
+                data_quality_score=dimensions["data_quality"].score,
+                feature_quality_score=dimensions["feature_quality"].score,
+                bias_score=dimensions["bias_fairness"].score,
+                compliance_score=1.0,  # Placeholder - would be calculated based on regulatory requirements
+                scalability_score=dimensions["scalability"].score,
+                dimensions=dimensions,
+                improvement_areas=improvement_areas
+            )
+            
+            self.logger.info(f"AI readiness score calculated: {overall_score:.3f}")
+            return ai_readiness
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating AI readiness score: {str(e)}")
+            raise
+    
+    def _calculate_feature_correlation_score(self, data: pd.DataFrame, target_column: Optional[str] = None) -> float:
+        """
+        Calculate feature correlation score to detect multicollinearity issues.
+        
+        High correlation between features can cause problems for ML models.
+        """
+        try:
+            # Select only numeric columns for correlation analysis
+            numeric_data = data.select_dtypes(include=[np.number])
+            
+            if numeric_data.empty or len(numeric_data.columns) < 2:
+                return 1.0  # No correlation issues if insufficient numeric data
+            
+            # Calculate correlation matrix
+            corr_matrix = numeric_data.corr().abs()
+            
+            # Remove diagonal elements (self-correlation)
+            np.fill_diagonal(corr_matrix.values, 0)
+            
+            # Count high correlations (> 0.8)
+            high_corr_pairs = (corr_matrix > 0.8).sum().sum() / 2  # Divide by 2 to avoid double counting
+            total_pairs = (len(corr_matrix.columns) * (len(corr_matrix.columns) - 1)) / 2
+            
+            if total_pairs == 0:
+                return 1.0
+            
+            # Score decreases with more high correlations
+            correlation_ratio = high_corr_pairs / total_pairs
+            score = max(0.0, 1.0 - correlation_ratio)
+            
+            return score
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating feature correlation score: {str(e)}")
+            return 0.5  # Return neutral score on error
+    
+    def _calculate_target_leakage_score(self, data: pd.DataFrame, target_column: Optional[str] = None) -> float:
+        """
+        Calculate target leakage score by detecting features that are too predictive.
+        
+        Features with perfect or near-perfect correlation with target may indicate leakage.
+        """
+        try:
+            if target_column is None or target_column not in data.columns:
+                return 1.0  # No target column, no leakage possible
+            
+            target = data[target_column].dropna()
+            if target.empty:
+                return 1.0
+            
+            # Check if target is numeric or categorical
+            is_numeric_target = pd.api.types.is_numeric_dtype(target)
+            
+            leakage_scores = []
+            feature_columns = [col for col in data.columns if col != target_column]
+            
+            for column in feature_columns:
+                feature = data[column].dropna()
+                
+                if feature.empty:
+                    continue
+                
+                # Align target and feature (remove rows where either is missing)
+                aligned_data = data[[column, target_column]].dropna()
+                if len(aligned_data) < 10:  # Need minimum samples
+                    continue
+                
+                aligned_feature = aligned_data[column]
+                aligned_target = aligned_data[target_column]
+                
+                try:
+                    if is_numeric_target:
+                        # For numeric targets, use mutual information regression
+                        if pd.api.types.is_numeric_dtype(aligned_feature):
+                            mi_score = mutual_info_regression(
+                                aligned_feature.values.reshape(-1, 1), 
+                                aligned_target.values
+                            )[0]
+                        else:
+                            # Encode categorical feature
+                            le = LabelEncoder()
+                            encoded_feature = le.fit_transform(aligned_feature.astype(str))
+                            mi_score = mutual_info_regression(
+                                encoded_feature.reshape(-1, 1), 
+                                aligned_target.values
+                            )[0]
+                    else:
+                        # For categorical targets, use mutual information classification
+                        if pd.api.types.is_numeric_dtype(aligned_feature):
+                            mi_score = mutual_info_classif(
+                                aligned_feature.values.reshape(-1, 1), 
+                                aligned_target.values
+                            )[0]
+                        else:
+                            # Encode both categorical feature and target
+                            le_feature = LabelEncoder()
+                            le_target = LabelEncoder()
+                            encoded_feature = le_feature.fit_transform(aligned_feature.astype(str))
+                            encoded_target = le_target.fit_transform(aligned_target.astype(str))
+                            mi_score = mutual_info_classif(
+                                encoded_feature.reshape(-1, 1), 
+                                encoded_target
+                            )[0]
+                    
+                    # Normalize MI score (approximate)
+                    normalized_score = min(1.0, mi_score / 2.0)  # MI can be > 1, normalize roughly
+                    leakage_scores.append(normalized_score)
+                    
+                except Exception as e:
+                    self.logger.warning(f"Error calculating MI for column {column}: {str(e)}")
+                    continue
+            
+            if not leakage_scores:
+                return 1.0
+            
+            # Check for potential leakage (very high MI scores)
+            max_mi = max(leakage_scores)
+            
+            # Score decreases if maximum MI is too high (> 0.95 indicates potential leakage)
+            if max_mi > 0.95:
+                return 0.0  # Definite leakage
+            elif max_mi > 0.8:
+                return 0.3  # Likely leakage
+            elif max_mi > 0.6:
+                return 0.7  # Possible leakage
+            else:
+                return 1.0  # No leakage detected
+                
+        except Exception as e:
+            self.logger.warning(f"Error calculating target leakage score: {str(e)}")
+            return 0.5
+    
+    def _calculate_anomaly_score(self, data: pd.DataFrame) -> float:
+        """
+        Calculate anomaly score using statistical methods.
+        
+        High anomaly ratio indicates data quality issues that could affect ML models.
+        """
+        try:
+            # Select numeric columns for anomaly detection
+            numeric_data = data.select_dtypes(include=[np.number]).dropna()
+            
+            if numeric_data.empty or len(numeric_data) < 10:
+                return 1.0  # Insufficient data for anomaly detection
+            
+            # Use Isolation Forest for anomaly detection
+            iso_forest = IsolationForest(
+                contamination=0.1,  # Expect 10% anomalies at most
+                random_state=42,
+                n_estimators=100
+            )
+            
+            # Fit and predict
+            anomaly_labels = iso_forest.fit_predict(numeric_data)
+            
+            # Count anomalies (-1 indicates anomaly, 1 indicates normal)
+            anomaly_count = sum(1 for label in anomaly_labels if label == -1)
+            total_count = len(anomaly_labels)
+            
+            # Calculate anomaly ratio
+            anomaly_ratio = anomaly_count / total_count if total_count > 0 else 0
+            
+            # Score decreases with higher anomaly ratio
+            # Good data should have < 5% anomalies
+            if anomaly_ratio <= 0.05:
+                return 1.0
+            elif anomaly_ratio <= 0.1:
+                return 0.8
+            elif anomaly_ratio <= 0.2:
+                return 0.6
+            else:
+                return max(0.0, 1.0 - anomaly_ratio)
+                
+        except Exception as e:
+            self.logger.warning(f"Error calculating anomaly score: {str(e)}")
+            return 0.5
+    
+    def _calculate_feature_importance_score(self, data: pd.DataFrame, target_column: Optional[str] = None) -> float:
+        """
+        Calculate feature importance score based on feature variance and information content.
+        """
+        try:
+            # Select numeric columns
+            numeric_data = data.select_dtypes(include=[np.number])
+            
+            if numeric_data.empty:
+                return 0.5  # No numeric features to assess
+            
+            # Remove target column if present
+            if target_column and target_column in numeric_data.columns:
+                numeric_data = numeric_data.drop(columns=[target_column])
+            
+            if numeric_data.empty:
+                return 0.5
+            
+            # Calculate variance for each feature
+            variances = numeric_data.var()
+            
+            # Count features with near-zero variance (< 1e-6)
+            zero_variance_features = sum(1 for var in variances if var < 1e-6)
+            total_features = len(variances)
+            
+            if total_features == 0:
+                return 0.5
+            
+            # Score decreases with more zero-variance features
+            zero_variance_ratio = zero_variance_features / total_features
+            variance_score = 1.0 - zero_variance_ratio
+            
+            # Also check for features with very low information content
+            # (constant or near-constant values)
+            low_info_features = 0
+            for column in numeric_data.columns:
+                unique_ratio = numeric_data[column].nunique() / len(numeric_data[column].dropna())
+                if unique_ratio < 0.01:  # Less than 1% unique values
+                    low_info_features += 1
+            
+            low_info_ratio = low_info_features / total_features
+            info_score = 1.0 - low_info_ratio
+            
+            # Combine scores
+            final_score = (variance_score + info_score) / 2
+            return max(0.0, min(1.0, final_score))
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating feature importance score: {str(e)}")
+            return 0.5
+    
+    def _calculate_class_balance_score(self, data: pd.DataFrame, target_column: Optional[str] = None) -> float:
+        """
+        Calculate class balance score for classification tasks.
+        """
+        try:
+            if target_column is None or target_column not in data.columns:
+                return 1.0  # No target column, assume balanced
+            
+            target = data[target_column].dropna()
+            if target.empty:
+                return 1.0
+            
+            # Check if target appears to be categorical (for classification)
+            unique_values = target.nunique()
+            
+            # If too many unique values, likely regression task
+            if unique_values > 20 or pd.api.types.is_numeric_dtype(target):
+                return 1.0  # Not a classification task
+            
+            # Calculate class distribution
+            class_counts = target.value_counts()
+            
+            if len(class_counts) < 2:
+                return 0.0  # Only one class
+            
+            # Calculate balance using entropy-based measure
+            total_samples = len(target)
+            class_proportions = class_counts / total_samples
+            
+            # Calculate entropy (higher entropy = more balanced)
+            entropy = -sum(p * np.log2(p) for p in class_proportions if p > 0)
+            max_entropy = np.log2(len(class_counts))  # Maximum possible entropy
+            
+            if max_entropy == 0:
+                return 1.0
+            
+            # Normalize entropy to [0, 1]
+            balance_score = entropy / max_entropy
+            
+            return balance_score
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating class balance score: {str(e)}")
+            return 0.5
+    
+    def _calculate_dimensionality_score(self, data: pd.DataFrame) -> float:
+        """
+        Calculate dimensionality score based on feature-to-sample ratio.
+        """
+        try:
+            n_samples = len(data)
+            n_features = len(data.columns)
+            
+            if n_samples == 0:
+                return 0.0
+            
+            # Calculate feature-to-sample ratio
+            feature_ratio = n_features / n_samples
+            
+            # Ideal ratio is typically < 0.1 (10 features per 100 samples)
+            if feature_ratio <= 0.01:  # Very good ratio
+                return 1.0
+            elif feature_ratio <= 0.05:  # Good ratio
+                return 0.9
+            elif feature_ratio <= 0.1:  # Acceptable ratio
+                return 0.8
+            elif feature_ratio <= 0.2:  # Concerning ratio
+                return 0.6
+            elif feature_ratio <= 0.5:  # Poor ratio
+                return 0.4
+            else:  # Very poor ratio (curse of dimensionality)
+                return max(0.1, 1.0 - feature_ratio)
+                
+        except Exception as e:
+            self.logger.warning(f"Error calculating dimensionality score: {str(e)}")
+            return 0.5
+    
+    def _calculate_scalability_score(self, data: pd.DataFrame) -> float:
+        """
+        Calculate scalability score based on data size and complexity.
+        """
+        try:
+            n_samples = len(data)
+            n_features = len(data.columns)
+            
+            # Memory usage estimation
+            memory_usage = data.memory_usage(deep=True).sum()
+            memory_mb = memory_usage / (1024 * 1024)
+            
+            # Size score (larger datasets are generally better for ML)
+            if n_samples >= 10000:
+                size_score = 1.0
+            elif n_samples >= 1000:
+                size_score = 0.8
+            elif n_samples >= 100:
+                size_score = 0.6
+            else:
+                size_score = 0.3
+            
+            # Memory efficiency score
+            if memory_mb <= 100:  # < 100MB
+                memory_score = 1.0
+            elif memory_mb <= 500:  # < 500MB
+                memory_score = 0.9
+            elif memory_mb <= 1000:  # < 1GB
+                memory_score = 0.8
+            elif memory_mb <= 5000:  # < 5GB
+                memory_score = 0.6
+            else:  # > 5GB
+                memory_score = 0.4
+            
+            # Combine scores
+            scalability_score = (size_score + memory_score) / 2
+            return scalability_score
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating scalability score: {str(e)}")
+            return 0.5
+    
+    def _calculate_memory_efficiency(self, data: pd.DataFrame) -> float:
+        """Calculate memory efficiency score."""
+        try:
+            # Calculate memory usage per row
+            total_memory = data.memory_usage(deep=True).sum()
+            memory_per_row = total_memory / len(data) if len(data) > 0 else 0
+            
+            # Score based on memory efficiency
+            if memory_per_row <= 1000:  # < 1KB per row
+                return 1.0
+            elif memory_per_row <= 10000:  # < 10KB per row
+                return 0.8
+            elif memory_per_row <= 100000:  # < 100KB per row
+                return 0.6
+            else:
+                return 0.4
+                
+        except Exception as e:
+            self.logger.warning(f"Error calculating memory efficiency: {str(e)}")
+            return 0.5
+    
+    def _identify_improvement_areas(self, dimensions: Dict[str, DimensionScore]) -> List[ImprovementArea]:
+        """Identify areas for improvement based on dimension scores."""
+        improvement_areas = []
+        
+        for dim_name, dim_score in dimensions.items():
+            if dim_score.score < 0.8:  # Threshold for improvement
+                priority = "high" if dim_score.score < 0.5 else "medium"
+                
+                actions = self._get_improvement_actions(dim_name, dim_score.score)
+                
+                improvement_areas.append(ImprovementArea(
+                    area=dim_name,
+                    current_score=dim_score.score,
+                    target_score=0.8,
+                    priority=priority,
+                    actions=actions
+                ))
+        
+        return improvement_areas
+    
+    def _get_improvement_actions(self, dimension: str, score: float) -> List[str]:
+        """Get specific improvement actions for a dimension."""
+        actions = []
+        
+        if dimension == "data_quality":
+            if score < 0.5:
+                actions.extend([
+                    "Implement comprehensive data cleaning pipeline",
+                    "Address missing values through imputation or collection",
+                    "Validate and correct data type inconsistencies",
+                    "Remove or fix outliers and anomalous values"
+                ])
+            else:
+                actions.extend([
+                    "Fine-tune data validation rules",
+                    "Implement automated quality monitoring"
+                ])
+        
+        elif dimension == "feature_quality":
+            if score < 0.5:
+                actions.extend([
+                    "Remove highly correlated features to reduce multicollinearity",
+                    "Apply feature selection techniques",
+                    "Engineer new features from existing ones",
+                    "Remove zero-variance or low-information features"
+                ])
+            else:
+                actions.extend([
+                    "Optimize feature engineering pipeline",
+                    "Consider advanced feature selection methods"
+                ])
+        
+        elif dimension == "bias_fairness":
+            if score < 0.5:
+                actions.extend([
+                    "Address class imbalance through resampling techniques",
+                    "Investigate and remove potential target leakage",
+                    "Apply bias detection and mitigation strategies",
+                    "Ensure representative sampling across groups"
+                ])
+            else:
+                actions.extend([
+                    "Monitor for emerging bias patterns",
+                    "Implement fairness constraints in model training"
+                ])
+        
+        elif dimension == "anomaly_detection":
+            if score < 0.5:
+                actions.extend([
+                    "Investigate and address high anomaly ratio",
+                    "Implement robust outlier detection methods",
+                    "Consider data collection quality improvements",
+                    "Apply anomaly-robust preprocessing techniques"
+                ])
+            else:
+                actions.extend([
+                    "Fine-tune anomaly detection thresholds",
+                    "Implement continuous anomaly monitoring"
+                ])
+        
+        elif dimension == "scalability":
+            if score < 0.5:
+                actions.extend([
+                    "Increase dataset size through additional data collection",
+                    "Optimize data storage and memory usage",
+                    "Consider data sampling strategies for large datasets",
+                    "Implement distributed processing capabilities"
+                ])
+            else:
+                actions.extend([
+                    "Optimize data processing pipelines",
+                    "Consider cloud-based scaling solutions"
+                ])
+        
+        return actions
+    
+    def calculate_ai_readiness_score(self, dataset: Dataset, data: pd.DataFrame, target_column: Optional[str] = None) -> AIReadinessScore:
+        """Calculate comprehensive AI readiness score with AI-specific metrics."""
+        try:
+            self.logger.info(f"Calculating AI readiness score for dataset {dataset.id}")
+            
+            # Get basic quality report first
+            quality_report = self.assess_quality(dataset, data)
+            
+            # Calculate AI-specific metrics
+            feature_correlation_score = self._calculate_feature_correlation_score(data, target_column)
+            target_leakage_score = self._calculate_target_leakage_score(data, target_column)
+            anomaly_score = self._calculate_anomaly_score(data)
+            feature_importance_score = self._calculate_feature_importance_score(data, target_column)
+            class_balance_score = self._calculate_class_balance_score(data, target_column)
+            dimensionality_score = self._calculate_dimensionality_score(data)
+            
+            # Calculate dimension scores
+            dimensions = {
+                "data_quality": DimensionScore(
+                    dimension="data_quality",
+                    score=quality_report.overall_score,
+                    weight=0.25,
+                    details={
+                        "completeness": quality_report.completeness_score,
+                        "accuracy": quality_report.accuracy_score,
+                        "consistency": quality_report.consistency_score,
+                        "validity": quality_report.validity_score
+                    }
+                ),
+                "feature_quality": DimensionScore(
+                    dimension="feature_quality",
+                    score=(feature_correlation_score + feature_importance_score + dimensionality_score) / 3,
+                    weight=0.25,
+                    details={
+                        "correlation": feature_correlation_score,
+                        "importance": feature_importance_score,
+                        "dimensionality": dimensionality_score
+                    }
+                ),
+                "bias_fairness": DimensionScore(
+                    dimension="bias_fairness",
+                    score=class_balance_score,
+                    weight=0.20,
+                    details={
+                        "class_balance": class_balance_score,
+                        "target_leakage": target_leakage_score
+                    }
+                ),
+                "anomaly_detection": DimensionScore(
+                    dimension="anomaly_detection",
+                    score=anomaly_score,
+                    weight=0.15,
+                    details={
+                        "outlier_ratio": 1.0 - anomaly_score
+                    }
+                ),
+                "scalability": DimensionScore(
+                    dimension="scalability",
+                    score=self._calculate_scalability_score(data),
+                    weight=0.15,
+                    details={
+                        "size": len(data),
+                        "memory_efficiency": self._calculate_memory_efficiency(data)
+                    }
+                )
+            }
+            
+            # Calculate overall AI readiness score
+            overall_score = sum(dim.score * dim.weight for dim in dimensions.values())
+            
+            # Identify improvement areas
+            improvement_areas = self._identify_improvement_areas(dimensions)
+            
+            ai_readiness = AIReadinessScore(
+                overall_score=overall_score,
+                data_quality_score=dimensions["data_quality"].score,
+                feature_quality_score=dimensions["feature_quality"].score,
+                bias_score=dimensions["bias_fairness"].score,
+                compliance_score=1.0,
+                scalability_score=dimensions["scalability"].score,
+                dimensions=dimensions,
+                improvement_areas=improvement_areas
+            )
+            
+            self.logger.info(f"AI readiness score calculated: {overall_score:.3f}")
+            return ai_readiness
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating AI readiness score: {str(e)}")
+            raise
+    
+    def _calculate_feature_correlation_score(self, data: pd.DataFrame, target_column: Optional[str] = None) -> float:
+        """Calculate feature correlation score to detect multicollinearity issues."""
+        try:
+            numeric_data = data.select_dtypes(include=[np.number])
+            if numeric_data.empty or len(numeric_data.columns) < 2:
+                return 1.0
+            
+            corr_matrix = numeric_data.corr().abs()
+            np.fill_diagonal(corr_matrix.values, 0)
+            
+            high_corr_pairs = (corr_matrix > 0.8).sum().sum() / 2
+            total_pairs = (len(corr_matrix.columns) * (len(corr_matrix.columns) - 1)) / 2
+            
+            if total_pairs == 0:
+                return 1.0
+            
+            correlation_ratio = high_corr_pairs / total_pairs
+            return max(0.0, 1.0 - correlation_ratio)
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating feature correlation score: {str(e)}")
+            return 0.5
+    
+    def _calculate_target_leakage_score(self, data: pd.DataFrame, target_column: Optional[str] = None) -> float:
+        """Calculate target leakage score by detecting features that are too predictive."""
+        try:
+            if target_column is None or target_column not in data.columns:
+                return 1.0
+            
+            target = data[target_column].dropna()
+            if target.empty:
+                return 1.0
+            
+            is_numeric_target = pd.api.types.is_numeric_dtype(target)
+            leakage_scores = []
+            feature_columns = [col for col in data.columns if col != target_column]
+            
+            for column in feature_columns:
+                aligned_data = data[[column, target_column]].dropna()
+                if len(aligned_data) < 10:
+                    continue
+                
+                aligned_feature = aligned_data[column]
+                aligned_target = aligned_data[target_column]
+                
+                try:
+                    if is_numeric_target:
+                        if pd.api.types.is_numeric_dtype(aligned_feature):
+                            mi_score = mutual_info_regression(
+                                aligned_feature.values.reshape(-1, 1), 
+                                aligned_target.values
+                            )[0]
+                        else:
+                            le = LabelEncoder()
+                            encoded_feature = le.fit_transform(aligned_feature.astype(str))
+                            mi_score = mutual_info_regression(
+                                encoded_feature.reshape(-1, 1), 
+                                aligned_target.values
+                            )[0]
+                    else:
+                        if pd.api.types.is_numeric_dtype(aligned_feature):
+                            mi_score = mutual_info_classif(
+                                aligned_feature.values.reshape(-1, 1), 
+                                aligned_target.values
+                            )[0]
+                        else:
+                            le_feature = LabelEncoder()
+                            le_target = LabelEncoder()
+                            encoded_feature = le_feature.fit_transform(aligned_feature.astype(str))
+                            encoded_target = le_target.fit_transform(aligned_target.astype(str))
+                            mi_score = mutual_info_classif(
+                                encoded_feature.reshape(-1, 1), 
+                                encoded_target
+                            )[0]
+                    
+                    normalized_score = min(1.0, mi_score / 2.0)
+                    leakage_scores.append(normalized_score)
+                    
+                except Exception as e:
+                    self.logger.warning(f"Error calculating MI for column {column}: {str(e)}")
+                    continue
+            
+            if not leakage_scores:
+                return 1.0
+            
+            max_mi = max(leakage_scores)
+            if max_mi > 0.95:
+                return 0.0
+            elif max_mi > 0.8:
+                return 0.3
+            elif max_mi > 0.6:
+                return 0.7
+            else:
+                return 1.0
+                
+        except Exception as e:
+            self.logger.warning(f"Error calculating target leakage score: {str(e)}")
+            return 0.5
+    
+    def _calculate_anomaly_score(self, data: pd.DataFrame) -> float:
+        """Calculate anomaly score using statistical methods."""
+        try:
+            numeric_data = data.select_dtypes(include=[np.number]).dropna()
+            if numeric_data.empty or len(numeric_data) < 10:
+                return 1.0
+            
+            iso_forest = IsolationForest(
+                contamination=0.1,
+                random_state=42,
+                n_estimators=100
+            )
+            
+            anomaly_labels = iso_forest.fit_predict(numeric_data)
+            anomaly_count = sum(1 for label in anomaly_labels if label == -1)
+            total_count = len(anomaly_labels)
+            
+            anomaly_ratio = anomaly_count / total_count if total_count > 0 else 0
+            
+            if anomaly_ratio <= 0.05:
+                return 1.0
+            elif anomaly_ratio <= 0.1:
+                return 0.8
+            elif anomaly_ratio <= 0.2:
+                return 0.6
+            else:
+                return max(0.0, 1.0 - anomaly_ratio)
+                
+        except Exception as e:
+            self.logger.warning(f"Error calculating anomaly score: {str(e)}")
+            return 0.5
+    
+    def _calculate_feature_importance_score(self, data: pd.DataFrame, target_column: Optional[str] = None) -> float:
+        """Calculate feature importance score based on feature variance and information content."""
+        try:
+            numeric_data = data.select_dtypes(include=[np.number])
+            if numeric_data.empty:
+                return 0.5
+            
+            if target_column and target_column in numeric_data.columns:
+                numeric_data = numeric_data.drop(columns=[target_column])
+            
+            if numeric_data.empty:
+                return 0.5
+            
+            variances = numeric_data.var()
+            zero_variance_features = sum(1 for var in variances if var < 1e-6)
+            total_features = len(variances)
+            
+            if total_features == 0:
+                return 0.5
+            
+            zero_variance_ratio = zero_variance_features / total_features
+            variance_score = 1.0 - zero_variance_ratio
+            
+            low_info_features = 0
+            for column in numeric_data.columns:
+                unique_ratio = numeric_data[column].nunique() / len(numeric_data[column].dropna())
+                if unique_ratio < 0.01:
+                    low_info_features += 1
+            
+            low_info_ratio = low_info_features / total_features
+            info_score = 1.0 - low_info_ratio
+            
+            final_score = (variance_score + info_score) / 2
+            return max(0.0, min(1.0, final_score))
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating feature importance score: {str(e)}")
+            return 0.5
+    
+    def _calculate_class_balance_score(self, data: pd.DataFrame, target_column: Optional[str] = None) -> float:
+        """Calculate class balance score for classification tasks."""
+        try:
+            if target_column is None or target_column not in data.columns:
+                return 1.0
+            
+            target = data[target_column].dropna()
+            if target.empty:
+                return 1.0
+            
+            unique_values = target.nunique()
+            if unique_values > 20 or pd.api.types.is_numeric_dtype(target):
+                return 1.0
+            
+            class_counts = target.value_counts()
+            if len(class_counts) < 2:
+                return 0.0
+            
+            total_samples = len(target)
+            class_proportions = class_counts / total_samples
+            
+            entropy = -sum(p * np.log2(p) for p in class_proportions if p > 0)
+            max_entropy = np.log2(len(class_counts))
+            
+            if max_entropy == 0:
+                return 1.0
+            
+            balance_score = entropy / max_entropy
+            return balance_score
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating class balance score: {str(e)}")
+            return 0.5
+    
+    def _calculate_dimensionality_score(self, data: pd.DataFrame) -> float:
+        """Calculate dimensionality score based on feature-to-sample ratio."""
+        try:
+            n_samples = len(data)
+            n_features = len(data.columns)
+            
+            if n_samples == 0:
+                return 0.0
+            
+            feature_ratio = n_features / n_samples
+            
+            if feature_ratio <= 0.01:
+                return 1.0
+            elif feature_ratio <= 0.05:
+                return 0.9
+            elif feature_ratio <= 0.1:
+                return 0.8
+            elif feature_ratio <= 0.2:
+                return 0.6
+            elif feature_ratio <= 0.5:
+                return 0.4
+            else:
+                return max(0.1, 1.0 - feature_ratio)
+                
+        except Exception as e:
+            self.logger.warning(f"Error calculating dimensionality score: {str(e)}")
+            return 0.5
+    
+    def _calculate_scalability_score(self, data: pd.DataFrame) -> float:
+        """Calculate scalability score based on data size and complexity."""
+        try:
+            n_samples = len(data)
+            memory_usage = data.memory_usage(deep=True).sum()
+            memory_mb = memory_usage / (1024 * 1024)
+            
+            if n_samples >= 10000:
+                size_score = 1.0
+            elif n_samples >= 1000:
+                size_score = 0.8
+            elif n_samples >= 100:
+                size_score = 0.6
+            else:
+                size_score = 0.3
+            
+            if memory_mb <= 100:
+                memory_score = 1.0
+            elif memory_mb <= 500:
+                memory_score = 0.9
+            elif memory_mb <= 1000:
+                memory_score = 0.8
+            elif memory_mb <= 5000:
+                memory_score = 0.6
+            else:
+                memory_score = 0.4
+            
+            scalability_score = (size_score + memory_score) / 2
+            return scalability_score
+            
+        except Exception as e:
+            self.logger.warning(f"Error calculating scalability score: {str(e)}")
+            return 0.5
+    
+    def _calculate_memory_efficiency(self, data: pd.DataFrame) -> float:
+        """Calculate memory efficiency score."""
+        try:
+            total_memory = data.memory_usage(deep=True).sum()
+            memory_per_row = total_memory / len(data) if len(data) > 0 else 0
+            
+            if memory_per_row <= 1000:
+                return 1.0
+            elif memory_per_row <= 10000:
+                return 0.8
+            elif memory_per_row <= 100000:
+                return 0.6
+            else:
+                return 0.4
+                
+        except Exception as e:
+            self.logger.warning(f"Error calculating memory efficiency: {str(e)}")
+            return 0.5
+    
+    def _identify_improvement_areas(self, dimensions: Dict[str, DimensionScore]) -> List[ImprovementArea]:
+        """Identify areas for improvement based on dimension scores."""
+        improvement_areas = []
+        
+        for dim_name, dim_score in dimensions.items():
+            if dim_score.score < 0.8:
+                priority = "high" if dim_score.score < 0.5 else "medium"
+                actions = self._get_improvement_actions(dim_name, dim_score.score)
+                
+                improvement_areas.append(ImprovementArea(
+                    area=dim_name,
+                    current_score=dim_score.score,
+                    target_score=0.8,
+                    priority=priority,
+                    actions=actions
+                ))
+        
+        return improvement_areas
+    
+    def _get_improvement_actions(self, dimension: str, score: float) -> List[str]:
+        """Get specific improvement actions for a dimension."""
+        actions = []
+        
+        if dimension == "data_quality":
+            if score < 0.5:
+                actions.extend([
+                    "Implement comprehensive data cleaning pipeline",
+                    "Address missing values through imputation or collection",
+                    "Validate and correct data type inconsistencies",
+                    "Remove or fix outliers and anomalous values"
+                ])
+            else:
+                actions.extend([
+                    "Fine-tune data validation rules",
+                    "Implement automated quality monitoring"
+                ])
+        elif dimension == "feature_quality":
+            if score < 0.5:
+                actions.extend([
+                    "Remove highly correlated features to reduce multicollinearity",
+                    "Apply feature selection techniques",
+                    "Engineer new features from existing ones",
+                    "Remove zero-variance or low-information features"
+                ])
+            else:
+                actions.extend([
+                    "Optimize feature engineering pipeline",
+                    "Consider advanced feature selection methods"
+                ])
+        elif dimension == "bias_fairness":
+            if score < 0.5:
+                actions.extend([
+                    "Address class imbalance through resampling techniques",
+                    "Investigate and remove potential target leakage",
+                    "Apply bias detection and mitigation strategies",
+                    "Ensure representative sampling across groups"
+                ])
+            else:
+                actions.extend([
+                    "Monitor for emerging bias patterns",
+                    "Implement fairness constraints in model training"
+                ])
+        elif dimension == "anomaly_detection":
+            if score < 0.5:
+                actions.extend([
+                    "Investigate and address high anomaly ratio",
+                    "Implement robust outlier detection methods",
+                    "Consider data collection quality improvements",
+                    "Apply anomaly-robust preprocessing techniques"
+                ])
+            else:
+                actions.extend([
+                    "Fine-tune anomaly detection thresholds",
+                    "Implement continuous anomaly monitoring"
+                ])
+        elif dimension == "scalability":
+            if score < 0.5:
+                actions.extend([
+                    "Increase dataset size through additional data collection",
+                    "Optimize data storage and memory usage",
+                    "Consider data sampling strategies for large datasets",
+                    "Implement distributed processing capabilities"
+                ])
+            else:
+                actions.extend([
+                    "Optimize data processing pipelines",
+                    "Consider cloud-based scaling solutions"
+                ])
+        
+        return actionscy_reco
+mmendations(self, issues: List[QualityIssue]) -> List[Recommendation]:
+        """Generate recommendations for accuracy issues."""
+        recommendations = []
+        
+        for issue in issues:
+            if "Type mismatch" in issue.description:
+                recommendations.append(Recommendation(
+                    type="data_transformation",
+                    priority="high",
+                    description="Fix data type inconsistencies",
+                    implementation="Convert data to correct types or update schema definitions",
+                    estimated_impact=0.7,
+                    estimated_effort="medium"
+                ))
+        
+        return recommendations
+    
+    def _generate_consistency_recommendations(self, issues: List[QualityIssue]) -> List[Recommendation]:
+        """Generate recommendations for consistency issues."""
+        recommendations = []
+        
+        for issue in issues:
+            if "case formatting" in issue.description:
+                recommendations.append(Recommendation(
+                    type="data_standardization",
+                    priority="medium",
+                    description="Standardize text formatting",
+                    implementation="Apply consistent case formatting (upper, lower, or title case)",
+                    estimated_impact=0.6,
+                    estimated_effort="low"
+                ))
+        
+        return recommendations
+    
+    def _generate_validity_recommendations(self, issues: List[QualityIssue]) -> List[Recommendation]:
+        """Generate recommendations for validity issues."""
+        recommendations = []
+        
+        for issue in issues:
+            if "Outliers detected" in issue.description:
+                recommendations.append(Recommendation(
+                    type="outlier_treatment",
+                    priority="medium",
+                    description="Address outlier values",
+                    implementation="Review outliers for validity, consider capping, transformation, or removal",
+                    estimated_impact=0.5,
+                    estimated_effort="medium"
+                ))
+        
+        return recommendations  
+  
+    def calculate_ai_readiness_score(self, dataset: Dataset, data: pd.DataFrame) -> AIReadinessScore:
+        """
+        Calculate comprehensive AI readiness score with AI-specific metrics.
+        
+        Implements AI readiness scoring algorithm as specified in requirements 1.3, 1.4, and 5.1.
+        
+        Args:
+            dataset: Dataset metadata and schema information
+            data: The actual data to assess
+            
+        Returns:
+            AIReadinessScore with detailed scoring across multiple dimensions
+        """
+        try:
+            self.logger.info(f"Calculating AI readiness score for dataset {dataset.id}")
+            
+            # Calculate base quality metrics
+            quality_report = self.assess_quality(dataset, data)
+            
+            # Calculate AI-specific metrics
+            feature_quality_score = self._calculate_feature_quality_score(data)
+            bias_score = self._calculate_bias_score(data)
+            compliance_score = self._calculate_compliance_score(data, dataset.schema)
+            scalability_score = self._calculate_scalability_score(data)
+            
+            # Calculate dimension scores with details
+            dimensions = {
+                "data_quality": DimensionScore(
+                    dimension="data_quality",
+                    score=quality_report.overall_score,
+                    weight=0.3,
+                    details={
+                        "completeness": quality_report.completeness_score,
+                        "accuracy": quality_report.accuracy_score,
+                        "consistency": quality_report.consistency_score,
+                        "validity": quality_report.validity_score
+                    }
+                ),
+                "feature_quality": DimensionScore(
+                    dimension="feature_quality",
+                    score=feature_quality_score,
+                    weight=0.25,
+                    details=self._get_feature_quality_details(data)
+                ),
+                "bias_fairness": DimensionScore(
+                    dimension="bias_fairness",
+                    score=bias_score,
+                    weight=0.2,
+                    details=self._get_bias_details(data)
+                ),
+                "compliance": DimensionScore(
+                    dimension="compliance",
+                    score=compliance_score,
+                    weight=0.15,
+                    details=self._get_compliance_details(data, dataset.schema)
+                ),
+                "scalability": DimensionScore(
+                    dimension="scalability",
+                    score=scalability_score,
+                    weight=0.1,
+                    details=self._get_scalability_details(data)
+                )
+            }
+            
+            # Calculate overall AI readiness score
+            overall_score = sum(
+                dim.score * dim.weight for dim in dimensions.values()
+            )
+            
+            # Identify improvement areas
+            improvement_areas = self._identify_improvement_areas(dimensions)
+            
+            ai_readiness_score = AIReadinessScore(
+                overall_score=overall_score,
+                data_quality_score=quality_report.overall_score,
+                feature_quality_score=feature_quality_score,
+                bias_score=bias_score,
+                compliance_score=compliance_score,
+                scalability_score=scalability_score,
+                dimensions=dimensions,
+                improvement_areas=improvement_areas
+            )
+            
+            self.logger.info(f"AI readiness score calculated: {overall_score:.3f}")
+            return ai_readiness_score
+            
+        except Exception as e:
+            self.logger.error(f"Error calculating AI readiness score: {str(e)}")
+            raise
+    
+    def _calculate_feature_quality_score(self, data: pd.DataFrame) -> float:
+        """
+        Calculate feature quality score including correlation analysis and target leakage detection.
+        
+        Implements feature correlation and target leakage detection as specified in requirement 1.3.
+        """
+        if data.empty:
+            return 0.0
+        
+        scores = []
+        
+        # Feature correlation analysis
+        correlation_score = self._analyze_feature_correlations(data)
+        scores.append(correlation_score)
+        
+        # Target leakage detection
+        leakage_score = self._detect_target_leakage(data)
+        scores.append(leakage_score)
+        
+        # Feature distribution analysis
+        distribution_score = self._analyze_feature_distributions(data)
+        scores.append(distribution_score)
+        
+        # Feature variance analysis
+        variance_score = self._analyze_feature_variance(data)
+        scores.append(variance_score)
+        
+        return np.mean(scores) if scores else 0.0
+    
+    def _analyze_feature_correlations(self, data: pd.DataFrame) -> float:
+        """Analyze feature correlations to detect multicollinearity issues."""
+        numeric_data = data.select_dtypes(include=[np.number])
+        
+        if numeric_data.shape[1] < 2:
+            return 1.0  # No correlation issues with less than 2 numeric features
+        
+        try:
+            # Calculate correlation matrix
+            corr_matrix = numeric_data.corr().abs()
+            
+            # Remove diagonal elements
+            np.fill_diagonal(corr_matrix.values, 0)
+            
+            # Count high correlations (> 0.9)
+            high_correlations = (corr_matrix > 0.9).sum().sum() / 2  # Divide by 2 for symmetry
+            total_pairs = (corr_matrix.shape[0] * (corr_matrix.shape[0] - 1)) / 2
+            
+            if total_pairs == 0:
+                return 1.0
+            
+            # Score decreases with more high correlations
+            correlation_ratio = high_correlations / total_pairs
+            return max(0.0, 1.0 - correlation_ratio)
+            
+        except Exception:
+            return 0.5  # Default score if correlation calculation fails
+    
+    def _detect_target_leakage(self, data: pd.DataFrame) -> float:
+        """
+        Detect potential target leakage by analyzing feature relationships.
+        
+        This is a simplified implementation that looks for suspicious patterns.
+        """
+        if data.empty:
+            return 1.0
+        
+        # Look for columns that might be targets or derived from targets
+        suspicious_columns = []
+        
+        for column in data.columns:
+            column_lower = column.lower()
+            
+            # Check for common target-like column names
+            target_indicators = [
+                'target', 'label', 'outcome', 'result', 'prediction',
+                'score', 'rating', 'class', 'category'
+            ]
+            
+            if any(indicator in column_lower for indicator in target_indicators):
+                suspicious_columns.append(column)
+                continue
+            
+            # Check for perfect correlations with other columns (potential leakage)
+            if data[column].dtype in [np.number]:
+                for other_column in data.select_dtypes(include=[np.number]).columns:
+                    if column != other_column:
+                        try:
+                            correlation = data[column].corr(data[other_column])
+                            if abs(correlation) > 0.99:  # Near-perfect correlation
+                                suspicious_columns.append(column)
+                                break
+                        except:
+                            continue
+        
+        # Score decreases with more suspicious columns
+        if len(data.columns) == 0:
+            return 1.0
+        
+        leakage_ratio = len(suspicious_columns) / len(data.columns)
+        return max(0.0, 1.0 - leakage_ratio)
+    
+    def _analyze_feature_distributions(self, data: pd.DataFrame) -> float:
+        """Analyze feature distributions for AI suitability."""
+        if data.empty:
+            return 0.0
+        
+        scores = []
+        
+        # Analyze numeric features
+        numeric_data = data.select_dtypes(include=[np.number])
+        for column in numeric_data.columns:
+            series = numeric_data[column].dropna()
+            if len(series) > 0:
+                # Check for reasonable variance
+                if series.std() == 0:
+                    scores.append(0.0)  # No variance is bad for ML
+                else:
+                    # Check for extreme skewness
+                    skewness = abs(stats.skew(series))
+                    skew_score = max(0.0, 1.0 - min(1.0, skewness / 3.0))
+                    scores.append(skew_score)
+        
+        # Analyze categorical features
+        categorical_data = data.select_dtypes(include=['object'])
+        for column in categorical_data.columns:
+            series = categorical_data[column].dropna()
+            if len(series) > 0:
+                # Check for reasonable number of categories
+                unique_count = series.nunique()
+                total_count = len(series)
+                
+                if unique_count == 1:
+                    scores.append(0.0)  # Single category is not useful
+                elif unique_count == total_count:
+                    scores.append(0.3)  # Too many unique values (might need encoding)
+                else:
+                    # Optimal range is 2-20 categories
+                    if 2 <= unique_count <= 20:
+                        scores.append(1.0)
+                    else:
+                        scores.append(0.7)
+        
+        return np.mean(scores) if scores else 0.5
+    
+    def _analyze_feature_variance(self, data: pd.DataFrame) -> float:
+        """Analyze feature variance to identify low-variance features."""
+        numeric_data = data.select_dtypes(include=[np.number])
+        
+        if numeric_data.empty:
+            return 1.0
+        
+        low_variance_count = 0
+        total_features = len(numeric_data.columns)
+        
+        for column in numeric_data.columns:
+            series = numeric_data[column].dropna()
+            if len(series) > 1:
+                # Normalize variance by mean to handle different scales
+                if series.mean() != 0:
+                    cv = series.std() / abs(series.mean())  # Coefficient of variation
+                    if cv < 0.01:  # Very low variance
+                        low_variance_count += 1
+                elif series.std() == 0:  # Zero variance
+                    low_variance_count += 1
+        
+        if total_features == 0:
+            return 1.0
+        
+        # Score decreases with more low-variance features
+        low_variance_ratio = low_variance_count / total_features
+        return max(0.0, 1.0 - low_variance_ratio)
+    
+    def _calculate_bias_score(self, data: pd.DataFrame) -> float:
+        """
+        Calculate bias score by detecting potential bias in the dataset.
+        
+        This is a simplified implementation that looks for statistical imbalances.
+        """
+        if data.empty:
+            return 1.0
+        
+        bias_indicators = []
+        
+        # Check for class imbalance in categorical columns
+        categorical_data = data.select_dtypes(include=['object'])
+        for column in categorical_data.columns:
+            series = categorical_data[column].dropna()
+            if len(series) > 0:
+                value_counts = series.value_counts()
+                if len(value_counts) > 1:
+                    # Calculate imbalance ratio
+                    max_count = value_counts.max()
+                    min_count = value_counts.min()
+                    imbalance_ratio = max_count / min_count
+                    
+                    # High imbalance indicates potential bias
+                    if imbalance_ratio > 10:  # 10:1 ratio threshold
+                        bias_indicators.append(0.3)  # Significant bias
+                    elif imbalance_ratio > 5:  # 5:1 ratio threshold
+                        bias_indicators.append(0.6)  # Moderate bias
+                    else:
+                        bias_indicators.append(1.0)  # Acceptable balance
+        
+        # Check for outliers in numeric columns (can indicate bias)
+        numeric_data = data.select_dtypes(include=[np.number])
+        for column in numeric_data.columns:
+            series = numeric_data[column].dropna()
+            if len(series) > 0:
+                # Use IQR method to detect outliers
+                Q1 = series.quantile(0.25)
+                Q3 = series.quantile(0.75)
+                IQR = Q3 - Q1
+                
+                if IQR > 0:
+                    outlier_count = sum((series < Q1 - 1.5 * IQR) | (series > Q3 + 1.5 * IQR))
+                    outlier_ratio = outlier_count / len(series)
+                    
+                    # High outlier ratio might indicate bias
+                    if outlier_ratio > 0.1:  # More than 10% outliers
+                        bias_indicators.append(0.7)
+                    else:
+                        bias_indicators.append(1.0)
+        
+        return np.mean(bias_indicators) if bias_indicators else 1.0
+    
+    def _calculate_compliance_score(self, data: pd.DataFrame, schema: Optional[Schema]) -> float:
+        """Calculate compliance score based on data governance requirements."""
+        if data.empty:
+            return 0.0
+        
+        compliance_scores = []
+        
+        # Check for potential PII (simplified detection)
+        pii_score = self._detect_pii_compliance(data)
+        compliance_scores.append(pii_score)
+        
+        # Check schema compliance
+        if schema:
+            schema_compliance = self._check_schema_compliance(data, schema)
+            compliance_scores.append(schema_compliance)
+        
+        # Check data format compliance
+        format_compliance = self._check_format_compliance(data)
+        compliance_scores.append(format_compliance)
+        
+        return np.mean(compliance_scores) if compliance_scores else 0.5
+    
+    def _detect_pii_compliance(self, data: pd.DataFrame) -> float:
+        """Detect potential PII and assess compliance risk."""
+        pii_indicators = [
+            'email', 'phone', 'ssn', 'social', 'address', 'name',
+            'firstname', 'lastname', 'dob', 'birthdate', 'id'
+        ]
+        
+        potential_pii_columns = []
+        
+        for column in data.columns:
+            column_lower = column.lower()
+            if any(indicator in column_lower for indicator in pii_indicators):
+                potential_pii_columns.append(column)
+                continue
+            
+            # Check data patterns for PII
+            if data[column].dtype == 'object':
+                sample_values = data[column].dropna().head(100).astype(str)
+                
+                # Email pattern
+                email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+                if any(re.match(email_pattern, str(val)) for val in sample_values):
+                    potential_pii_columns.append(column)
+                    continue
+                
+                # Phone pattern
+                phone_pattern = r'^\+?1?-?\.?\s?\(?(\d{3})\)?[\s.-]?(\d{3})[\s.-]?(\d{4})$'
+                if any(re.match(phone_pattern, str(val)) for val in sample_values):
+                    potential_pii_columns.append(column)
+        
+        # Score decreases with more potential PII
+        if len(data.columns) == 0:
+            return 1.0
+        
+        pii_ratio = len(potential_pii_columns) / len(data.columns)
+        return max(0.0, 1.0 - pii_ratio)
+    
+    def _check_schema_compliance(self, data: pd.DataFrame, schema: Schema) -> float:
+        """Check compliance with defined schema."""
+        if not schema.validate_data_types():
+            return 0.0
+        
+        compliance_scores = []
+        
+        for column, expected_type in schema.columns.items():
+            if column in data.columns:
+                # Check type compliance
+                actual_data = data[column].dropna()
+                if not actual_data.empty:
+                    type_matches = sum(1 for val in actual_data if self._value_matches_type(val, expected_type))
+                    type_compliance = type_matches / len(actual_data)
+                    compliance_scores.append(type_compliance)
+        
+        return np.mean(compliance_scores) if compliance_scores else 1.0
+    
+    def _check_format_compliance(self, data: pd.DataFrame) -> float:
+        """Check general format compliance."""
+        # This is a simplified check for common format issues
+        format_scores = []
+        
+        # Check for consistent encoding
+        for column in data.select_dtypes(include=['object']).columns:
+            series = data[column].dropna().astype(str)
+            if len(series) > 0:
+                # Check for encoding issues (simplified)
+                encoding_issues = sum(1 for val in series if any(ord(char) > 127 for char in str(val)))
+                encoding_score = 1.0 - (encoding_issues / len(series))
+                format_scores.append(encoding_score)
+        
+        return np.mean(format_scores) if format_scores else 1.0
+    
+    def _calculate_scalability_score(self, data: pd.DataFrame) -> float:
+        """Calculate scalability score based on data characteristics."""
+        if data.empty:
+            return 0.0
+        
+        scalability_factors = []
+        
+        # Data size factor
+        size_score = self._assess_data_size_scalability(data)
+        scalability_factors.append(size_score)
+        
+        # Memory efficiency factor
+        memory_score = self._assess_memory_efficiency(data)
+        scalability_factors.append(memory_score)
+        
+        # Processing complexity factor
+        complexity_score = self._assess_processing_complexity(data)
+        scalability_factors.append(complexity_score)
+        
+        return np.mean(scalability_factors) if scalability_factors else 0.5
+    
+    def _assess_data_size_scalability(self, data: pd.DataFrame) -> float:
+        """Assess scalability based on data size."""
+        row_count = len(data)
+        col_count = len(data.columns)
+        
+        # Optimal size ranges for different ML scenarios
+        if row_count < 1000:
+            size_score = 0.3  # Too small for robust ML
+        elif row_count < 10000:
+            size_score = 0.7  # Adequate for simple models
+        elif row_count < 1000000:
+            size_score = 1.0  # Good size for most ML tasks
+        else:
+            size_score = 0.8  # Large but manageable
+        
+        # Adjust for feature count
+        if col_count > 1000:
+            size_score *= 0.8  # High dimensionality penalty
+        elif col_count > 100:
+            size_score *= 0.9  # Moderate dimensionality penalty
+        
+        return size_score
+    
+    def _assess_memory_efficiency(self, data: pd.DataFrame) -> float:
+        """Assess memory efficiency of the dataset."""
+        try:
+            # Calculate memory usage
+            memory_usage = data.memory_usage(deep=True).sum()
+            
+            # Assess efficiency based on data types
+            efficiency_scores = []
+            
+            for column in data.columns:
+                if data[column].dtype == 'object':
+                    # String columns are less memory efficient
+                    unique_ratio = data[column].nunique() / len(data)
+                    if unique_ratio > 0.5:
+                        efficiency_scores.append(0.6)  # High cardinality strings
+                    else:
+                        efficiency_scores.append(0.8)  # Could be categorical
+                elif data[column].dtype in ['int64', 'float64']:
+                    # Check if smaller types could be used
+                    if data[column].dtype == 'int64':
+                        max_val = data[column].max()
+                        min_val = data[column].min()
+                        if pd.isna(max_val) or pd.isna(min_val):
+                            efficiency_scores.append(0.8)
+                        elif -32768 <= min_val and max_val <= 32767:
+                            efficiency_scores.append(0.7)  # Could use int16
+                        else:
+                            efficiency_scores.append(1.0)  # int64 needed
+                    else:
+                        efficiency_scores.append(0.9)  # float64 is reasonable
+                else:
+                    efficiency_scores.append(1.0)  # Other types are fine
+            
+            return np.mean(efficiency_scores) if efficiency_scores else 0.5
+            
+        except Exception:
+            return 0.5  # Default score if assessment fails
+    
+    def _assess_processing_complexity(self, data: pd.DataFrame) -> float:
+        """Assess processing complexity for ML algorithms."""
+        complexity_factors = []
+        
+        # Feature count complexity
+        feature_count = len(data.columns)
+        if feature_count < 10:
+            complexity_factors.append(1.0)  # Low complexity
+        elif feature_count < 100:
+            complexity_factors.append(0.9)  # Moderate complexity
+        elif feature_count < 1000:
+            complexity_factors.append(0.7)  # High complexity
+        else:
+            complexity_factors.append(0.5)  # Very high complexity
+        
+        # Data type complexity
+        object_columns = len(data.select_dtypes(include=['object']).columns)
+        if object_columns == 0:
+            complexity_factors.append(1.0)  # No text processing needed
+        else:
+            text_ratio = object_columns / len(data.columns)
+            complexity_factors.append(max(0.3, 1.0 - text_ratio))
+        
+        # Missing data complexity
+        missing_ratio = data.isnull().sum().sum() / data.size
+        complexity_factors.append(max(0.5, 1.0 - missing_ratio))
+        
+        return np.mean(complexity_factors) if complexity_factors else 0.5
+    
+    def detect_anomalies(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Detect statistical anomalies in the dataset.
+        
+        Implements statistical anomaly detection capabilities as specified in requirement 1.4.
+        """
+        if data.empty:
+            return {"anomalies": [], "anomaly_score": 1.0}
+        
+        anomalies = []
+        
+        # Detect outliers in numeric columns using Isolation Forest
+        numeric_data = data.select_dtypes(include=[np.number])
+        if not numeric_data.empty:
+            try:
+                # Use Isolation Forest for anomaly detection
+                iso_forest = IsolationForest(contamination=0.1, random_state=42)
+                outlier_predictions = iso_forest.fit_predict(numeric_data.fillna(numeric_data.mean()))
+                
+                outlier_indices = np.where(outlier_predictions == -1)[0]
+                
+                for idx in outlier_indices:
+                    anomalies.append({
+                        "type": "statistical_outlier",
+                        "row_index": int(idx),
+                        "description": f"Statistical outlier detected in row {idx}",
+                        "severity": "medium",
+                        "affected_columns": numeric_data.columns.tolist()
+                    })
+            except Exception as e:
+                self.logger.warning(f"Isolation Forest anomaly detection failed: {str(e)}")
+        
+        # Detect anomalies in categorical columns
+        categorical_data = data.select_dtypes(include=['object'])
+        for column in categorical_data.columns:
+            series = categorical_data[column].dropna()
+            if len(series) > 0:
+                value_counts = series.value_counts()
+                
+                # Detect rare categories (less than 1% of data)
+                rare_threshold = len(series) * 0.01
+                rare_values = value_counts[value_counts < rare_threshold]
+                
+                if not rare_values.empty:
+                    anomalies.append({
+                        "type": "rare_category",
+                        "column": column,
+                        "description": f"Rare categories detected in column '{column}': {list(rare_values.index)}",
+                        "severity": "low",
+                        "affected_rows": int(rare_values.sum()),
+                        "rare_values": list(rare_values.index)
+                    })
+        
+        # Calculate overall anomaly score
+        total_rows = len(data)
+        anomalous_rows = sum(
+            anomaly.get("affected_rows", 1) for anomaly in anomalies
+            if anomaly["type"] != "statistical_outlier"
+        ) + len([a for a in anomalies if a["type"] == "statistical_outlier"])
+        
+        anomaly_score = max(0.0, 1.0 - (anomalous_rows / total_rows)) if total_rows > 0 else 1.0
+        
+        return {
+            "anomalies": anomalies,
+            "anomaly_score": anomaly_score,
+            "total_anomalies": len(anomalies),
+            "anomalous_rows": anomalous_rows
+        }
+    
+    def _get_feature_quality_details(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """Get detailed feature quality information."""
+        return {
+            "correlation_analysis": self._analyze_feature_correlations(data),
+            "target_leakage_score": self._detect_target_leakage(data),
+            "distribution_score": self._analyze_feature_distributions(data),
+            "variance_score": self._analyze_feature_variance(data),
+            "numeric_features": len(data.select_dtypes(include=[np.number]).columns),
+            "categorical_features": len(data.select_dtypes(include=['object']).columns)
+        }
+    
+    def _get_bias_details(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """Get detailed bias analysis information."""
+        categorical_data = data.select_dtypes(include=['object'])
+        imbalance_info = {}
+        
+        for column in categorical_data.columns:
+            series = categorical_data[column].dropna()
+            if len(series) > 0:
+                value_counts = series.value_counts()
+                if len(value_counts) > 1:
+                    max_count = value_counts.max()
+                    min_count = value_counts.min()
+                    imbalance_ratio = max_count / min_count
+                    imbalance_info[column] = {
+                        "imbalance_ratio": float(imbalance_ratio),
+                        "categories": len(value_counts),
+                        "most_common": value_counts.index[0],
+                        "least_common": value_counts.index[-1]
+                    }
+        
+        return {
+            "overall_bias_score": self._calculate_bias_score(data),
+            "class_imbalance": imbalance_info,
+            "categorical_columns_analyzed": len(categorical_data.columns)
+        }
+    
+    def _get_compliance_details(self, data: pd.DataFrame, schema: Optional[Schema]) -> Dict[str, Any]:
+        """Get detailed compliance information."""
+        return {
+            "pii_compliance_score": self._detect_pii_compliance(data),
+            "schema_compliance_score": self._check_schema_compliance(data, schema) if schema else None,
+            "format_compliance_score": self._check_format_compliance(data),
+            "potential_pii_columns": self._identify_potential_pii_columns(data)
+        }
+    
+    def _identify_potential_pii_columns(self, data: pd.DataFrame) -> List[str]:
+        """Identify columns that might contain PII."""
+        pii_indicators = [
+            'email', 'phone', 'ssn', 'social', 'address', 'name',
+            'firstname', 'lastname', 'dob', 'birthdate', 'id'
+        ]
+        
+        potential_pii = []
+        for column in data.columns:
+            column_lower = column.lower()
+            if any(indicator in column_lower for indicator in pii_indicators):
+                potential_pii.append(column)
+        
+        return potential_pii
+    
+    def _get_scalability_details(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """Get detailed scalability information."""
+        return {
+            "data_size_score": self._assess_data_size_scalability(data),
+            "memory_efficiency_score": self._assess_memory_efficiency(data),
+            "processing_complexity_score": self._assess_processing_complexity(data),
+            "row_count": len(data),
+            "column_count": len(data.columns),
+            "memory_usage_mb": data.memory_usage(deep=True).sum() / (1024 * 1024)
+        }
+    
+    def _identify_improvement_areas(self, dimensions: Dict[str, DimensionScore]) -> List[ImprovementArea]:
+        """Identify areas for improvement based on dimension scores."""
+        improvement_areas = []
+        
+        for dim_name, dim_score in dimensions.items():
+            if dim_score.score < 0.8:  # Threshold for improvement
+                priority = "high" if dim_score.score < 0.5 else "medium"
+                target_score = min(1.0, dim_score.score + 0.2)
+                
+                actions = self._get_improvement_actions(dim_name, dim_score.score)
+                
+                improvement_areas.append(ImprovementArea(
+                    area=dim_name,
+                    current_score=dim_score.score,
+                    target_score=target_score,
+                    priority=priority,
+                    actions=actions
+                ))
+        
+        return improvement_areas
+    
+    def _get_improvement_actions(self, dimension: str, score: float) -> List[str]:
+        """Get specific improvement actions for a dimension."""
+        actions = []
+        
+        if dimension == "data_quality":
+            if score < 0.5:
+                actions.extend([
+                    "Address missing values through imputation or collection",
+                    "Validate and correct data accuracy issues",
+                    "Standardize data formats for consistency"
+                ])
+            else:
+                actions.extend([
+                    "Fine-tune data validation rules",
+                    "Implement automated quality monitoring"
+                ])
+        
+        elif dimension == "feature_quality":
+            if score < 0.5:
+                actions.extend([
+                    "Remove highly correlated features",
+                    "Address potential target leakage",
+                    "Transform skewed distributions"
+                ])
+            else:
+                actions.extend([
+                    "Optimize feature selection",
+                    "Consider feature engineering techniques"
+                ])
+        
+        elif dimension == "bias_fairness":
+            if score < 0.5:
+                actions.extend([
+                    "Address class imbalance through sampling techniques",
+                    "Investigate potential bias sources",
+                    "Implement fairness constraints"
+                ])
+            else:
+                actions.extend([
+                    "Monitor for emerging bias patterns",
+                    "Validate fairness metrics"
+                ])
+        
+        elif dimension == "compliance":
+            if score < 0.5:
+                actions.extend([
+                    "Implement PII detection and anonymization",
+                    "Ensure schema compliance",
+                    "Address data governance requirements"
+                ])
+            else:
+                actions.extend([
+                    "Maintain compliance monitoring",
+                    "Update governance policies as needed"
+                ])
+        
+        elif dimension == "scalability":
+            if score < 0.5:
+                actions.extend([
+                    "Optimize data types for memory efficiency",
+                    "Consider data sampling strategies",
+                    "Implement distributed processing"
+                ])
+            else:
+                actions.extend([
+                    "Monitor performance metrics",
+                    "Plan for data growth"
+                ])
+        
+        return actions   
+ def calculate_ai_readiness_score(self, dataset: Dataset, data: pd.DataFrame) -> AIReadinessScore:
+        """
+        Calculate comprehensive AI readiness score with AI-specific metrics.
+        
+        Implements AI readiness scoring algorithm as specified in requirements 1.3, 1.4, and 5.1.
+        """
+        # Get base quality report first
+        quality_report = self.assess_quality(dataset, data)
+        
+        # Use AI metrics engine to calculate AI readiness score
+        return self.ai_metrics.calculate_ai_readiness_score(dataset, data, quality_report)
+    
+    def detect_anomalies(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Detect statistical anomalies in the dataset.
+        
+        Implements statistical anomaly detection capabilities as specified in requirement 1.4.
+        """
+        return self.ai_metrics.detect_anomalies(data)    d
+ef assess_quality_dataframe(self, data: pd.DataFrame) -> Dict[str, Any]:
+        """
+        Assess quality of a DataFrame for streaming processing.
+        
+        This method provides a simplified quality assessment suitable for
+        real-time streaming data processing.
+        
+        Args:
+            data: DataFrame to assess
+            
+        Returns:
+            Dictionary containing quality metrics and overall score
+        """
+        try:
+            if data.empty:
+                return {
+                    'overall_score': 0.0,
+                    'completeness_score': 0.0,
+                    'accuracy_score': 0.0,
+                    'consistency_score': 0.0,
+                    'validity_score': 0.0,
+                    'record_count': 0
+                }
+            
+            # Calculate basic quality metrics
+            completeness = self._calculate_completeness(data)
+            accuracy = self._calculate_accuracy(data, None)  # No schema for streaming
+            consistency = self._calculate_consistency(data, None)
+            validity = self._calculate_validity(data, None)
+            
+            # Calculate overall score
+            overall_score = (completeness + accuracy + consistency + validity) / 4
+            
+            return {
+                'overall_score': overall_score,
+                'completeness_score': completeness,
+                'accuracy_score': accuracy,
+                'consistency_score': consistency,
+                'validity_score': validity,
+                'record_count': len(data),
+                'column_count': len(data.columns),
+                'missing_values': data.isnull().sum().sum(),
+                'duplicate_rows': data.duplicated().sum()
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error in streaming quality assessment: {str(e)}")
+            return {
+                'overall_score': 0.0,
+                'completeness_score': 0.0,
+                'accuracy_score': 0.0,
+                'consistency_score': 0.0,
+                'validity_score': 0.0,
+                'record_count': len(data) if not data.empty else 0,
+                'error': str(e)
+            }

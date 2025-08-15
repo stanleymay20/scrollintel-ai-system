@@ -1,0 +1,542 @@
+{
+  "report_metadata": {
+    "dataset_id": "customer_transactions_2024",
+    "generated_at": "2025-08-11T02:16:16.054335",
+    "report_version": "1.0",
+    "generator": "AI Data Readiness Platform"
+  },
+  "sections": {
+    "Executive Summary": {
+      "overall_assessment": "Good",
+      "status_color": "yellow",
+      "data_quality_score": 0.62,
+      "ai_readiness_score": 0.69,
+      "key_findings": [
+        "Significant data completeness issues detected",
+        "Data consistency issues may impact model performance"
+      ],
+      "critical_actions_needed": [
+        "Address high missing rate in customer_id",
+        "Remove duplicate records",
+        "Address highly correlated features"
+      ],
+      "total_issues": 4,
+      "high_priority_issues": 2,
+      "recommendations_provided": 4,
+      "estimated_improvement_time": "1-2 months"
+    },
+    "Data Quality Overview": {
+      "overall_score": {
+        "value": 0.62,
+        "grade": "D",
+        "interpretation": "Fair - Dataset requires some improvements"
+      },
+      "dimension_scores": {
+        "completeness": {
+          "score": 0.65,
+          "grade": "D",
+          "description": "Measures the extent to which data is present and not missing"
+        },
+        "accuracy": {
+          "score": 0.78,
+          "grade": "C",
+          "description": "Measures correctness and validity of data values"
+        },
+        "consistency": {
+          "score": 0.52,
+          "grade": "F",
+          "description": "Measures uniformity and coherence across the dataset"
+        },
+        "validity": {
+          "score": 0.73,
+          "grade": "C",
+          "description": "Measures adherence to defined formats and constraints"
+        }
+      },
+      "quality_trends": {
+        "completeness": "Stable",
+        "accuracy": "Improving",
+        "consistency": "Declining",
+        "overall": "Stable"
+      },
+      "benchmark_comparison": {
+        "industry_average": 0.72,
+        "your_score": 0.62,
+        "percentile": 62,
+        "comparison": "Below Average"
+      }
+    },
+    "AI Readiness Assessment": {
+      "overall_readiness": {
+        "score": 0.69,
+        "grade": "D",
+        "readiness_level": "Development Ready"
+      },
+      "dimension_analysis": {
+        "data_quality": {
+          "score": 0.62,
+          "impact": "High - Fundamental requirement for AI success"
+        },
+        "feature_quality": {
+          "score": 0.7,
+          "impact": "High - Directly affects model performance"
+        },
+        "bias_assessment": {
+          "score": 0.75,
+          "impact": "Critical - Affects model fairness and compliance"
+        },
+        "compliance": {
+          "score": 0.68,
+          "impact": "High - Required for production deployment"
+        },
+        "scalability": {
+          "score": 0.8,
+          "impact": "Medium - Important for production systems"
+        }
+      },
+      "improvement_areas": [
+        {
+          "area": "Data Completeness",
+          "current_score": 0.65,
+          "target_score": 0.9,
+          "priority": "High",
+          "estimated_effort": "High"
+        },
+        {
+          "area": "Feature Engineering",
+          "current_score": 0.7,
+          "target_score": 0.85,
+          "priority": "Medium",
+          "estimated_effort": "Medium"
+        },
+        {
+          "area": "Bias Mitigation",
+          "current_score": 0.75,
+          "target_score": 0.9,
+          "priority": "High",
+          "estimated_effort": "Medium"
+        }
+      ],
+      "model_suitability": {
+        "supervised_learning": "Needs Improvement",
+        "unsupervised_learning": "Suitable",
+        "deep_learning": "Needs Improvement",
+        "production_deployment": "Not Ready"
+      }
+    },
+    "Detailed Issues Analysis": {
+      "total_issues": 4,
+      "severity_distribution": {
+        "high": 2,
+        "medium": 2,
+        "low": 0
+      },
+      "category_analysis": {
+        "completeness": {
+          "total_issues": 1,
+          "severity_breakdown": {
+            "high": 1,
+            "medium": 0,
+            "low": 0
+          },
+          "affected_columns": [
+            "customer_id"
+          ],
+          "most_critical": [
+            {
+              "column": "customer_id",
+              "issue_type": "missing_values",
+              "description": "Critical customer data missing",
+              "affected_percentage": 0.35
+            }
+          ]
+        },
+        "accuracy": {
+          "total_issues": 1,
+          "severity_breakdown": {
+            "high": 0,
+            "medium": 1,
+            "low": 0
+          },
+          "affected_columns": [
+            "phone_number"
+          ],
+          "most_critical": [
+            {
+              "column": "phone_number",
+              "issue_type": "format_inconsistency",
+              "description": "Phone number format inconsistencies",
+              "affected_percentage": 0.12
+            }
+          ]
+        },
+        "consistency": {
+          "total_issues": 1,
+          "severity_breakdown": {
+            "high": 1,
+            "medium": 0,
+            "low": 0
+          },
+          "affected_columns": [
+            "customer_id"
+          ],
+          "most_critical": [
+            {
+              "column": "customer_id",
+              "issue_type": "duplicate_records",
+              "description": "Duplicate customer records detected",
+              "affected_percentage": 0.08
+            }
+          ]
+        },
+        "validity": {
+          "total_issues": 1,
+          "severity_breakdown": {
+            "high": 0,
+            "medium": 1,
+            "low": 0
+          },
+          "affected_columns": [
+            "transaction_date"
+          ],
+          "most_critical": [
+            {
+              "column": "transaction_date",
+              "issue_type": "invalid_format",
+              "description": "Invalid date formats in transaction data",
+              "affected_percentage": 0.045
+            }
+          ]
+        }
+      },
+      "critical_issues": [
+        {
+          "column": "customer_id",
+          "category": "completeness",
+          "issue_type": "missing_values",
+          "severity": "high",
+          "description": "Critical customer data missing",
+          "affected_percentage": 0.35,
+          "impact_assessment": "Critical - Will significantly impact model performance"
+        },
+        {
+          "column": "phone_number",
+          "category": "accuracy",
+          "issue_type": "format_inconsistency",
+          "severity": "medium",
+          "description": "Phone number format inconsistencies",
+          "affected_percentage": 0.12,
+          "impact_assessment": "Medium - Could affect model accuracy"
+        },
+        {
+          "column": "customer_id",
+          "category": "consistency",
+          "issue_type": "duplicate_records",
+          "severity": "high",
+          "description": "Duplicate customer records detected",
+          "affected_percentage": 0.08,
+          "impact_assessment": "High - May cause model training issues"
+        },
+        {
+          "column": "transaction_date",
+          "category": "validity",
+          "issue_type": "invalid_format",
+          "severity": "medium",
+          "description": "Invalid date formats in transaction data",
+          "affected_percentage": 0.045,
+          "impact_assessment": "Medium - Could affect model accuracy"
+        }
+      ],
+      "resolution_complexity": {
+        "simple": 0,
+        "moderate": 2,
+        "complex": 2
+      }
+    },
+    "Recommendations & Action Plan": {
+      "improvement_roadmap": {
+        "immediate_actions": [
+          "Recommendation(id='completeness_customer_id_1754871376.054082', type=<RecommendationType.DATA_COLLECTION: 'data_collection'>, priority=<RecommendationPriority.HIGH: 'HIGH'>, title='Address high missing rate in customer_id', description='Column customer_id has 35.0% missing values', action_items=['Investigate data collection process for this column', 'Consider imputation strategies (mean, median, mode)', 'Evaluate impact on model performance', 'Consider removing column if not critical'], estimated_impact='High - Missing data can significantly impact model performance', implementation_effort='Medium', affected_columns=['customer_id'], category='completeness', priority_score=12.12)",
+          "Recommendation(id='consistency_customer_id_1754871376.05411', type=<RecommendationType.DATA_CLEANING: 'data_cleaning'>, priority=<RecommendationPriority.HIGH: 'HIGH'>, title='Remove duplicate records', description='Duplicate records detected affecting customer_id', action_items=['Implement deduplication logic', 'Define record matching criteria', 'Review data collection processes', 'Add unique constraints where appropriate'], estimated_impact='High - Duplicates can bias model training', implementation_effort='Medium', affected_columns=['customer_id'], category='consistency', priority_score=10.1)",
+          "Recommendation(id='ai_readiness_correlation_1754871376.054118', type=<RecommendationType.FEATURE_ENGINEERING: 'feature_engineering'>, priority=<RecommendationPriority.HIGH: 'HIGH'>, title='Address highly correlated features', description='Found 2 highly correlated feature pairs', action_items=['Remove redundant highly correlated features', 'Apply dimensionality reduction (PCA, LDA)', 'Consider feature selection techniques', 'Evaluate feature importance'], estimated_impact='High - Multicollinearity can affect model performance', implementation_effort='Medium', affected_columns=['purchase_amount', 'total_spent', 'age', 'years_as_customer'], category='ai_readiness', priority_score=9.360000000000001)"
+        ],
+        "short_term_improvements": [
+          "Recommendation(id='accuracy_phone_number_1754871376.054103', type=<RecommendationType.DATA_STANDARDIZATION: 'data_standardization'>, priority=<RecommendationPriority.MEDIUM: 'MEDIUM'>, title='Standardize format in phone_number', description='Format inconsistencies detected in phone_number', action_items=['Define standard format rules', 'Implement format normalization', 'Add format validation checks'], estimated_impact='Medium - Format issues can affect feature engineering', implementation_effort='Low', affected_columns=['phone_number'], category='accuracy', priority_score=5.1)"
+        ],
+        "long_term_enhancements": [],
+        "estimated_timeline": {
+          "immediate_actions": "1-2 weeks",
+          "short_term_improvements": "1-2 months",
+          "long_term_enhancements": "3-6 months"
+        },
+        "resource_requirements": {
+          "total_recommendations": 4,
+          "effort_distribution": {
+            "Medium": 3,
+            "Low": 1
+          },
+          "estimated_person_weeks": 6.5
+        }
+      },
+      "recommendations_by_priority": {
+        "high": [
+          {
+            "title": "Address high missing rate in customer_id",
+            "description": "Column customer_id has 35.0% missing values",
+            "priority": "HIGH",
+            "type": "data_collection",
+            "action_items": [
+              "Investigate data collection process for this column",
+              "Consider imputation strategies (mean, median, mode)",
+              "Evaluate impact on model performance",
+              "Consider removing column if not critical"
+            ],
+            "estimated_impact": "High - Missing data can significantly impact model performance",
+            "implementation_effort": "Medium",
+            "affected_columns": [
+              "customer_id"
+            ],
+            "category": "completeness"
+          },
+          {
+            "title": "Remove duplicate records",
+            "description": "Duplicate records detected affecting customer_id",
+            "priority": "HIGH",
+            "type": "data_cleaning",
+            "action_items": [
+              "Implement deduplication logic",
+              "Define record matching criteria",
+              "Review data collection processes",
+              "Add unique constraints where appropriate"
+            ],
+            "estimated_impact": "High - Duplicates can bias model training",
+            "implementation_effort": "Medium",
+            "affected_columns": [
+              "customer_id"
+            ],
+            "category": "consistency"
+          },
+          {
+            "title": "Address highly correlated features",
+            "description": "Found 2 highly correlated feature pairs",
+            "priority": "HIGH",
+            "type": "feature_engineering",
+            "action_items": [
+              "Remove redundant highly correlated features",
+              "Apply dimensionality reduction (PCA, LDA)",
+              "Consider feature selection techniques",
+              "Evaluate feature importance"
+            ],
+            "estimated_impact": "High - Multicollinearity can affect model performance",
+            "implementation_effort": "Medium",
+            "affected_columns": [
+              "purchase_amount",
+              "total_spent",
+              "age",
+              "years_as_customer"
+            ],
+            "category": "ai_readiness"
+          }
+        ],
+        "medium": [
+          {
+            "title": "Standardize format in phone_number",
+            "description": "Format inconsistencies detected in phone_number",
+            "priority": "MEDIUM",
+            "type": "data_standardization",
+            "action_items": [
+              "Define standard format rules",
+              "Implement format normalization",
+              "Add format validation checks"
+            ],
+            "estimated_impact": "Medium - Format issues can affect feature engineering",
+            "implementation_effort": "Low",
+            "affected_columns": [
+              "phone_number"
+            ],
+            "category": "accuracy"
+          }
+        ],
+        "low": []
+      },
+      "recommendations_by_type": {
+        "data_collection": [
+          {
+            "title": "Address high missing rate in customer_id",
+            "description": "Column customer_id has 35.0% missing values",
+            "priority": "HIGH",
+            "type": "data_collection",
+            "action_items": [
+              "Investigate data collection process for this column",
+              "Consider imputation strategies (mean, median, mode)",
+              "Evaluate impact on model performance",
+              "Consider removing column if not critical"
+            ],
+            "estimated_impact": "High - Missing data can significantly impact model performance",
+            "implementation_effort": "Medium",
+            "affected_columns": [
+              "customer_id"
+            ],
+            "category": "completeness"
+          }
+        ],
+        "data_cleaning": [
+          {
+            "title": "Remove duplicate records",
+            "description": "Duplicate records detected affecting customer_id",
+            "priority": "HIGH",
+            "type": "data_cleaning",
+            "action_items": [
+              "Implement deduplication logic",
+              "Define record matching criteria",
+              "Review data collection processes",
+              "Add unique constraints where appropriate"
+            ],
+            "estimated_impact": "High - Duplicates can bias model training",
+            "implementation_effort": "Medium",
+            "affected_columns": [
+              "customer_id"
+            ],
+            "category": "consistency"
+          }
+        ],
+        "feature_engineering": [
+          {
+            "title": "Address highly correlated features",
+            "description": "Found 2 highly correlated feature pairs",
+            "priority": "HIGH",
+            "type": "feature_engineering",
+            "action_items": [
+              "Remove redundant highly correlated features",
+              "Apply dimensionality reduction (PCA, LDA)",
+              "Consider feature selection techniques",
+              "Evaluate feature importance"
+            ],
+            "estimated_impact": "High - Multicollinearity can affect model performance",
+            "implementation_effort": "Medium",
+            "affected_columns": [
+              "purchase_amount",
+              "total_spent",
+              "age",
+              "years_as_customer"
+            ],
+            "category": "ai_readiness"
+          }
+        ],
+        "data_standardization": [
+          {
+            "title": "Standardize format in phone_number",
+            "description": "Format inconsistencies detected in phone_number",
+            "priority": "MEDIUM",
+            "type": "data_standardization",
+            "action_items": [
+              "Define standard format rules",
+              "Implement format normalization",
+              "Add format validation checks"
+            ],
+            "estimated_impact": "Medium - Format issues can affect feature engineering",
+            "implementation_effort": "Low",
+            "affected_columns": [
+              "phone_number"
+            ],
+            "category": "accuracy"
+          }
+        ]
+      },
+      "implementation_guidance": {
+        "getting_started": [
+          "Review high-priority recommendations first",
+          "Assess resource requirements and timeline",
+          "Create implementation plan with milestones",
+          "Set up monitoring for progress tracking"
+        ],
+        "best_practices": [
+          "Implement changes incrementally",
+          "Test impact of each change",
+          "Document all modifications",
+          "Maintain data backups during changes"
+        ],
+        "common_pitfalls": [
+          "Trying to fix all issues simultaneously",
+          "Not validating changes before deployment",
+          "Ignoring downstream system impacts",
+          "Insufficient testing of data transformations"
+        ]
+      },
+      "success_metrics": {
+        "quality_improvement_targets": {
+          "overall_score_increase": 0.2,
+          "completeness_target": 0.9,
+          "accuracy_target": 0.85,
+          "consistency_target": 0.8
+        },
+        "implementation_metrics": {
+          "recommendations_completed": 0,
+          "high_priority_resolved": 0,
+          "estimated_completion_date": "TBD"
+        },
+        "business_impact_metrics": [
+          "Model performance improvement",
+          "Data processing efficiency gains",
+          "Compliance risk reduction",
+          "Time to model deployment"
+        ]
+      }
+    },
+    "Data Profiling Results": {
+      "dataset_overview": {
+        "total_records": "N/A",
+        "total_columns": "N/A",
+        "data_size": "N/A",
+        "last_updated": "N/A"
+      },
+      "column_analysis": {},
+      "statistical_summary": {},
+      "data_types_distribution": {},
+      "missing_data_patterns": {},
+      "outlier_analysis": {}
+    },
+    "Compliance & Governance": {
+      "privacy_assessment": {
+        "pii_detected": [
+          "customer_id",
+          "email",
+          "phone_number",
+          "ssn"
+        ],
+        "sensitive_data_risk": "Medium",
+        "anonymization_required": true
+      },
+      "regulatory_compliance": {
+        "gdpr_compliance": "Unknown",
+        "ccpa_compliance": "Unknown",
+        "industry_standards": {}
+      },
+      "governance_metrics": {
+        "data_lineage_available": false,
+        "documentation_completeness": 0.0,
+        "access_controls": false
+      }
+    }
+  },
+  "summary_metrics": {
+    "overall_health": {
+      "data_quality": 0.62,
+      "ai_readiness": 0.69,
+      "combined_score": 0.66
+    },
+    "key_indicators": {
+      "ready_for_ai": false,
+      "requires_immediate_attention": false,
+      "production_ready": false,
+      "compliance_ready": false
+    },
+    "improvement_potential": {
+      "quick_wins_available": false,
+      "major_improvements_needed": false,
+      "estimated_improvement_score": 0.9199999999999999
+    }
+  },
+  "recommendations_count": 4,
+  "critical_issues_count": 2
+}

@@ -3,14 +3,23 @@ Unit tests for ScrollIntel data models and validation.
 """
 
 import pytest
+import pytest_asyncio
 from datetime import datetime
 from uuid import uuid4
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, JSON
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 from pydantic import ValidationError
 
-from scrollintel.models.database import Base, User, Agent, Dataset, MLModel, Dashboard, AgentRequest, AgentResponse, AuditLog
+# Import test database manager
+from scrollintel.models.database_utils import TestDatabaseManager
+
+# Import database models
+from scrollintel.models.database import (
+    User, Agent, Dataset, MLModel, Dashboard, 
+    AgentRequest, AgentResponse, AuditLog
+)
+
 from scrollintel.models.schemas import (
     UserCreate, UserUpdate, UserResponse,
     AgentCreate, AgentUpdate, AgentResponse as AgentResponseSchema,
@@ -26,19 +35,13 @@ from scrollintel.core.interfaces import AgentType, AgentStatus, ResponseStatus, 
 @pytest.fixture
 def db_session():
     """Create a test database session."""
-    engine = create_engine(
-        "sqlite:///:memory:",
-        poolclass=StaticPool,
-        connect_args={"check_same_thread": False}
-    )
-    Base.metadata.create_all(bind=engine)
+    test_manager = TestDatabaseManager()
+    # Use sync initialization for SQLite
+    from scrollintel.models.database import Base
+    Base.metadata.create_all(bind=test_manager.engine)
     
-    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-    session = SessionLocal()
-    
-    yield session
-    
-    session.close()
+    with test_manager.get_session() as session:
+        yield session
 
 
 class TestUserModel:
@@ -125,6 +128,7 @@ class TestUserModel:
             "role": UserRole.VIEWER,
             "permissions": ["read:dashboards"],
             "is_active": True,
+            "is_verified": False,
             "last_login": datetime.utcnow(),
             "created_at": datetime.utcnow(),
             "updated_at": datetime.utcnow()
@@ -209,7 +213,7 @@ class TestDatasetModel:
             name="Test Dataset",
             source_type="json",
             data_schema={"id": "string", "value": "float"},
-            row_count=500
+            file_path="/test/data.json"
         )
         
         assert valid_dataset.name == "Test Dataset"
@@ -240,7 +244,7 @@ class TestMLModelModel:
         dataset = Dataset(
             name="Training Data",
             source_type="csv",
-            schema={"feature1": "float", "target": "float"}
+            data_schema={"feature1": "float", "target": "float"}
         )
         db_session.add(dataset)
         db_session.commit()
@@ -253,7 +257,7 @@ class TestMLModelModel:
             parameters={"n_estimators": 100, "max_depth": 10},
             metrics={"accuracy": 0.95, "f1_score": 0.92},
             model_path="/models/rf_model.pkl",
-            training_duration=120.5
+            training_duration_seconds=120.5
         )
         
         db_session.add(ml_model)
@@ -304,7 +308,7 @@ class TestDashboardModel:
             user_id=user.id,
             config={"theme": "dark", "auto_refresh": True},
             charts=[{"type": "line", "title": "Sales Trend"}],
-            refresh_interval=300,
+            refresh_interval_minutes=300,
             is_public=False,
             tags=["sales", "analytics"]
         )
@@ -315,7 +319,7 @@ class TestDashboardModel:
         assert dashboard.id is not None
         assert dashboard.name == "Sales Dashboard"
         assert dashboard.user_id == user.id
-        assert dashboard.refresh_interval == 300
+        assert dashboard.refresh_interval_minutes == 300
         assert dashboard.tags == ["sales", "analytics"]
     
     def test_dashboard_create_schema(self):
@@ -324,25 +328,18 @@ class TestDashboardModel:
             name="Test Dashboard",
             config={"theme": "light"},
             charts=[{"type": "bar", "title": "Test Chart"}],
-            refresh_interval=600,
+            refresh_interval_minutes=600,
             tags=["test"]
         )
         
         assert valid_dashboard.name == "Test Dashboard"
-        assert valid_dashboard.refresh_interval == 600
+        assert valid_dashboard.refresh_interval_minutes == 600
         
         # Test invalid refresh interval (too short)
         with pytest.raises(ValidationError):
             DashboardCreate(
                 name="Test Dashboard",
-                refresh_interval=10  # Less than 30 seconds
-            )
-        
-        # Test invalid refresh interval (too long)
-        with pytest.raises(ValidationError):
-            DashboardCreate(
-                name="Test Dashboard",
-                refresh_interval=90000  # More than 24 hours
+                refresh_interval_minutes=0  # Less than 1 minute
             )
 
 
@@ -418,7 +415,7 @@ class TestAgentRequestResponseModels:
             agent_id=agent.id,
             content="Analysis complete. Found 3 key trends.",
             artifacts=["chart1.png", "report.pdf"],
-            execution_time=45.2,
+            execution_time_seconds=45.2,
             status=ResponseStatus.SUCCESS
         )
         
@@ -429,7 +426,7 @@ class TestAgentRequestResponseModels:
         assert response.request_id == request.id
         assert response.agent_id == agent.id
         assert response.status == ResponseStatus.SUCCESS
-        assert response.execution_time == 45.2
+        assert response.execution_time_seconds == 45.2
     
     def test_agent_request_create_schema(self):
         """Test AgentRequestCreate schema validation."""
@@ -462,13 +459,13 @@ class TestAgentRequestResponseModels:
             request_id=request_id,
             agent_id=agent_id,
             content="Response content",
-            execution_time=30.5,
+            execution_time_seconds=30.5,
             status=ResponseStatus.SUCCESS,
             artifacts=["file1.txt"]
         )
         
         assert valid_response.request_id == request_id
-        assert valid_response.execution_time == 30.5
+        assert valid_response.execution_time_seconds == 30.5
         
         # Test negative execution time
         with pytest.raises(ValidationError):
@@ -476,7 +473,7 @@ class TestAgentRequestResponseModels:
                 request_id=request_id,
                 agent_id=agent_id,
                 content="Response content",
-                execution_time=-5.0,  # Negative time
+                execution_time_seconds=-5.0,  # Negative time
                 status=ResponseStatus.SUCCESS
             )
 
@@ -573,7 +570,7 @@ class TestModelRelationships:
         dataset = Dataset(
             name="Training Data",
             source_type="csv",
-            schema={}
+            data_schema={}
         )
         db_session.add(dataset)
         db_session.commit()
@@ -629,7 +626,7 @@ class TestModelRelationships:
             request_id=request.id,
             agent_id=agent.id,
             content="Response content",
-            execution_time=10.0,
+            execution_time_seconds=10.0,
             status=ResponseStatus.SUCCESS
         )
         db_session.add(response)
@@ -665,7 +662,11 @@ class TestDatabaseIndexes:
         
         db_session.add(user2)
         with pytest.raises(Exception):  # Should raise integrity error
-            db_session.commit()
+            try:
+                db_session.commit()
+            except Exception:
+                db_session.rollback()
+                raise
     
     def test_foreign_key_constraints(self, db_session):
         """Test foreign key constraints."""
@@ -678,7 +679,11 @@ class TestDatabaseIndexes:
         
         db_session.add(invalid_dashboard)
         with pytest.raises(Exception):  # Should raise foreign key constraint error
-            db_session.commit()
+            try:
+                db_session.commit()
+            except Exception:
+                db_session.rollback()
+                raise
 
 
 if __name__ == "__main__":

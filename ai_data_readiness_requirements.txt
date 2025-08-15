@@ -1,0 +1,59 @@
+# AI Data Readiness Platform Requirements
+
+# Core dependencies
+sqlalchemy>=1.4.0
+alembic>=1.8.0
+psycopg2-binary>=2.9.0
+pandas>=1.5.0
+numpy>=1.21.0
+scipy>=1.9.0
+scikit-learn>=1.1.0
+
+# Data processing and analysis
+pyarrow>=9.0.0
+fastparquet>=0.8.0
+openpyxl>=3.0.0
+xlrd>=2.0.0
+
+# Statistical analysis and drift detection
+statsmodels>=0.13.0
+seaborn>=0.11.0
+matplotlib>=3.5.0
+
+# API and web framework
+fastapi>=0.85.0
+uvicorn>=0.18.0
+pydantic>=1.10.0
+python-multipart>=0.0.5
+
+# Async and concurrency
+asyncio-mqtt>=0.11.0
+celery>=5.2.0
+redis>=4.3.0
+
+# Monitoring and logging
+prometheus-client>=0.14.0
+structlog>=22.1.0
+
+# Configuration and environment
+python-dotenv>=0.20.0
+pyyaml>=6.0
+
+# Testing
+pytest>=7.1.0
+pytest-asyncio>=0.19.0
+pytest-cov>=3.0.0
+factory-boy>=3.2.0
+
+# Development tools
+black>=22.6.0
+flake8>=5.0.0
+mypy>=0.971
+pre-commit>=2.20.0
+
+# Optional: Advanced ML libraries
+# xgboost>=1.6.0
+# lightgbm>=3.3.0
+# catboost>=1.0.0
+# tensorflow>=2.9.0
+# torch>=1.12.0

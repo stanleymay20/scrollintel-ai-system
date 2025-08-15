@@ -1,0 +1,185 @@
+# ScrollIntel Alert Rules Configuration
+# Prometheus alerting rules for comprehensive monitoring
+
+groups:
+  - name: scrollintel.system
+    rules:
+      - alert: HighCPUUsage
+        expr: scrollintel_system_cpu_percent > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High CPU usage detected"
+          description: "CPU usage is {{ $value }}% for more than 5 minutes"
+
+      - alert: CriticalCPUUsage
+        expr: scrollintel_system_cpu_percent > 95
+        for: 1m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical CPU usage detected"
+          description: "CPU usage is {{ $value }}% for more than 1 minute"
+
+      - alert: HighMemoryUsage
+        expr: scrollintel_system_memory_percent > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+        annotations:
+          summary: "High memory usage detected"
+          description: "Memory usage is {{ $value }}% for more than 5 minutes"
+
+      - alert: CriticalMemoryUsage
+        expr: scrollintel_system_memory_percent > 95
+        for: 1m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Critical memory usage detected"
+          description: "Memory usage is {{ $value }}% for more than 1 minute"
+
+      - alert: HighDiskUsage
+        expr: scrollintel_system_disk_percent > 90
+        for: 0m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "High disk usage detected"
+          description: "Disk usage is {{ $value }}%"
+
+  - name: scrollintel.application
+    rules:
+      - alert: HighErrorRate
+        expr: rate(scrollintel_errors_total[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+          component: application
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for more than 3 minutes"
+
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(scrollintel_request_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: application
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value }}s for more than 5 minutes"
+
+      - alert: AgentFailureRate
+        expr: rate(scrollintel_agent_requests_total{status="error"}[5m]) / rate(scrollintel_agent_requests_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          component: agents
+        annotations:
+          summary: "High agent failure rate"
+          description: "Agent failure rate is {{ $value | humanizePercentage }} for more than 2 minutes"
+
+  - name: scrollintel.database
+    rules:
+      - alert: HighDatabaseConnections
+        expr: scrollintel_db_connections > 100
+        for: 1m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "High database connection count"
+          description: "Database connections: {{ $value }}"
+
+      - alert: LowCacheHitRatio
+        expr: scrollintel_db_cache_hit_ratio < 95
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "Low database cache hit ratio"
+          description: "Cache hit ratio is {{ $value }}% for more than 5 minutes"
+
+      - alert: SlowQueries
+        expr: scrollintel_db_slow_queries > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: database
+        annotations:
+          summary: "High number of slow queries"
+          description: "{{ $value }} slow queries detected"
+
+  - name: scrollintel.agents
+    rules:
+      - alert: AgentDown
+        expr: up{job="scrollintel-backend"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: agents
+        annotations:
+          summary: "ScrollIntel agent is down"
+          description: "ScrollIntel backend service is not responding"
+
+      - alert: HighAgentProcessingTime
+        expr: histogram_quantile(0.95, rate(scrollintel_agent_processing_seconds_bucket[5m])) > 30
+        for: 3m
+        labels:
+          severity: warning
+          component: agents
+        annotations:
+          summary: "High agent processing time"
+          description: "95th percentile agent processing time is {{ $value }}s"
+
+  - name: scrollintel.ai_services
+    rules:
+      - alert: AIServiceErrors
+        expr: rate(scrollintel_ai_service_requests_total{status="error"}[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          component: ai_services
+        annotations:
+          summary: "High AI service error rate"
+          description: "AI service error rate is {{ $value }} requests/second"
+
+      - alert: AIServiceLatency
+        expr: histogram_quantile(0.95, rate(scrollintel_ai_service_latency_seconds_bucket[5m])) > 10
+        for: 5m
+        labels:
+          severity: warning
+          component: ai_services
+        annotations:
+          summary: "High AI service latency"
+          description: "95th percentile AI service latency is {{ $value }}s"
+
+  - name: scrollintel.user_activity
+    rules:
+      - alert: LowUserActivity
+        expr: rate(scrollintel_user_actions_total[1h]) < 0.1
+        for: 30m
+        labels:
+          severity: info
+          component: analytics
+        annotations:
+          summary: "Low user activity detected"
+          description: "User activity rate is {{ $value }} actions/second over the last hour"
+
+      - alert: HighUserSessions
+        expr: scrollintel_active_user_sessions > 1000
+        for: 5m
+        labels:
+          severity: info
+          component: analytics
+        annotations:
+          summary: "High number of active user sessions"
+          description: "{{ $value }} active user sessions"

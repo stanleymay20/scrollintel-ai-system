@@ -1,0 +1,88 @@
+# ================================
+# ScrollIntel Render Deployment Configuration
+# Backend API and Database services
+# ================================
+
+services:
+  # Backend API Service
+  - type: web
+    name: scrollintel-backend
+    env: python
+    plan: starter
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn scrollintel.api.gateway:app --host 0.0.0.0 --port $PORT --workers 4
+    healthCheckPath: /health
+    envVars:
+      - key: ENVIRONMENT
+        value: production
+      - key: DEBUG
+        value: false
+      - key: LOG_LEVEL
+        value: INFO
+      - key: POSTGRES_HOST
+        fromDatabase:
+          name: scrollintel-postgres
+          property: host
+      - key: POSTGRES_PORT
+        fromDatabase:
+          name: scrollintel-postgres
+          property: port
+      - key: POSTGRES_DB
+        fromDatabase:
+          name: scrollintel-postgres
+          property: database
+      - key: POSTGRES_USER
+        fromDatabase:
+          name: scrollintel-postgres
+          property: user
+      - key: POSTGRES_PASSWORD
+        fromDatabase:
+          name: scrollintel-postgres
+          property: password
+      - key: REDIS_HOST
+        fromService:
+          type: redis
+          name: scrollintel-redis
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          type: redis
+          name: scrollintel-redis
+          property: port
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: PINECONE_API_KEY
+        sync: false
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+
+  # Redis Cache Service
+  - type: redis
+    name: scrollintel-redis
+    plan: starter
+    maxmemoryPolicy: allkeys-lru
+
+databases:
+  # PostgreSQL Database
+  - name: scrollintel-postgres
+    plan: starter
+    databaseName: scrollintel
+    user: scrollintel_user
+
+# Build settings
+buildFilter:
+  paths:
+    - scrollintel/**
+    - requirements.txt
+    - alembic/**
+    - alembic.ini
+  ignoredPaths:
+    - frontend/**
+    - tests/**
+    - docs/**

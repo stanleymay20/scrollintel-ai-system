@@ -1,0 +1,163 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "ScrollIntel Launch MVP - Comprehensive Monitoring",
+    "tags": ["scrollintel", "mvp", "production"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Overview",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "up{job=\"scrollintel-backend\"}",
+            "legendFormat": "Service Status"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "color": {
+              "mode": "thresholds"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "green", "value": 1}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 6, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Request Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(scrollintel_requests_total[5m])",
+            "legendFormat": "Requests/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 6, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Error Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(scrollintel_errors_total[5m])",
+            "legendFormat": "Errors/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 0}
+      },
+      {
+        "id": 4,
+        "title": "Response Time (95th percentile)",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(scrollintel_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0}
+      },
+      {
+        "id": 5,
+        "title": "System Resources",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "scrollintel_system_cpu_percent",
+            "legendFormat": "CPU %"
+          },
+          {
+            "expr": "scrollintel_system_memory_percent",
+            "legendFormat": "Memory %"
+          },
+          {
+            "expr": "scrollintel_system_disk_percent",
+            "legendFormat": "Disk %"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 6,
+        "title": "Active User Sessions",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "scrollintel_active_user_sessions",
+            "legendFormat": "Active Sessions"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 12, "y": 8}
+      },
+      {
+        "id": 7,
+        "title": "Database Connections",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "scrollintel_db_connections",
+            "legendFormat": "DB Connections"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 8}
+      },
+      {
+        "id": 8,
+        "title": "Agent Performance",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(scrollintel_agent_requests_total[5m])",
+            "legendFormat": "Agent Requests/sec - {{agent_type}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 9,
+        "title": "AI Service Latency",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(scrollintel_ai_service_latency_seconds_bucket[5m]))",
+            "legendFormat": "AI Service Latency - {{service}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+      },
+      {
+        "id": 10,
+        "title": "Top Errors (Last Hour)",
+        "type": "table",
+        "targets": [
+          {
+            "expr": "topk(10, increase(scrollintel_errors_total[1h]))",
+            "format": "table"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 24}
+      }
+    ],
+    "templating": {
+      "list": []
+    },
+    "annotations": {
+      "list": []
+    }
+  }
+}

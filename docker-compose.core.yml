@@ -1,0 +1,119 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: scrollintel_core_postgres
+    environment:
+      POSTGRES_DB: scrollintel_core
+      POSTGRES_USER: scrollintel
+      POSTGRES_PASSWORD: password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scrollintel -d scrollintel_core"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scrollintel_network
+
+  # Redis Cache and Session Store
+  redis:
+    image: redis:7-alpine
+    container_name: scrollintel_core_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - scrollintel_network
+
+  # ScrollIntel Core API
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.core
+    container_name: scrollintel_core_api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://scrollintel:password@postgres:5432/scrollintel_core
+      - REDIS_URL=redis://redis:6379/0
+      - DEBUG=true
+      - SECRET_KEY=dev-secret-key-change-in-production
+    volumes:
+      - ./scrollintel_core:/app/scrollintel_core
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - scrollintel_network
+    restart: unless-stopped
+
+  # Frontend (React)
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: scrollintel_core_frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_URL=http://localhost:8000
+      - REACT_APP_WS_URL=ws://localhost:8000
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    depends_on:
+      - api
+    networks:
+      - scrollintel_network
+    restart: unless-stopped
+
+  # Nginx Reverse Proxy (Optional for production-like setup)
+  nginx:
+    image: nginx:alpine
+    container_name: scrollintel_core_nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - frontend
+    networks:
+      - scrollintel_network
+    restart: unless-stopped
+    profiles:
+      - production
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  scrollintel_network:
+    driver: bridge

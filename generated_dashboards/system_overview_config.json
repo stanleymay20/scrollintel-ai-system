@@ -1,0 +1,146 @@
+{
+  "id": "969ba99f-bae8-466b-94c6-d67bfae12d73",
+  "name": "System Overview",
+  "description": "Comprehensive system resource monitoring",
+  "metrics": [
+    "health_status",
+    "system_metrics",
+    "system_info"
+  ],
+  "refresh_interval_seconds": 30,
+  "time_range_hours": 24,
+  "layout": {
+    "name": "System Overview",
+    "description": "Comprehensive system resource monitoring",
+    "widgets": [
+      {
+        "id": "cpu_usage",
+        "title": "CPU Usage",
+        "widget_type": "chart",
+        "data_source": "system_metrics",
+        "config": {
+          "chart_type": "line",
+          "metric": "cpu_percent"
+        },
+        "position": {
+          "x": 0,
+          "y": 0,
+          "width": 3,
+          "height": 2
+        },
+        "refresh_interval": 60
+      },
+      {
+        "id": "memory_usage",
+        "title": "Memory Usage",
+        "widget_type": "chart",
+        "data_source": "system_metrics",
+        "config": {
+          "chart_type": "line",
+          "metric": "memory_percent"
+        },
+        "position": {
+          "x": 3,
+          "y": 0,
+          "width": 3,
+          "height": 2
+        },
+        "refresh_interval": 60
+      },
+      {
+        "id": "disk_usage",
+        "title": "Disk Usage",
+        "widget_type": "chart",
+        "data_source": "system_metrics",
+        "config": {
+          "chart_type": "gauge",
+          "metric": "disk_usage_percent"
+        },
+        "position": {
+          "x": 6,
+          "y": 0,
+          "width": 3,
+          "height": 2
+        },
+        "refresh_interval": 60
+      },
+      {
+        "id": "network_activity",
+        "title": "Network Activity",
+        "widget_type": "chart",
+        "data_source": "system_metrics",
+        "config": {
+          "chart_type": "area",
+          "metrics": [
+            "network_bytes_sent",
+            "network_bytes_recv"
+          ]
+        },
+        "position": {
+          "x": 9,
+          "y": 0,
+          "width": 3,
+          "height": 2
+        },
+        "refresh_interval": 60
+      },
+      {
+        "id": "system_health",
+        "title": "System Health Status",
+        "widget_type": "metric",
+        "data_source": "health_status",
+        "config": {
+          "display_type": "status_card"
+        },
+        "position": {
+          "x": 0,
+          "y": 2,
+          "width": 6,
+          "height": 1
+        },
+        "refresh_interval": 60
+      },
+      {
+        "id": "active_connections",
+        "title": "Active Connections",
+        "widget_type": "metric",
+        "data_source": "system_metrics",
+        "config": {
+          "metric": "active_connections",
+          "display_type": "number"
+        },
+        "position": {
+          "x": 6,
+          "y": 2,
+          "width": 3,
+          "height": 1
+        },
+        "refresh_interval": 60
+      },
+      {
+        "id": "uptime",
+        "title": "System Uptime",
+        "widget_type": "metric",
+        "data_source": "system_info",
+        "config": {
+          "metric": "uptime",
+          "display_type": "duration"
+        },
+        "position": {
+          "x": 9,
+          "y": 2,
+          "width": 3,
+          "height": 1
+        },
+        "refresh_interval": 60
+      }
+    ],
+    "grid_columns": 12,
+    "grid_rows": 8,
+    "auto_refresh": true,
+    "refresh_interval": 30
+  },
+  "created_by": "",
+  "created_at": "2025-08-12T07:15:33.246133",
+  "updated_at": "2025-08-12T07:15:33.246138"
+}

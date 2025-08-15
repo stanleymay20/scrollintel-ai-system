@@ -1,0 +1,337 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Data Readiness Comparison Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #f8fafc;
+            color: #334155;
+            line-height: 1.6;
+        }
+        
+        .comparison-container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .comparison-header {
+            background: white;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-bottom: 25px;
+            text-align: center;
+        }
+        
+        .comparison-header h1 {
+            color: #1e293b;
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        
+        .comparison-info {
+            color: #64748b;
+            font-size: 1.1rem;
+        }
+        
+        .comparison-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 25px;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 25px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            border: 1px solid #e2e8f0;
+        }
+        
+        .card h3 {
+            color: #1e293b;
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 20px;
+            border-bottom: 2px solid #3b82f6;
+            padding-bottom: 10px;
+        }
+        
+        .chart-card {
+            grid-row: span 2;
+        }
+        
+        .chart-container {
+            height: 400px;
+        }
+        
+        .rankings-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        
+        .ranking-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: #f8fafc;
+            border-radius: 6px;
+            border-left: 4px solid #3b82f6;
+        }
+        
+        .ranking-item:first-child {
+            border-left-color: #10b981;
+            background: #dcfce7;
+        }
+        
+        .ranking-score {
+            font-weight: 600;
+            color: #1e293b;
+        }
+        
+        .details-table {
+            overflow-x: auto;
+        }
+        
+        .details-table table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .details-table th,
+        .details-table td {
+            padding: 10px;
+            text-align: left;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        
+        .details-table th {
+            background: #f8fafc;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        
+    </style>
+</head>
+<body>
+    <div class="comparison-container">
+        <header class="comparison-header">
+            <h1>Dataset Comparison Dashboard</h1>
+            <div class="comparison-info">
+                <span>Comparing 3 datasets across 5 dimensions</span>
+            </div>
+        </header>
+        
+        <div class="comparison-grid">
+            <!-- Comparison Chart -->
+            <div class="card chart-card">
+                <h3>Score Comparison</h3>
+                <div class="chart-container">
+                    <canvas id="comparisonChart"></canvas>
+                </div>
+            </div>
+            
+            <!-- Dataset Rankings -->
+            <div class="card rankings-card">
+                <h3>Dataset Rankings</h3>
+                <div class="rankings-list">
+                    
+            <div class="ranking-item">
+                <span>#1 product_catalog_2024</span>
+                <span class="ranking-score">85.0%</span>
+            </div>
+            
+            <div class="ranking-item">
+                <span>#2 sales_transactions_2024</span>
+                <span class="ranking-score">80.0%</span>
+            </div>
+            
+            <div class="ranking-item">
+                <span>#3 customer_analytics_2024</span>
+                <span class="ranking-score">75.0%</span>
+            </div>
+            
+                </div>
+            </div>
+            
+            <!-- Dimension Analysis -->
+            <div class="card analysis-card">
+                <h3>Dimension Analysis</h3>
+                <div class="dimension-analysis">
+                    
+            <div class="dimension-stats">
+                <h4>Overall Score</h4>
+                <div class="stats-grid">
+                    <div>Average: 80.0%</div>
+                    <div>Best: 85.0%</div>
+                    <div>Worst: 75.0%</div>
+                </div>
+            </div>
+            
+            <div class="dimension-stats">
+                <h4>Data Quality Score</h4>
+                <div class="stats-grid">
+                    <div>Average: 0.0%</div>
+                    <div>Best: 0.0%</div>
+                    <div>Worst: 0.0%</div>
+                </div>
+            </div>
+            
+            <div class="dimension-stats">
+                <h4>Feature Quality Score</h4>
+                <div class="stats-grid">
+                    <div>Average: 0.0%</div>
+                    <div>Best: 0.0%</div>
+                    <div>Worst: 0.0%</div>
+                </div>
+            </div>
+            
+            <div class="dimension-stats">
+                <h4>Bias Score</h4>
+                <div class="stats-grid">
+                    <div>Average: 83.0%</div>
+                    <div>Best: 88.0%</div>
+                    <div>Worst: 78.0%</div>
+                </div>
+            </div>
+            
+            <div class="dimension-stats">
+                <h4>Compliance Score</h4>
+                <div class="stats-grid">
+                    <div>Average: 88.0%</div>
+                    <div>Best: 93.0%</div>
+                    <div>Worst: 83.0%</div>
+                </div>
+            </div>
+            
+                </div>
+            </div>
+            
+            <!-- Dataset Details -->
+            <div class="card details-card">
+                <h3>Dataset Details</h3>
+                <div class="details-table">
+                    
+        <table>
+            <thead>
+                <tr>
+                    <th>Dataset</th>
+                    <th>Industry</th>
+                    <th>Overall Score</th>
+                    <th>Generated</th>
+                </tr>
+            </thead>
+            <tbody>
+        
+                <tr>
+                    <td>customer_analytics_2024</td>
+                    <td>Retail</td>
+                    <td>75.0%</td>
+                    <td>2025-08-11</td>
+                </tr>
+            
+                <tr>
+                    <td>sales_transactions_2024</td>
+                    <td>Retail</td>
+                    <td>80.0%</td>
+                    <td>2025-08-11</td>
+                </tr>
+            
+                <tr>
+                    <td>product_catalog_2024</td>
+                    <td>Retail</td>
+                    <td>85.0%</td>
+                    <td>2025-08-11</td>
+                </tr>
+            
+            </tbody>
+        </table>
+        
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        
+        // Comparison data
+        const comparisonData = {"datasets": ["customer_analytics_2024", "sales_transactions_2024", "product_catalog_2024"], "dimensions": ["overall_score", "data_quality_score", "feature_quality_score", "bias_score", "compliance_score"], "scores": {"overall_score": [0.75, 0.8, 0.85], "data_quality_score": [0.0, 0.0, 0.0], "feature_quality_score": [0.0, 0.0, 0.0], "bias_score": [0.78, 0.8300000000000001, 0.88], "compliance_score": [0.83, 0.88, 0.9299999999999999]}, "metadata": [{"dataset_id": "customer_analytics_2024", "industry": "retail", "generated_at": "2025-08-11T09:57:28.034864"}, {"dataset_id": "sales_transactions_2024", "industry": "retail", "generated_at": "2025-08-11T09:57:28.037856"}, {"dataset_id": "product_catalog_2024", "industry": "retail", "generated_at": "2025-08-11T09:57:28.038946"}]};
+        
+        // Initialize comparison charts when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeComparisonChart();
+        });
+        
+        function initializeComparisonChart() {
+            const ctx = document.getElementById('comparisonChart').getContext('2d');
+            
+            const datasets = comparisonData.dimensions.map((dimension, index) => ({
+                label: dimension.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase()),
+                data: comparisonData.scores[dimension],
+                backgroundColor: getColorForIndex(index),
+                borderColor: getColorForIndex(index, 0.8),
+                borderWidth: 2
+            }));
+            
+            new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: comparisonData.datasets,
+                    datasets: datasets
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'top'
+                        }
+                    },
+                    scales: {
+                        r: {
+                            beginAtZero: true,
+                            max: 1,
+                            grid: {
+                                color: '#e2e8f0'
+                            },
+                            pointLabels: {
+                                font: {
+                                    size: 12
+                                }
+                            }
+                        }
+                    }
+                }
+            });
+        }
+        
+        function getColorForIndex(index, alpha = 0.2) {
+            const colors = [
+                `rgba(59, 130, 246, ${alpha})`,   // blue
+                `rgba(16, 185, 129, ${alpha})`,   // green
+                `rgba(245, 158, 11, ${alpha})`,   // yellow
+                `rgba(239, 68, 68, ${alpha})`,    // red
+                `rgba(139, 92, 246, ${alpha})`,   // purple
+                `rgba(236, 72, 153, ${alpha})`    // pink
+            ];
+            return colors[index % colors.length];
+        }
+        
+    </script>
+</body>
+</html>

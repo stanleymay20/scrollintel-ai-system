@@ -1,0 +1,400 @@
+{
+  "research_engine_testing": {
+    "overall_effectiveness": 0.2041666666666667,
+    "detailed_results": {
+      "topic_generation": {
+        "score": 0.0,
+        "topics_generated": 20,
+        "quality_metrics": {
+          "novelty": 0.0,
+          "feasibility": 0.0,
+          "impact_potential": 0.0
+        }
+      },
+      "literature_analysis": {
+        "score": 0.0,
+        "error": "'LiteratureAnalysis' object has no attribute 'papers_reviewed'"
+      },
+      "hypothesis_formation": {
+        "score": 0.8166666666666668,
+        "hypotheses_generated": 2,
+        "testability_score": 0.7350000000000001,
+        "novelty_score": 0.7186666666666668
+      },
+      "research_planning": {
+        "score": 0.0,
+        "error": "AutomatedResearchEngine.create_research_plan() missing 1 required positional argument: 'literature_analysis'"
+      }
+    },
+    "timestamp": "2025-08-02T09:10:28.273800",
+    "status": "failed"
+  },
+  "experimental_design_testing": {
+    "overall_quality": 0.0,
+    "detailed_results": {
+      "experiment_planning": {
+        "score": 0.0,
+        "error": "ExperimentPlanner.plan_experiment() missing 1 required positional argument: 'domain'"
+      },
+      "protocol_generation": {
+        "score": 0.0,
+        "error": "'ExperimentPlanner' object has no attribute 'generate_protocol'"
+      },
+      "resource_allocation": {
+        "score": 0.0,
+        "error": "'ExperimentPlanner' object has no attribute 'allocate_resources'"
+      },
+      "quality_control": {
+        "score": 0.0,
+        "error": "'ExperimentPlanner' object has no attribute 'perform_quality_control'"
+      }
+    },
+    "timestamp": "2025-08-02T09:10:28.276327",
+    "status": "failed"
+  },
+  "prototype_development_testing": {
+    "overall_success": 0.18999999999999997,
+    "detailed_results": {
+      "rapid_prototyping": {
+        "score": 0.7599999999999999,
+        "development_speed": 0.6839999999999999,
+        "functionality_coverage": 0.6459999999999999,
+        "code_quality": 0.6688
+      },
+      "design_iteration": {
+        "score": 0.0,
+        "error": "'RapidPrototyper' object has no attribute 'iterate_design'"
+      },
+      "testing_automation": {
+        "score": 0.0,
+        "error": "'RapidPrototyper' object has no attribute 'automate_testing'"
+      },
+      "performance_evaluation": {
+        "score": 0.0,
+        "error": "'RapidPrototyper' object has no attribute 'evaluate_performance'"
+      }
+    },
+    "timestamp": "2025-08-02T09:10:28.833856",
+    "status": "failed"
+  },
+  "comprehensive_testing": {
+    "overall_lab_effectiveness": 0.1313888888888889,
+    "research_engine_effectiveness": {
+      "overall_effectiveness": 0.2041666666666667,
+      "detailed_results": {
+        "topic_generation": {
+          "score": 0.0,
+          "topics_generated": 20,
+          "quality_metrics": {
+            "novelty": 0.0,
+            "feasibility": 0.0,
+            "impact_potential": 0.0
+          }
+        },
+        "literature_analysis": {
+          "score": 0.0,
+          "error": "'LiteratureAnalysis' object has no attribute 'papers_reviewed'"
+        },
+        "hypothesis_formation": {
+          "score": 0.8166666666666668,
+          "hypotheses_generated": 2,
+          "testability_score": 0.7350000000000001,
+          "novelty_score": 0.7186666666666668
+        },
+        "research_planning": {
+          "score": 0.0,
+          "error": "AutomatedResearchEngine.create_research_plan() missing 1 required positional argument: 'literature_analysis'"
+        }
+      },
+      "timestamp": "2025-08-02T09:10:28.843628",
+      "status": "failed"
+    },
+    "experimental_design_quality": {
+      "overall_quality": 0.0,
+      "detailed_results": {
+        "experiment_planning": {
+          "score": 0.0,
+          "error": "ExperimentPlanner.plan_experiment() missing 1 required positional argument: 'domain'"
+        },
+        "protocol_generation": {
+          "score": 0.0,
+          "error": "'ExperimentPlanner' object has no attribute 'generate_protocol'"
+        },
+        "resource_allocation": {
+          "score": 0.0,
+          "error": "'ExperimentPlanner' object has no attribute 'allocate_resources'"
+        },
+        "quality_control": {
+          "score": 0.0,
+          "error": "'ExperimentPlanner' object has no attribute 'perform_quality_control'"
+        }
+      },
+      "timestamp": "2025-08-02T09:10:28.843684",
+      "status": "failed"
+    },
+    "prototype_development_success": {
+      "overall_success": 0.18999999999999997,
+      "detailed_results": {
+        "rapid_prototyping": {
+          "score": 0.7599999999999999,
+          "development_speed": 0.6839999999999999,
+          "functionality_coverage": 0.6459999999999999,
+          "code_quality": 0.6688
+        },
+        "design_iteration": {
+          "score": 0.0,
+          "error": "'RapidPrototyper' object has no attribute 'iterate_design'"
+        },
+        "testing_automation": {
+          "score": 0.0,
+          "error": "'RapidPrototyper' object has no attribute 'automate_testing'"
+        },
+        "performance_evaluation": {
+          "score": 0.0,
+          "error": "'RapidPrototyper' object has no attribute 'evaluate_performance'"
+        }
+      },
+      "timestamp": "2025-08-02T09:10:29.385115",
+      "status": "failed"
+    },
+    "test_timestamp": "2025-08-02T09:10:29.385118",
+    "test_status": "failed",
+    "recommendations": [
+      "Overall lab effectiveness below threshold - comprehensive review needed",
+      "Critical performance issues detected - immediate intervention required",
+      "Consider retraining core AI models",
+      "Review and update experimental methodologies",
+      "Optimize research topic generation algorithms",
+      "Enhance prototype testing automation",
+      "Improve experimental design validation"
+    ]
+  },
+  "performance_benchmarking": {
+    "benchmark_score": 0.0,
+    "current_metrics": {
+      "research_effectiveness": 0.2041666666666667,
+      "experimental_quality": 0.0,
+      "prototype_success": 0.18999999999999997,
+      "overall_effectiveness": 0.1313888888888889
+    },
+    "baseline_metrics": {
+      "research_effectiveness": 0.85,
+      "experimental_quality": 0.8,
+      "prototype_success": 0.82,
+      "overall_effectiveness": 0.82
+    },
+    "results": {
+      "overall_lab_effectiveness": 0.1313888888888889,
+      "research_engine_effectiveness": {
+        "overall_effectiveness": 0.2041666666666667,
+        "detailed_results": {
+          "topic_generation": {
+            "score": 0.0,
+            "topics_generated": 20,
+            "quality_metrics": {
+              "novelty": 0.0,
+              "feasibility": 0.0,
+              "impact_potential": 0.0
+            }
+          },
+          "literature_analysis": {
+            "score": 0.0,
+            "error": "'LiteratureAnalysis' object has no attribute 'papers_reviewed'"
+          },
+          "hypothesis_formation": {
+            "score": 0.8166666666666668,
+            "hypotheses_generated": 2,
+            "testability_score": 0.7350000000000001,
+            "novelty_score": 0.7186666666666668
+          },
+          "research_planning": {
+            "score": 0.0,
+            "error": "AutomatedResearchEngine.create_research_plan() missing 1 required positional argument: 'literature_analysis'"
+          }
+        },
+        "timestamp": "2025-08-02T09:10:29.394021",
+        "status": "failed"
+      },
+      "experimental_design_quality": {
+        "overall_quality": 0.0,
+        "detailed_results": {
+          "experiment_planning": {
+            "score": 0.0,
+            "error": "ExperimentPlanner.plan_experiment() missing 1 required positional argument: 'domain'"
+          },
+          "protocol_generation": {
+            "score": 0.0,
+            "error": "'ExperimentPlanner' object has no attribute 'generate_protocol'"
+          },
+          "resource_allocation": {
+            "score": 0.0,
+            "error": "'ExperimentPlanner' object has no attribute 'allocate_resources'"
+          },
+          "quality_control": {
+            "score": 0.0,
+            "error": "'ExperimentPlanner' object has no attribute 'perform_quality_control'"
+          }
+        },
+        "timestamp": "2025-08-02T09:10:29.394101",
+        "status": "failed"
+      },
+      "prototype_development_success": {
+        "overall_success": 0.18999999999999997,
+        "detailed_results": {
+          "rapid_prototyping": {
+            "score": 0.7599999999999999,
+            "development_speed": 0.6839999999999999,
+            "functionality_coverage": 0.6459999999999999,
+            "code_quality": 0.6688
+          },
+          "design_iteration": {
+            "score": 0.0,
+            "error": "'RapidPrototyper' object has no attribute 'iterate_design'"
+          },
+          "testing_automation": {
+            "score": 0.0,
+            "error": "'RapidPrototyper' object has no attribute 'automate_testing'"
+          },
+          "performance_evaluation": {
+            "score": 0.0,
+            "error": "'RapidPrototyper' object has no attribute 'evaluate_performance'"
+          }
+        },
+        "timestamp": "2025-08-02T09:10:29.951666",
+        "status": "failed"
+      },
+      "test_timestamp": "2025-08-02T09:10:29.951675",
+      "test_status": "failed",
+      "recommendations": [
+        "Overall lab effectiveness below threshold - comprehensive review needed",
+        "Critical performance issues detected - immediate intervention required",
+        "Consider retraining core AI models",
+        "Review and update experimental methodologies",
+        "Optimize research topic generation algorithms",
+        "Enhance prototype testing automation",
+        "Improve experimental design validation"
+      ]
+    }
+  },
+  "component_validation": {
+    "Research Engine": {
+      "score": 0.2041666666666667,
+      "status": "FAIL",
+      "result": {
+        "overall_effectiveness": 0.2041666666666667,
+        "detailed_results": {
+          "topic_generation": {
+            "score": 0.0,
+            "topics_generated": 20,
+            "quality_metrics": {
+              "novelty": 0.0,
+              "feasibility": 0.0,
+              "impact_potential": 0.0
+            }
+          },
+          "literature_analysis": {
+            "score": 0.0,
+            "error": "'LiteratureAnalysis' object has no attribute 'papers_reviewed'"
+          },
+          "hypothesis_formation": {
+            "score": 0.8166666666666668,
+            "hypotheses_generated": 2,
+            "testability_score": 0.7350000000000001,
+            "novelty_score": 0.7186666666666668
+          },
+          "research_planning": {
+            "score": 0.0,
+            "error": "AutomatedResearchEngine.create_research_plan() missing 1 required positional argument: 'literature_analysis'"
+          }
+        },
+        "timestamp": "2025-08-02T09:10:29.961439",
+        "status": "failed"
+      }
+    },
+    "Experimental Design": {
+      "score": 0.0,
+      "status": "FAIL",
+      "result": {
+        "overall_quality": 0.0,
+        "detailed_results": {
+          "experiment_planning": {
+            "score": 0.0,
+            "error": "ExperimentPlanner.plan_experiment() missing 1 required positional argument: 'domain'"
+          },
+          "protocol_generation": {
+            "score": 0.0,
+            "error": "'ExperimentPlanner' object has no attribute 'generate_protocol'"
+          },
+          "resource_allocation": {
+            "score": 0.0,
+            "error": "'ExperimentPlanner' object has no attribute 'allocate_resources'"
+          },
+          "quality_control": {
+            "score": 0.0,
+            "error": "'ExperimentPlanner' object has no attribute 'perform_quality_control'"
+          }
+        },
+        "timestamp": "2025-08-02T09:10:29.961995",
+        "status": "failed"
+      }
+    },
+    "Prototype Development": {
+      "score": 0.18999999999999997,
+      "status": "FAIL",
+      "result": {
+        "overall_success": 0.18999999999999997,
+        "detailed_results": {
+          "rapid_prototyping": {
+            "score": 0.7599999999999999,
+            "development_speed": 0.6839999999999999,
+            "functionality_coverage": 0.6459999999999999,
+            "code_quality": 0.6688
+          },
+          "design_iteration": {
+            "score": 0.0,
+            "error": "'RapidPrototyper' object has no attribute 'iterate_design'"
+          },
+          "testing_automation": {
+            "score": 0.0,
+            "error": "'RapidPrototyper' object has no attribute 'automate_testing'"
+          },
+          "performance_evaluation": {
+            "score": 0.0,
+            "error": "'RapidPrototyper' object has no attribute 'evaluate_performance'"
+          }
+        },
+        "timestamp": "2025-08-02T09:10:30.520090",
+        "status": "failed"
+      }
+    }
+  },
+  "continuous_monitoring": [
+    {
+      "cycle": 1,
+      "timestamp": "2025-08-02T09:10:31.069634",
+      "overall_effectiveness": 0.1313888888888889,
+      "research_score": 0.2041666666666667,
+      "experimental_score": 0.0,
+      "prototype_score": 0.18999999999999997,
+      "status": "failed"
+    },
+    {
+      "cycle": 2,
+      "timestamp": "2025-08-02T09:10:31.723057",
+      "overall_effectiveness": 0.1313888888888889,
+      "research_score": 0.2041666666666667,
+      "experimental_score": 0.0,
+      "prototype_score": 0.18999999999999997,
+      "status": "failed"
+    },
+    {
+      "cycle": 3,
+      "timestamp": "2025-08-02T09:10:32.405291",
+      "overall_effectiveness": 0.1313888888888889,
+      "research_score": 0.2041666666666667,
+      "experimental_score": 0.0,
+      "prototype_score": 0.18999999999999997,
+      "status": "failed"
+    }
+  ]
+}

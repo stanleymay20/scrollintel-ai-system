@@ -1,0 +1,79 @@
+{
+  "timestamp": "2025-08-08T12:11:53.449763",
+  "pipeline_stats": {
+    "total_generations": 15,
+    "average_generation_time": 0.968356211980184,
+    "average_quality_score": 0.9475165605709039,
+    "speed_advantage_over_competitors": "309.8x",
+    "cost_savings_percentage": 0.0,
+    "performance_consistency": 0.6344284419823119,
+    "quality_consistency": 0.9791380893121943
+  },
+  "demo_results": [
+    {
+      "test": "speed_advantage",
+      "scenario": "Short Form Content",
+      "our_time": 0.7714970111846924,
+      "competitor_time": 180.0,
+      "speed_advantage": 233.31263425582983,
+      "quality_score": 0.9417937506991951
+    },
+    {
+      "test": "speed_advantage",
+      "scenario": "Social Media Video",
+      "our_time": 1.2029836177825928,
+      "competitor_time": 300.0,
+      "speed_advantage": 249.37995461066785,
+      "quality_score": 0.9590259417237605
+    },
+    {
+      "test": "speed_advantage",
+      "scenario": "Professional Content",
+      "our_time": 2.006561279296875,
+      "competitor_time": 600.0,
+      "speed_advantage": 299.0190263265958,
+      "quality_score": 0.9575766005945945
+    },
+    {
+      "test": "cost_optimization",
+      "baseline_cost": 0.24,
+      "our_cost": 0.015756050228183608,
+      "cost_savings": 0.9343497907159016,
+      "quality_score": 0.9574836221830467
+    },
+    {
+      "test": "quality_excellence",
+      "test_name": "Photorealistic Humans",
+      "our_quality": 0.9164559918580157,
+      "baseline_quality": 0.76,
+      "quality_improvement": 1.2058631471815997
+    },
+    {
+      "test": "quality_excellence",
+      "test_name": "Complex Lighting",
+      "our_quality": 0.9642617948358841,
+      "baseline_quality": 0.76,
+      "quality_improvement": 1.2687655195209002
+    },
+    {
+      "test": "quality_excellence",
+      "test_name": "Motion Dynamics",
+      "our_quality": 0.9166929267782543,
+      "baseline_quality": 0.76,
+      "quality_improvement": 1.2061749036555978
+    },
+    {
+      "test": "scalability",
+      "concurrent_requests": 8,
+      "total_time": 0.7246899604797363,
+      "avg_generation_time": 0.7236326336860657,
+      "avg_quality": 0.9499322224863509,
+      "throughput": 11.039203571557819
+    }
+  ],
+  "summary": {
+    "speed_advantage_achieved": true,
+    "cost_savings_achieved": true,
+    "quality_superiority_achieved": true
+  }
+}

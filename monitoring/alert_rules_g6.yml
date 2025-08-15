@@ -1,0 +1,229 @@
+# Alert rules for ScrollIntel-G6 monitoring
+groups:
+  - name: scrollintel-g6-alerts
+    rules:
+      # High error rate
+      - alert: HighErrorRate
+        expr: rate(scrollintel_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: warning
+          component: scrollintel-g6
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value }} errors per second"
+
+      # High response time
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(scrollintel_request_duration_seconds_bucket[5m])) > 2
+        for: 5m
+        labels:
+          severity: warning
+          component: scrollintel-g6
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value }} seconds"
+
+      # Low cache hit rate
+      - alert: LowCacheHitRate
+        expr: rate(scrollintel_cache_hits_total[5m]) / (rate(scrollintel_cache_hits_total[5m]) + rate(scrollintel_cache_misses_total[5m])) < 0.8
+        for: 10m
+        labels:
+          severity: warning
+          component: cache
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }}"
+
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: scrollintel_system_cpu_usage > 80
+        for: 5m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}%"
+
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: scrollintel_system_memory_usage > 85
+        for: 5m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }}%"
+
+      # Agent execution failures
+      - alert: AgentExecutionFailures
+        expr: rate(scrollintel_agent_executions_total{status="failed"}[5m]) > 0.05
+        for: 3m
+        labels:
+          severity: warning
+          component: agents
+        annotations:
+          summary: "High agent execution failure rate"
+          description: "Agent {{ $labels.agent_type }} failure rate is {{ $value }} per second"
+
+      # Data product verification failures
+      - alert: DataProductVerificationFailures
+        expr: rate(scrollintel_data_products_total{status="failed_verification"}[10m]) > 0.1
+        for: 5m
+        labels:
+          severity: error
+          component: data-products
+        annotations:
+          summary: "High data product verification failure rate"
+          description: "Data product verification failure rate is {{ $value }} per second"
+
+      # Redis cluster down
+      - alert: RedisClusterDown
+        expr: up{job="redis-cluster"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: redis
+        annotations:
+          summary: "Redis cluster node down"
+          description: "Redis cluster node {{ $labels.instance }} is down"
+
+      # Kubernetes pod crash looping
+      - alert: PodCrashLooping
+        expr: rate(kube_pod_container_status_restarts_total[15m]) > 0
+        for: 5m
+        labels:
+          severity: warning
+          component: kubernetes
+        annotations:
+          summary: "Pod crash looping"
+          description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is crash looping"
+
+      # Low active users (business metric)
+      - alert: LowActiveUsers
+        expr: scrollintel_active_users < 10
+        for: 30m
+        labels:
+          severity: info
+          component: business
+        annotations:
+          summary: "Low active user count"
+          description: "Only {{ $value }} active users in the system"
+
+  - name: data-quality-alerts
+    rules:
+      # Schema drift detected
+      - alert: SchemaDriftDetected
+        expr: increase(scrollintel_schema_drift_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          component: data-quality
+        annotations:
+          summary: "Schema drift detected"
+          description: "Schema drift detected in {{ $labels.dataset }}"
+
+      # Data anomaly detected
+      - alert: DataAnomalyDetected
+        expr: increase(scrollintel_data_anomalies_total[1h]) > 5
+        for: 0m
+        labels:
+          severity: warning
+          component: data-quality
+        annotations:
+          summary: "Data anomalies detected"
+          description: "{{ $value }} data anomalies detected in the last hour"
+
+      # Bias threshold exceeded
+      - alert: BiasThresholdExceeded
+        expr: scrollintel_bias_score > 0.8
+        for: 5m
+        labels:
+          severity: error
+          component: data-quality
+        annotations:
+          summary: "Bias threshold exceeded"
+          description: "Bias score of {{ $value }} exceeds threshold for {{ $labels.dataset }}"
+
+      # Data freshness SLA violation
+      - alert: DataFreshnessSLAViolation
+        expr: (time() - scrollintel_data_product_last_update) / 3600 > 24
+        for: 1h
+        labels:
+          severity: warning
+          component: data-products
+        annotations:
+          summary: "Data freshness SLA violation"
+          description: "Data product {{ $labels.product_name }} hasn't been updated in {{ $value }} hours"
+
+  - name: performance-alerts
+    rules:
+      # ScrollBench performance degradation
+      - alert: ScrollBenchPerformanceDegradation
+        expr: scrollintel_scrollbench_score < 0.95
+        for: 10m
+        labels:
+          severity: critical
+          component: performance
+        annotations:
+          summary: "ScrollBench performance degradation"
+          description: "ScrollBench score dropped to {{ $value }}, below GPT-5 target"
+
+      # Data Products Flywheel efficiency drop
+      - alert: FlywheelEfficiencyDrop
+        expr: scrollintel_flywheel_efficiency < 0.9
+        for: 15m
+        labels:
+          severity: warning
+          component: data-flywheel
+        annotations:
+          summary: "Data Products Flywheel efficiency drop"
+          description: "Flywheel efficiency dropped to {{ $value }}"
+
+      # Agent coordination latency
+      - alert: HighAgentCoordinationLatency
+        expr: histogram_quantile(0.95, rate(scrollintel_agent_coordination_duration_seconds_bucket[5m])) > 5
+        for: 5m
+        labels:
+          severity: warning
+          component: agents
+        annotations:
+          summary: "High agent coordination latency"
+          description: "95th percentile agent coordination latency is {{ $value }} seconds"
+
+  - name: infrastructure-alerts
+    rules:
+      # Kubernetes cluster resource exhaustion
+      - alert: KubernetesResourceExhaustion
+        expr: (kube_node_status_allocatable{resource="cpu"} - kube_node_status_capacity{resource="cpu"}) / kube_node_status_capacity{resource="cpu"} < 0.1
+        for: 10m
+        labels:
+          severity: critical
+          component: kubernetes
+        annotations:
+          summary: "Kubernetes cluster resource exhaustion"
+          description: "Less than 10% CPU resources available on node {{ $labels.node }}"
+
+      # Database connection pool exhaustion
+      - alert: DatabaseConnectionPoolExhaustion
+        expr: scrollintel_db_connections_active / scrollintel_db_connections_max > 0.9
+        for: 5m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database connection pool exhaustion"
+          description: "Database connection pool is {{ $value | humanizePercentage }} full"
+
+      # Elasticsearch cluster health
+      - alert: ElasticsearchClusterUnhealthy
+        expr: elasticsearch_cluster_health_status{color="red"} == 1
+        for: 2m
+        labels:
+          severity: critical
+          component: elasticsearch
+        annotations:
+          summary: "Elasticsearch cluster unhealthy"
+          description: "Elasticsearch cluster health is red"

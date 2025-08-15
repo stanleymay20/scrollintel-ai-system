@@ -34,7 +34,31 @@ from .config import (
 
 from .registry import (
     AgentRegistry,
+)
+
+from .orchestrator import (
     TaskOrchestrator,
+    Workflow,
+    WorkflowTask,
+    TaskDependency,
+    WorkflowTemplate,
+    TaskStatus,
+    WorkflowStatus,
+)
+
+from .message_bus import (
+    MessageBus,
+    Message,
+    MessageType,
+    MessagePriority,
+    MessageHandler,
+    get_message_bus,
+    initialize_message_bus,
+    shutdown_message_bus,
+)
+
+from .workflow_templates import (
+    WorkflowTemplateLibrary,
 )
 
 __all__ = [
@@ -68,5 +92,23 @@ __all__ = [
     "load_config_from_file",
     # Registry
     "AgentRegistry",
+    # Orchestration
     "TaskOrchestrator",
+    "Workflow",
+    "WorkflowTask",
+    "TaskDependency",
+    "WorkflowTemplate",
+    "TaskStatus",
+    "WorkflowStatus",
+    # Message Bus
+    "MessageBus",
+    "Message",
+    "MessageType",
+    "MessagePriority",
+    "MessageHandler",
+    "get_message_bus",
+    "initialize_message_bus",
+    "shutdown_message_bus",
+    # Workflow Templates
+    "WorkflowTemplateLibrary",
 ]

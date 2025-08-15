@@ -1,0 +1,69 @@
+version: '3.8'
+
+services:
+  ai-data-readiness:
+    build:
+      context: ../..
+      dockerfile: ai_data_readiness/deployment/Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/ai_data_readiness
+      - REDIS_URL=redis://redis:6379/0
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks:
+      - ai-data-readiness-network
+
+  postgres:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=ai_data_readiness
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-scripts:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    networks:
+      - ai-data-readiness-network
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    networks:
+      - ai-data-readiness-network
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+      - ./ssl:/etc/nginx/ssl
+    depends_on:
+      - ai-data-readiness
+    restart: unless-stopped
+    networks:
+      - ai-data-readiness-network
+
+volumes:
+  postgres_data:
+  redis_data:
+
+networks:
+  ai-data-readiness-network:
+    driver: bridge

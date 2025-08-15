@@ -81,6 +81,86 @@ from .seed_data import (
     create_sample_dashboards,
 )
 
+# Insight models
+from .insight_models import (
+    Pattern,
+    Insight,
+    ActionRecommendation,
+    BusinessContext,
+    Anomaly,
+    InsightType,
+    PatternType,
+    SignificanceLevel,
+    ActionPriority,
+)
+
+# Dashboard models
+from .dashboard_models import (
+    AnalyticsDashboard,
+    Widget,
+    DashboardPermission,
+    DashboardTemplate,
+    BusinessMetric,
+    DashboardType,
+    ExecutiveRole,
+    WidgetType,
+)
+
+# ROI models
+from .roi_models import (
+    ROIAnalysis,
+    CostTracking,
+    BenefitTracking,
+    ROIReport,
+    CloudCostCollection,
+    ProductivityMetric,
+    EfficiencyGainMetric,
+)
+
+# Advanced Prompt models
+from .prompt_models import (
+    AdvancedPromptTemplate,
+    AdvancedPromptVersion,
+    AdvancedPromptCategory,
+    AdvancedPromptTag,
+    PromptVariable,
+)
+
+# Consciousness models
+from .consciousness_models import (
+    ConsciousnessState,
+    AwarenessState,
+    ConsciousnessLevel,
+    AwarenessType,
+    Thought,
+    MetaCognitiveInsight,
+    Goal,
+    IntentionalState,
+    Experience,
+    SelfReflection,
+    CognitiveContext,
+)
+
+# Intuitive reasoning models
+from .intuitive_models import (
+    IntuitiveInsight,
+    PatternSynthesis,
+    Pattern as IntuitivePattern,
+    DataPoint,
+    Problem,
+    CreativeSolution,
+    Challenge,
+    HolisticInsight,
+    Context as IntuitiveContext,
+    IntuitiveLeap,
+    NeuralArchitecture,
+    ValidationResult,
+    ConfidenceMetrics,
+    InsightType as IntuitiveInsightType,
+    PatternComplexity,
+    CreativityLevel,
+)
+
 # Core interfaces (for compatibility)
 from ..core.interfaces import (
     AgentRequest,
@@ -157,6 +237,74 @@ __all__ = [
     "create_default_agents",
     "create_sample_datasets",
     "create_sample_dashboards",
+    
+    # Insight models
+    "Pattern",
+    "Insight",
+    "ActionRecommendation",
+    "BusinessContext",
+    "Anomaly",
+    "InsightType",
+    "PatternType",
+    "SignificanceLevel",
+    "ActionPriority",
+    
+    # Dashboard models
+    "AnalyticsDashboard",
+    "Widget",
+    "DashboardPermission",
+    "DashboardTemplate",
+    "BusinessMetric",
+    "DashboardType",
+    "ExecutiveRole",
+    "WidgetType",
+    
+    # ROI models
+    "ROIAnalysis",
+    "CostTracking",
+    "BenefitTracking",
+    "ROIReport",
+    "CloudCostCollection",
+    "ProductivityMetric",
+    "EfficiencyGainMetric",
+    
+    # Advanced Prompt models
+    "AdvancedPromptTemplate",
+    "AdvancedPromptVersion",
+    "AdvancedPromptCategory",
+    "AdvancedPromptTag",
+    "PromptVariable",
+    
+    # Consciousness models
+    "ConsciousnessState",
+    "AwarenessState",
+    "ConsciousnessLevel",
+    "AwarenessType",
+    "Thought",
+    "MetaCognitiveInsight",
+    "Goal",
+    "IntentionalState",
+    "Experience",
+    "SelfReflection",
+    "CognitiveContext",
+    
+    # Intuitive reasoning models
+    "IntuitiveInsight",
+    "PatternSynthesis",
+    "IntuitivePattern",
+    "DataPoint",
+    "Problem",
+    "CreativeSolution",
+    "Challenge",
+    "HolisticInsight",
+    "IntuitiveContext",
+    "IntuitiveLeap",
+    "NeuralArchitecture",
+    "ValidationResult",
+    "ConfidenceMetrics",
+    "IntuitiveInsightType",
+    "PatternComplexity",
+    "CreativityLevel",
     
     # Core interfaces (for compatibility)
     "AgentRequest",

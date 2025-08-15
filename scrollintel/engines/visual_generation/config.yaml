@@ -1,0 +1,110 @@
+models:
+  stable_diffusion_xl:
+    type: image
+    api_key: ${STABILITY_API_KEY}
+    api_url: https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image
+    max_resolution: [1024, 1024]
+    batch_size: 1
+    timeout: 300.0
+    enabled: true
+    parameters:
+      cfg_scale: 7.5
+      steps: 50
+      sampler: K_DPM_2_ANCESTRAL
+
+  dalle3:
+    type: image
+    api_key: ${OPENAI_API_KEY}
+    api_url: https://api.openai.com/v1/images/generations
+    max_resolution: [1024, 1024]
+    batch_size: 1
+    timeout: 300.0
+    enabled: true
+    parameters:
+      quality: hd
+      style: vivid
+
+  midjourney:
+    type: image
+    api_key: ${MIDJOURNEY_API_KEY}
+    api_url: https://api.midjourney.com/v1/imagine
+    max_resolution: [1024, 1024]
+    batch_size: 4
+    timeout: 600.0
+    enabled: false
+    parameters:
+      version: '6'
+      quality: '1'
+
+  proprietary_neural_renderer:
+    type: video
+    model_path: ./models/proprietary_neural_renderer
+    max_resolution: [3840, 2160]  # 4K
+    max_duration: 600.0  # 10 minutes
+    batch_size: 1
+    timeout: 1800.0  # 30 minutes
+    enabled: true
+    parameters:
+      fps: 60
+      quality: photorealistic_plus
+      temporal_consistency: ultra_high
+      neural_rendering: true
+      physics_simulation: true
+
+  image_enhancer:
+    type: enhancement
+    model_path: ./models/enhancement
+    max_resolution: [4096, 4096]
+    batch_size: 1
+    timeout: 300.0
+    enabled: true
+    parameters:
+      upscale_factor: 4
+      face_restoration: true
+      style_transfer: true
+
+infrastructure:
+  gpu_enabled: true
+  max_concurrent_requests: 10
+  cache_enabled: true
+  cache_ttl: 3600
+  storage_path: ./generated_content
+  temp_path: ./temp
+  max_file_size: 104857600  # 100MB
+  cleanup_interval: 3600
+
+safety:
+  enabled: true
+  nsfw_detection: true
+  violence_detection: true
+  copyright_check: true
+  prompt_filtering: true
+  confidence_threshold: 0.8
+  blocked_keywords:
+    - explicit
+    - nsfw
+    - violence
+    - harmful
+
+quality:
+  enabled: true
+  min_quality_score: 0.7
+  technical_quality_weight: 0.3
+  aesthetic_weight: 0.3
+  prompt_adherence_weight: 0.4
+  auto_enhance: false
+  quality_metrics:
+    - sharpness
+    - color_balance
+    - composition
+    - realism_score
+    - temporal_consistency
+
+cost:
+  enabled: true
+  cost_per_image: 0.01
+  cost_per_video_second: 0.1
+  cost_per_enhancement: 0.005
+  budget_alerts: true
+  daily_budget_limit: 100.0
+  user_budget_limits: {}

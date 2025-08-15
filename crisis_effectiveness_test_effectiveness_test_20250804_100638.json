@@ -1,0 +1,219 @@
+{
+  "test_id": "effectiveness_test_20250804_100638",
+  "crisis_scenario": "Major data breach affecting 100,000 customer records with potential regulatory implications",
+  "test_type": "comprehensive",
+  "start_time": "2025-08-04T10:06:38.548970",
+  "end_time": "2025-08-04T10:06:38.557119",
+  "duration_seconds": 0.008149,
+  "phases_tested": [],
+  "effectiveness_scores": [
+    {
+      "metric": "response_speed",
+      "score": 0.1833333333333333,
+      "details": {
+        "detection_to_first_response_seconds": 240.0,
+        "detection_to_full_response_seconds": 1500.0,
+        "first_response_score": 0.19999999999999996,
+        "full_response_score": 0.16666666666666663,
+        "target_first_response": 300,
+        "target_full_response": 1800
+      },
+      "measurement_time": "2025-08-04T10:06:38.549760",
+      "confidence_level": 0.95
+    },
+    {
+      "metric": "decision_quality",
+      "score": 0.8466666666666667,
+      "details": {
+        "decisions_evaluated": 3,
+        "individual_scores": [
+          0.8800000000000001,
+          0.8400000000000001,
+          0.82
+        ],
+        "decision_details": [
+          {
+            "decision_id": "decision_1",
+            "decision_type": "immediate_containment",
+            "quality_factors": {
+              "information_completeness": 0.9,
+              "stakeholder_consideration": 0.85,
+              "risk_assessment_accuracy": 0.8,
+              "implementation_feasibility": 0.95,
+              "outcome_effectiveness": 0.9
+            },
+            "overall_score": 0.8800000000000001
+          },
+          {
+            "decision_id": "decision_2",
+            "decision_type": "stakeholder_notification",
+            "quality_factors": {
+              "information_completeness": 0.8,
+              "stakeholder_consideration": 0.9,
+              "risk_assessment_accuracy": 0.85,
+              "implementation_feasibility": 0.8,
+              "outcome_effectiveness": 0.85
+            },
+            "overall_score": 0.8400000000000001
+          },
+          {
+            "decision_id": "decision_3",
+            "decision_type": "customer_communication",
+            "quality_factors": {
+              "information_completeness": 0.75,
+              "stakeholder_consideration": 0.95,
+              "risk_assessment_accuracy": 0.7,
+              "implementation_feasibility": 0.9,
+              "outcome_effectiveness": 0.8
+            },
+            "overall_score": 0.82
+          }
+        ],
+        "average_score": 0.8466666666666667
+      },
+      "measurement_time": "2025-08-04T10:06:38.550755",
+      "confidence_level": 0.9
+    },
+    {
+      "metric": "communication_clarity",
+      "score": 0.8625,
+      "details": {
+        "communications_evaluated": 3,
+        "individual_scores": [
+          0.85,
+          0.8375,
+          0.9
+        ],
+        "communication_details": [
+          {
+            "communication_id": "comm_1",
+            "channel": "email",
+            "audience": "affected_customers",
+            "clarity_score": 0.85,
+            "timeliness_score": 0.8,
+            "completeness_score": 0.9,
+            "appropriateness_score": 0.85,
+            "overall_score": 0.85
+          },
+          {
+            "communication_id": "comm_2",
+            "channel": "press_release",
+            "audience": "media_public",
+            "clarity_score": 0.9,
+            "timeliness_score": 0.75,
+            "completeness_score": 0.8,
+            "appropriateness_score": 0.9,
+            "overall_score": 0.8375
+          },
+          {
+            "communication_id": "comm_3",
+            "channel": "slack",
+            "audience": "internal_team",
+            "clarity_score": 0.95,
+            "timeliness_score": 0.9,
+            "completeness_score": 0.85,
+            "appropriateness_score": 0.9,
+            "overall_score": 0.9
+          }
+        ],
+        "average_score": 0.8625
+      },
+      "measurement_time": "2025-08-04T10:06:38.551766",
+      "confidence_level": 0.85
+    },
+    {
+      "metric": "outcome_success",
+      "score": 0.8725,
+      "details": {
+        "objectives_evaluated": 5,
+        "individual_scores": [
+          0.9,
+          0.8750000000000001,
+          0.95,
+          0.7625,
+          0.875
+        ],
+        "outcome_details": [
+          {
+            "objective": "Contain data breach within 2 hours",
+            "completion_rate": 0.95,
+            "quality_rating": 0.9,
+            "stakeholder_satisfaction": 0.85,
+            "long_term_impact": 0.9,
+            "objective_score": 0.9
+          },
+          {
+            "objective": "Notify all affected customers within 24 hours",
+            "completion_rate": 1.0,
+            "quality_rating": 0.85,
+            "stakeholder_satisfaction": 0.8,
+            "long_term_impact": 0.85,
+            "objective_score": 0.8750000000000001
+          },
+          {
+            "objective": "File regulatory notifications within required timeframes",
+            "completion_rate": 1.0,
+            "quality_rating": 0.95,
+            "stakeholder_satisfaction": 0.9,
+            "long_term_impact": 0.95,
+            "objective_score": 0.95
+          },
+          {
+            "objective": "Maintain customer trust and minimize churn",
+            "completion_rate": 0.8,
+            "quality_rating": 0.75,
+            "stakeholder_satisfaction": 0.7,
+            "long_term_impact": 0.8,
+            "objective_score": 0.7625
+          },
+          {
+            "objective": "Implement additional security measures to prevent recurrence",
+            "completion_rate": 0.9,
+            "quality_rating": 0.85,
+            "stakeholder_satisfaction": 0.85,
+            "long_term_impact": 0.9,
+            "objective_score": 0.875
+          }
+        ],
+        "average_score": 0.8725
+      },
+      "measurement_time": "2025-08-04T10:06:38.552625",
+      "confidence_level": 0.9
+    },
+    {
+      "metric": "leadership_effectiveness",
+      "score": 0.8696666666666668,
+      "details": {
+        "leadership_dimensions": {
+          "decision_making": 0.9,
+          "communication": 0.85,
+          "team_coordination": 0.9,
+          "stakeholder_management": 0.8,
+          "crisis_composure": 0.95
+        },
+        "team_ratings": {
+          "leadership_clarity": 0.8833333333333333,
+          "decision_confidence": 0.85,
+          "communication_effectiveness": 0.8833333333333333
+        },
+        "stakeholder_confidence": {
+          "board_members": 0.85,
+          "customers": 0.75,
+          "employees": 0.9,
+          "regulators": 0.8,
+          "media": 0.7
+        },
+        "actions_evaluated": 5,
+        "team_feedback_count": 3,
+        "overall_score": 0.8696666666666668
+      },
+      "measurement_time": "2025-08-04T10:06:38.554629",
+      "confidence_level": 0.85
+    }
+  ],
+  "overall_score": 0.5520666666666667,
+  "recommendations": [
+    "Improve crisis detection and early warning systems",
+    "Streamline crisis response protocols"
+  ]
+}

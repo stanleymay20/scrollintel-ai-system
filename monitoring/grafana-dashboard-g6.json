@@ -1,0 +1,210 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "ScrollIntel-G6 Monitoring Dashboard",
+    "tags": ["scrollintel", "g6", "monitoring"],
+    "style": "dark",
+    "timezone": "browser",
+    "refresh": "30s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "System Overview",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "scrollintel_active_users",
+            "legendFormat": "Active Users"
+          },
+          {
+            "expr": "sum(scrollintel_data_products_total)",
+            "legendFormat": "Total Data Products"
+          },
+          {
+            "expr": "rate(scrollintel_requests_total[5m])",
+            "legendFormat": "Requests/sec"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0}
+      },
+      {
+        "id": 2,
+        "title": "Request Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(scrollintel_requests_total[5m])",
+            "legendFormat": "{{method}} {{endpoint}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0}
+      },
+      {
+        "id": 3,
+        "title": "Response Time",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(scrollintel_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "50th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(scrollintel_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "95th percentile"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(scrollintel_request_duration_seconds_bucket[5m]))",
+            "legendFormat": "99th percentile"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8}
+      },
+      {
+        "id": 4,
+        "title": "Error Rate",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(scrollintel_errors_total[5m])",
+            "legendFormat": "{{component}} - {{error_type}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8}
+      },
+      {
+        "id": 5,
+        "title": "Agent Executions",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(scrollintel_agent_executions_total[5m])",
+            "legendFormat": "{{agent_type}} - {{status}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16}
+      },
+      {
+        "id": 6,
+        "title": "Agent Execution Duration",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(scrollintel_agent_execution_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{agent_type}} - 95th percentile"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16}
+      },
+      {
+        "id": 7,
+        "title": "Cache Performance",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "rate(scrollintel_cache_hits_total[5m])",
+            "legendFormat": "{{cache_type}} - Hits"
+          },
+          {
+            "expr": "rate(scrollintel_cache_misses_total[5m])",
+            "legendFormat": "{{cache_type}} - Misses"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24}
+      },
+      {
+        "id": 8,
+        "title": "System Resources",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "scrollintel_system_cpu_usage",
+            "legendFormat": "CPU Usage %"
+          },
+          {
+            "expr": "scrollintel_system_memory_usage",
+            "legendFormat": "Memory Usage %"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24}
+      },
+      {
+        "id": 9,
+        "title": "Data Products Status",
+        "type": "piechart",
+        "targets": [
+          {
+            "expr": "scrollintel_data_products_total",
+            "legendFormat": "{{status}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32}
+      },
+      {
+        "id": 10,
+        "title": "Kubernetes Pods",
+        "type": "stat",
+        "targets": [
+          {
+            "expr": "scrollintel_kubernetes_pods",
+            "legendFormat": "{{status}}"
+          }
+        ],
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32}
+      },
+      {
+        "id": 11,
+        "title": "ScrollBench Performance",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "scrollintel_scrollbench_score",
+            "legendFormat": "ScrollBench Score"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 1,
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 0.9},
+                {"color": "green", "value": 0.95}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 40}
+      },
+      {
+        "id": 12,
+        "title": "Data Products Flywheel Efficiency",
+        "type": "gauge",
+        "targets": [
+          {
+            "expr": "scrollintel_flywheel_efficiency",
+            "legendFormat": "Flywheel Efficiency"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "min": 0,
+            "max": 1,
+            "thresholds": {
+              "steps": [
+                {"color": "red", "value": 0},
+                {"color": "yellow", "value": 0.8},
+                {"color": "green", "value": 0.9}
+              ]
+            }
+          }
+        },
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 40}
+      }
+    ]
+  }
+}
