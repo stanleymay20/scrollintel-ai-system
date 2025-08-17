@@ -1,237 +1,365 @@
-import { useEffect, useRef, useState, useCallback } from 'react';
+'use client'
+
+import { useEffect, useRef, useState, useCallback } from 'react'
+import { io, Socket } from 'socket.io-client'
 
 interface WebSocketMessage {
-  type: string;
-  data: any;
-  timestamp: string;
+  type: string
+  data: any
+  timestamp: string
 }
 
-interface WebSocketConfig {
-  url: string;
-  connectionId: string;
-  userId: string;
-  dashboardId: string;
-  onMessage?: (message: WebSocketMessage) => void;
-  onConnect?: () => void;
-  onDisconnect?: () => void;
-  onError?: (error: Event) => void;
-  reconnectInterval?: number;
-  maxReconnectAttempts?: number;
+interface StreamingMessage {
+  type: 'message_chunk' | 'message_complete' | 'message_error'
+  message_id: string
+  conversation_id: string
+  content?: string
+  error?: string
+  metadata?: any
 }
 
-interface WebSocketState {
-  isConnected: boolean;
-  isConnecting: boolean;
-  error: string | null;
-  reconnectAttempts: number;
+interface ConnectionStatus {
+  connected: boolean
+  reconnecting: boolean
+  error: string | null
+  lastConnected: Date | null
+  reconnectAttempts: number
 }
 
-export function useWebSocket(config: WebSocketConfig) {
-  const {
-    url,
-    connectionId,
-    userId,
-    dashboardId,
-    onMessage,
-    onConnect,
-    onDisconnect,
-    onError,
-    reconnectInterval = 5000,
-    maxReconnectAttempts = 5
-  } = config;
-
-  const [state, setState] = useState<WebSocketState>({
-    isConnected: false,
-    isConnecting: false,
+export function useWebSocket(url?: string) {
+  const [socket, setSocket] = useState<Socket | null>(null)
+  const [isConnected, setIsConnected] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>({
+    connected: false,
+    reconnecting: false,
     error: null,
+    lastConnected: null,
     reconnectAttempts: 0
-  });
+  })
+  
+  const socketRef = useRef<Socket | null>(null)
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const messageHandlersRef = useRef<Map<string, Set<(data: any) => void>>>(new Map())
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const pingIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Get WebSocket URL
+  const getWebSocketUrl = useCallback(() => {
+    if (url) return url
+    
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+    const host = process.env.NODE_ENV === 'development' 
+      ? 'localhost:8000' 
+      : window.location.host
+    
+    return `${protocol}//${host}/ws`
+  }, [url])
 
+  // Initialize WebSocket connection
   const connect = useCallback(() => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      return;
-    }
-
-    setState(prev => ({ ...prev, isConnecting: true, error: null }));
+    if (socketRef.current?.connected) return
 
     try {
-      const ws = new WebSocket(url);
-      wsRef.current = ws;
+      const wsUrl = getWebSocketUrl()
+      console.log('Connecting to WebSocket:', wsUrl)
+      
+      const newSocket = io(wsUrl, {
+        transports: ['websocket', 'polling'],
+        timeout: 20000,
+        reconnection: true,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 5000,
+        maxReconnectionAttempts: 5,
+        forceNew: true
+      })
 
-      ws.onopen = () => {
-        console.log('WebSocket connected');
-        
-        // Send connection message
-        const connectMessage = {
-          type: 'connect',
-          connection_id: connectionId,
-          user_id: userId,
-          dashboard_id: dashboardId
-        };
-        
-        ws.send(JSON.stringify(connectMessage));
-
-        setState(prev => ({
+      // Connection event handlers
+      newSocket.on('connect', () => {
+        console.log('WebSocket connected')
+        setIsConnected(true)
+        setConnectionStatus(prev => ({
           ...prev,
-          isConnected: true,
-          isConnecting: false,
+          connected: true,
+          reconnecting: false,
           error: null,
+          lastConnected: new Date(),
           reconnectAttempts: 0
-        }));
-
-        // Start ping interval
-        pingIntervalRef.current = setInterval(() => {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'ping' }));
-          }
-        }, 30000); // Ping every 30 seconds
-
-        onConnect?.();
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const message: WebSocketMessage = JSON.parse(event.data);
-          
-          if (message.type === 'pong') {
-            // Handle pong response
-            console.log('Received pong from server');
-            return;
-          }
-
-          if (message.type === 'connected') {
-            console.log('Connection confirmed:', message.data);
-            return;
-          }
-
-          onMessage?.(message);
-        } catch (error) {
-          console.error('Error parsing WebSocket message:', error);
-        }
-      };
-
-      ws.onclose = (event) => {
-        console.log('WebSocket disconnected:', event.code, event.reason);
+        }))
         
-        setState(prev => ({
-          ...prev,
-          isConnected: false,
-          isConnecting: false
-        }));
-
-        // Clear ping interval
-        if (pingIntervalRef.current) {
-          clearInterval(pingIntervalRef.current);
-          pingIntervalRef.current = null;
+        // Clear any reconnection timeout
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current)
+          reconnectTimeoutRef.current = null
         }
+      })
 
-        onDisconnect?.();
-
-        // Attempt reconnection if not a clean close
-        if (event.code !== 1000 && state.reconnectAttempts < maxReconnectAttempts) {
-          setState(prev => ({
-            ...prev,
-            reconnectAttempts: prev.reconnectAttempts + 1
-          }));
-
-          reconnectTimeoutRef.current = setTimeout(() => {
-            console.log(`Attempting to reconnect... (${state.reconnectAttempts + 1}/${maxReconnectAttempts})`);
-            connect();
-          }, reconnectInterval);
-        }
-      };
-
-      ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
-        setState(prev => ({
+      newSocket.on('disconnect', (reason) => {
+        console.log('WebSocket disconnected:', reason)
+        setIsConnected(false)
+        setConnectionStatus(prev => ({
           ...prev,
-          error: 'WebSocket connection error',
-          isConnecting: false
-        }));
-        onError?.(error);
-      };
+          connected: false,
+          error: `Disconnected: ${reason}`
+        }))
+      })
+
+      newSocket.on('connect_error', (error) => {
+        console.error('WebSocket connection error:', error)
+        setConnectionStatus(prev => ({
+          ...prev,
+          connected: false,
+          reconnecting: true,
+          error: error.message,
+          reconnectAttempts: prev.reconnectAttempts + 1
+        }))
+      })
+
+      newSocket.on('reconnect', (attemptNumber) => {
+        console.log('WebSocket reconnected after', attemptNumber, 'attempts')
+        setConnectionStatus(prev => ({
+          ...prev,
+          reconnecting: false,
+          reconnectAttempts: attemptNumber
+        }))
+      })
+
+      newSocket.on('reconnect_attempt', (attemptNumber) => {
+        console.log('WebSocket reconnection attempt:', attemptNumber)
+        setConnectionStatus(prev => ({
+          ...prev,
+          reconnecting: true,
+          reconnectAttempts: attemptNumber
+        }))
+      })
+
+      newSocket.on('reconnect_error', (error) => {
+        console.error('WebSocket reconnection error:', error)
+        setConnectionStatus(prev => ({
+          ...prev,
+          error: `Reconnection failed: ${error.message}`
+        }))
+      })
+
+      newSocket.on('reconnect_failed', () => {
+        console.error('WebSocket reconnection failed')
+        setConnectionStatus(prev => ({
+          ...prev,
+          reconnecting: false,
+          error: 'Reconnection failed after maximum attempts'
+        }))
+      })
+
+      // Message streaming handlers
+      newSocket.on('message_stream', (data: StreamingMessage) => {
+        console.log('Received streaming message:', data)
+        
+        // Emit to registered handlers
+        const handlers = messageHandlersRef.current.get('message_stream')
+        if (handlers) {
+          handlers.forEach(handler => handler(data))
+        }
+      })
+
+      // Generic message handler
+      newSocket.onAny((eventName, data) => {
+        const handlers = messageHandlersRef.current.get(eventName)
+        if (handlers) {
+          handlers.forEach(handler => handler(data))
+        }
+      })
+
+      socketRef.current = newSocket
+      setSocket(newSocket)
 
     } catch (error) {
-      console.error('Failed to create WebSocket connection:', error);
-      setState(prev => ({
+      console.error('Error creating WebSocket connection:', error)
+      setConnectionStatus(prev => ({
         ...prev,
-        error: 'Failed to create WebSocket connection',
-        isConnecting: false
-      }));
+        error: error instanceof Error ? error.message : 'Connection failed'
+      }))
     }
-  }, [url, connectionId, userId, dashboardId, onMessage, onConnect, onDisconnect, onError, reconnectInterval, maxReconnectAttempts, state.reconnectAttempts]);
+  }, [getWebSocketUrl])
 
+  // Disconnect WebSocket
   const disconnect = useCallback(() => {
+    if (socketRef.current) {
+      socketRef.current.disconnect()
+      socketRef.current = null
+      setSocket(null)
+      setIsConnected(false)
+    }
+    
     if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
+      clearTimeout(reconnectTimeoutRef.current)
+      reconnectTimeoutRef.current = null
     }
+  }, [])
 
-    if (pingIntervalRef.current) {
-      clearInterval(pingIntervalRef.current);
-      pingIntervalRef.current = null;
+  // Send message through WebSocket
+  const sendMessage = useCallback((event: string, data: any) => {
+    if (socketRef.current?.connected) {
+      socketRef.current.emit(event, data)
+      return true
+    } else {
+      console.warn('WebSocket not connected, cannot send message')
+      return false
     }
+  }, [])
 
-    if (wsRef.current) {
-      wsRef.current.close(1000, 'Client disconnect');
-      wsRef.current = null;
+  // Subscribe to WebSocket events
+  const subscribe = useCallback((event: string, handler: (data: any) => void) => {
+    if (!messageHandlersRef.current.has(event)) {
+      messageHandlersRef.current.set(event, new Set())
     }
-
-    setState({
-      isConnected: false,
-      isConnecting: false,
-      error: null,
-      reconnectAttempts: 0
-    });
-  }, []);
-
-  const sendMessage = useCallback((message: any) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(message));
-      return true;
+    
+    messageHandlersRef.current.get(event)!.add(handler)
+    
+    // Return unsubscribe function
+    return () => {
+      const handlers = messageHandlersRef.current.get(event)
+      if (handlers) {
+        handlers.delete(handler)
+        if (handlers.size === 0) {
+          messageHandlersRef.current.delete(event)
+        }
+      }
     }
-    return false;
-  }, []);
+  }, [])
 
-  const subscribeToDashboard = useCallback((newDashboardId: string) => {
-    return sendMessage({
-      type: 'subscribe_dashboard',
-      data: { dashboard_id: newDashboardId }
-    });
-  }, [sendMessage]);
+  // Join conversation room for real-time updates
+  const joinConversation = useCallback((conversationId: string) => {
+    return sendMessage('join_conversation', { conversation_id: conversationId })
+  }, [sendMessage])
 
-  const requestUpdate = useCallback(() => {
-    return sendMessage({
-      type: 'request_update'
-    });
-  }, [sendMessage]);
+  // Leave conversation room
+  const leaveConversation = useCallback((conversationId: string) => {
+    return sendMessage('leave_conversation', { conversation_id: conversationId })
+  }, [sendMessage])
 
-  // Connect on mount
+  // Send typing indicator
+  const sendTyping = useCallback((conversationId: string, isTyping: boolean) => {
+    return sendMessage('typing', { 
+      conversation_id: conversationId, 
+      is_typing: isTyping 
+    })
+  }, [sendMessage])
+
+  // Initialize connection on mount
   useEffect(() => {
-    connect();
+    connect()
     
     return () => {
-      disconnect();
-    };
-  }, [connect, disconnect]);
+      disconnect()
+    }
+  }, [connect, disconnect])
+
+  // Auto-reconnect logic
+  useEffect(() => {
+    if (!isConnected && !connectionStatus.reconnecting && connectionStatus.reconnectAttempts < 5) {
+      reconnectTimeoutRef.current = setTimeout(() => {
+        console.log('Attempting to reconnect WebSocket...')
+        connect()
+      }, Math.min(1000 * Math.pow(2, connectionStatus.reconnectAttempts), 30000))
+    }
+
+    return () => {
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current)
+        reconnectTimeoutRef.current = null
+      }
+    }
+  }, [isConnected, connectionStatus.reconnecting, connectionStatus.reconnectAttempts, connect])
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      disconnect();
-    };
-  }, [disconnect]);
+      disconnect()
+    }
+  }, [disconnect])
 
   return {
-    ...state,
+    socket,
+    isConnected,
+    connectionStatus,
     connect,
     disconnect,
     sendMessage,
-    subscribeToDashboard,
-    requestUpdate
-  };
+    subscribe,
+    joinConversation,
+    leaveConversation,
+    sendTyping
+  }
+}
+
+// Hook for managing conversation-specific WebSocket events
+export function useConversationWebSocket(conversationId: string | null) {
+  const { socket, isConnected, subscribe, joinConversation, leaveConversation, sendTyping } = useWebSocket()
+  const [typingUsers, setTypingUsers] = useState<string[]>([])
+  const [streamingMessages, setStreamingMessages] = useState<Map<string, string>>(new Map())
+
+  // Join/leave conversation room when conversation changes
+  useEffect(() => {
+    if (!conversationId || !isConnected) return
+
+    joinConversation(conversationId)
+    
+    return () => {
+      leaveConversation(conversationId)
+    }
+  }, [conversationId, isConnected, joinConversation, leaveConversation])
+
+  // Handle typing indicators
+  useEffect(() => {
+    if (!conversationId) return
+
+    const unsubscribeTyping = subscribe('user_typing', (data: { user_id: string; is_typing: boolean }) => {
+      setTypingUsers(prev => {
+        if (data.is_typing) {
+          return prev.includes(data.user_id) ? prev : [...prev, data.user_id]
+        } else {
+          return prev.filter(id => id !== data.user_id)
+        }
+      })
+    })
+
+    return unsubscribeTyping
+  }, [conversationId, subscribe])
+
+  // Handle streaming messages
+  useEffect(() => {
+    const unsubscribeStream = subscribe('message_stream', (data: StreamingMessage) => {
+      if (data.conversation_id !== conversationId) return
+
+      setStreamingMessages(prev => {
+        const newMap = new Map(prev)
+        
+        if (data.type === 'message_chunk' && data.content) {
+          const currentContent = newMap.get(data.message_id) || ''
+          newMap.set(data.message_id, currentContent + data.content)
+        } else if (data.type === 'message_complete') {
+          newMap.delete(data.message_id)
+        } else if (data.type === 'message_error') {
+          newMap.delete(data.message_id)
+        }
+        
+        return newMap
+      })
+    })
+
+    return unsubscribeStream
+  }, [conversationId, subscribe])
+
+  // Send typing indicator with debouncing
+  const handleTyping = useCallback((isTyping: boolean) => {
+    if (conversationId && isConnected) {
+      sendTyping(conversationId, isTyping)
+    }
+  }, [conversationId, isConnected, sendTyping])
+
+  return {
+    socket,
+    isConnected,
+    typingUsers,
+    streamingMessages,
+    handleTyping,
+    subscribe
+  }
 }

@@ -1,0 +1,205 @@
+# IAM System Configuration
+# Enterprise-grade Identity and Access Management settings
+
+# Multi-Factor Authentication Configuration
+mfa:
+  # TOTP Settings
+  totp:
+    issuer_name: "ScrollIntel Enterprise"
+    window_size: 1  # Allow 1 time step drift
+    
+  # SMS Settings
+  sms:
+    provider: "twilio"  # twilio, aws_sns, azure
+    challenge_timeout_minutes: 5
+    max_attempts: 3
+    
+  # Biometric Settings
+  biometric:
+    similarity_threshold: 0.8
+    supported_types: ["fingerprint", "face", "voice"]
+    
+  # Backup Codes
+  backup_codes:
+    count: 10
+    length: 8
+
+# Just-in-Time Access Configuration
+jit:
+  # Default approval settings
+  default_approval:
+    max_duration_hours: 24
+    require_justification: true
+    
+  # Auto-approval conditions
+  auto_approval:
+    max_user_risk_score: 0.3
+    max_permission_risk: 0.5
+    max_resource_sensitivity: 0.3
+    allowed_hours: [6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]
+    
+  # Escalation rules
+  escalation:
+    high_risk_threshold: 0.8
+    critical_resource_patterns: ["admin/*", "security/*", "finance/*"]
+    
+# Role-Based Access Control Configuration
+rbac:
+  # Permission inheritance
+  inheritance:
+    enabled: true
+    max_depth: 5
+    
+  # Condition evaluation
+  conditions:
+    time_based: true
+    location_based: true
+    resource_based: true
+    
+  # Default roles (created automatically)
+  default_roles:
+    - name: "viewer"
+      description: "Read-only access"
+      permissions: ["read"]
+      
+    - name: "editor" 
+      description: "Read and write access"
+      permissions: ["read", "write"]
+      parent_roles: ["viewer"]
+      
+    - name: "admin"
+      description: "Full administrative access"
+      permissions: ["*"]
+
+# User and Entity Behavior Analytics Configuration
+ueba:
+  # Learning parameters
+  learning:
+    window_days: 30
+    min_activities: 50
+    update_frequency_activities: 100
+    
+  # Anomaly detection thresholds
+  thresholds:
+    time_deviation: 2.0
+    location_deviation: 0.8
+    volume_multiplier: 3.0
+    new_resource_threshold: 0.9
+    permission_escalation_threshold: 0.8
+    
+  # Risk scoring
+  risk_scoring:
+    weights:
+      time_anomaly: 0.3
+      location_anomaly: 0.4
+      volume_anomaly: 0.2
+      escalation_anomaly: 0.8
+      resource_anomaly: 0.3
+      
+  # Alert settings
+  alerts:
+    retention_days: 90
+    auto_acknowledge_low_risk: false
+    notification_thresholds:
+      medium: 0.5
+      high: 0.7
+      critical: 0.9
+
+# Session Management Configuration
+session:
+  # Session limits
+  limits:
+    max_concurrent_sessions: 5
+    allow_concurrent_same_device: true
+    
+  # Timeout settings
+  timeouts:
+    session_timeout_minutes: 30
+    absolute_timeout_hours: 8
+    remember_me_days: 30
+    
+  # Security settings
+  security:
+    require_device_verification: true
+    ip_validation: "warn"  # strict, warn, disabled
+    session_fixation_protection: true
+    
+  # Cleanup settings
+  cleanup:
+    expired_session_cleanup_hours: 1
+    inactive_session_days: 7
+
+# Security Monitoring Configuration
+monitoring:
+  # Real-time monitoring
+  realtime:
+    enabled: true
+    alert_on_anomalies: true
+    log_all_activities: true
+    
+  # Metrics collection
+  metrics:
+    session_metrics: true
+    authentication_metrics: true
+    authorization_metrics: true
+    anomaly_metrics: true
+    
+  # Audit logging
+  audit:
+    enabled: true
+    log_level: "INFO"
+    retention_days: 365
+    immutable_logs: true
+
+# Integration Settings
+integrations:
+  # External identity providers
+  identity_providers:
+    ldap:
+      enabled: false
+      server: "ldap://company.com"
+      
+    saml:
+      enabled: false
+      
+    oauth2:
+      enabled: false
+      
+  # External services
+  services:
+    sms_provider: "twilio"
+    email_provider: "sendgrid"
+    push_notification: "firebase"
+    
+# Performance Settings
+performance:
+  # Caching
+  cache:
+    session_cache_ttl: 300
+    permission_cache_ttl: 600
+    profile_cache_ttl: 1800
+    
+  # Database
+  database:
+    connection_pool_size: 20
+    query_timeout: 30
+    
+  # Rate limiting
+  rate_limiting:
+    authentication_attempts: 5
+    mfa_attempts: 3
+    jit_requests_per_hour: 10
+
+# Development/Testing Settings
+development:
+  # Test users
+  create_test_users: true
+  test_user_prefix: "test_"
+  
+  # Debugging
+  debug_mode: false
+  verbose_logging: false
+  
+  # Mock services
+  mock_sms: true
+  mock_email: true

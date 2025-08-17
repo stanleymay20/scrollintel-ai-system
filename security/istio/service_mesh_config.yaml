@@ -1,0 +1,218 @@
+# Istio Service Mesh Configuration for mTLS and Traffic Management
+# Implements mutual TLS encryption for all service-to-service communication
+
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: default
+  namespace: scrollintel
+spec:
+  mtls:
+    mode: STRICT
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: scrollintel-authz
+  namespace: scrollintel
+spec:
+  selector:
+    matchLabels:
+      app: scrollintel-api
+  rules:
+  - from:
+    - source:
+        principals: ["cluster.local/ns/scrollintel/sa/scrollintel-frontend"]
+    to:
+    - operation:
+        methods: ["GET", "POST", "PUT", "DELETE"]
+        paths: ["/api/*"]
+  - from:
+    - source:
+        principals: ["cluster.local/ns/monitoring/sa/prometheus"]
+    to:
+    - operation:
+        methods: ["GET"]
+        paths: ["/metrics", "/health"]
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: scrollintel-api-dr
+  namespace: scrollintel
+spec:
+  host: scrollintel-api.scrollintel.svc.cluster.local
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 100
+      http:
+        http1MaxPendingRequests: 50
+        maxRequestsPerConnection: 10
+    loadBalancer:
+      simple: LEAST_CONN
+    outlierDetection:
+      consecutiveErrors: 3
+      interval: 30s
+      baseEjectionTime: 30s
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: scrollintel-api-vs
+  namespace: scrollintel
+spec:
+  hosts:
+  - scrollintel-api.scrollintel.svc.cluster.local
+  http:
+  - match:
+    - uri:
+        prefix: "/api/v1/"
+    route:
+    - destination:
+        host: scrollintel-api.scrollintel.svc.cluster.local
+        port:
+          number: 8000
+    timeout: 30s
+    retries:
+      attempts: 3
+      perTryTimeout: 10s
+    fault:
+      delay:
+        percentage:
+          value: 0.1
+        fixedDelay: 5s
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+  name: scrollintel-gateway
+  namespace: scrollintel
+spec:
+  selector:
+    istio: ingressgateway
+  servers:
+  - port:
+      number: 443
+      name: https
+      protocol: HTTPS
+    tls:
+      mode: SIMPLE
+      credentialName: scrollintel-tls-secret
+    hosts:
+    - api.scrollintel.com
+  - port:
+      number: 80
+      name: http
+      protocol: HTTP
+    hosts:
+    - api.scrollintel.com
+    tls:
+      httpsRedirect: true
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: scrollintel-gateway-vs
+  namespace: scrollintel
+spec:
+  hosts:
+  - api.scrollintel.com
+  gateways:
+  - scrollintel-gateway
+  http:
+  - match:
+    - uri:
+        prefix: "/api/"
+    route:
+    - destination:
+        host: scrollintel-api.scrollintel.svc.cluster.local
+        port:
+          number: 8000
+    headers:
+      request:
+        add:
+          x-forwarded-proto: https
+      response:
+        add:
+          strict-transport-security: max-age=31536000; includeSubDomains
+          x-content-type-options: nosniff
+          x-frame-options: DENY
+          x-xss-protection: "1; mode=block"
+
+---
+apiVersion: security.istio.io/v1beta1
+kind: RequestAuthentication
+metadata:
+  name: jwt-auth
+  namespace: scrollintel
+spec:
+  selector:
+    matchLabels:
+      app: scrollintel-api
+  jwtRules:
+  - issuer: "https://auth.scrollintel.com"
+    jwksUri: "https://auth.scrollintel.com/.well-known/jwks.json"
+    audiences:
+    - "scrollintel-api"
+
+---
+apiVersion: telemetry.istio.io/v1alpha1
+kind: Telemetry
+metadata:
+  name: security-metrics
+  namespace: scrollintel
+spec:
+  metrics:
+  - providers:
+    - name: prometheus
+  - overrides:
+    - match:
+        metric: ALL_METRICS
+      tagOverrides:
+        request_protocol:
+          value: "%{REQUEST_PROTOCOL}"
+        response_code:
+          value: "%{RESPONSE_CODE}"
+        source_workload:
+          value: "%{SOURCE_WORKLOAD}"
+        destination_service:
+          value: "%{DESTINATION_SERVICE_NAME}"
+
+---
+apiVersion: install.istio.io/v1alpha1
+kind: IstioOperator
+metadata:
+  name: scrollintel-control-plane
+spec:
+  values:
+    global:
+      meshID: scrollintel-mesh
+      network: scrollintel-network
+    pilot:
+      env:
+        EXTERNAL_ISTIOD: false
+  components:
+    pilot:
+      k8s:
+        env:
+        - name: PILOT_ENABLE_WORKLOAD_ENTRY_AUTOREGISTRATION
+          value: "true"
+        - name: PILOT_ENABLE_CROSS_CLUSTER_WORKLOAD_ENTRY
+          value: "true"
+    ingressGateways:
+    - name: istio-ingressgateway
+      enabled: true
+      k8s:
+        service:
+          type: LoadBalancer
+        hpaSpec:
+          minReplicas: 2
+          maxReplicas: 5

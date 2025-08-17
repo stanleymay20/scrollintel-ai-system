@@ -1,0 +1,59 @@
+{
+  "rate_limiting": {
+    "limits": {
+      "default": {
+        "requests_per_minute": 60,
+        "burst_limit": 10
+      },
+      "/api/auth/login": {
+        "requests_per_minute": 5,
+        "burst_limit": 2
+      },
+      "/api/admin": {
+        "requests_per_minute": 20,
+        "burst_limit": 5
+      },
+      "/api/upload": {
+        "requests_per_minute": 10,
+        "burst_limit": 3
+      }
+    }
+  },
+  "threat_detection": {
+    "enabled_detectors": [
+      "sql_injection",
+      "xss",
+      "command_injection",
+      "path_traversal"
+    ],
+    "confidence_threshold": 0.7,
+    "auto_learning": true
+  },
+  "behavioral_analysis": {
+    "enabled": true,
+    "learning_period_days": 7,
+    "risk_threshold": 0.8,
+    "anomaly_detection": true
+  },
+  "response_actions": {
+    "default_action": "monitor",
+    "high_confidence_action": "block",
+    "critical_threats": ["sql_injection", "command_injection"],
+    "sanitizable_threats": ["xss"]
+  },
+  "logging": {
+    "log_level": "INFO",
+    "log_all_requests": false,
+    "log_blocked_requests": true,
+    "siem_integration": {
+      "enabled": true,
+      "endpoint": "https://siem.company.com/api/events",
+      "api_key_env": "SIEM_API_KEY"
+    }
+  },
+  "performance": {
+    "max_processing_time_ms": 50,
+    "cache_patterns": true,
+    "async_logging": true
+  }
+}

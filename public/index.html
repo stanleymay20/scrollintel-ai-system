@@ -1,0 +1,255 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScrollIntel™ - AI-Powered CTO Platform</title>
+    <meta name="description" content="Replace your CTO with AI agents that analyze data, build models, and make technical decisions">
+    <meta name="keywords" content="AI, CTO, Machine Learning, Data Science, Automation, Business Intelligence">
+    
+    <!-- Open Graph -->
+    <meta property="og:title" content="ScrollIntel™ - AI-Powered CTO Platform">
+    <meta property="og:description" content="Replace your CTO with AI agents that analyze data, build models, and make technical decisions">
+    <meta property="og:image" content="https://scrollintel.com/og-image.png">
+    <meta property="og:url" content="https://scrollintel.com">
+    
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="ScrollIntel™ - AI-Powered CTO Platform">
+    <meta name="twitter:description" content="Replace your CTO with AI agents that analyze data, build models, and make technical decisions">
+    <meta name="twitter:image" content="https://scrollintel.com/twitter-image.png">
+    
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        .container { max-width: 1200px; margin: 0 auto; padding: 0 20px; }
+        .hero { 
+            min-height: 100vh; 
+            display: flex; 
+            align-items: center; 
+            text-align: center; 
+            color: white;
+        }
+        .hero h1 { 
+            font-size: 3.5rem; 
+            margin-bottom: 1rem; 
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        .hero p { 
+            font-size: 1.5rem; 
+            margin-bottom: 2rem; 
+            opacity: 0.9;
+        }
+        .cta-buttons { 
+            display: flex; 
+            gap: 1rem; 
+            justify-content: center; 
+            flex-wrap: wrap;
+        }
+        .btn { 
+            padding: 15px 30px; 
+            border: none; 
+            border-radius: 50px; 
+            font-size: 1.1rem; 
+            font-weight: 600;
+            text-decoration: none; 
+            cursor: pointer; 
+            transition: all 0.3s ease;
+            display: inline-block;
+        }
+        .btn-primary { 
+            background: #ff6b6b; 
+            color: white; 
+        }
+        .btn-primary:hover { 
+            background: #ff5252; 
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(255, 107, 107, 0.3);
+        }
+        .btn-secondary { 
+            background: rgba(255,255,255,0.2); 
+            color: white; 
+            border: 2px solid white;
+        }
+        .btn-secondary:hover { 
+            background: white; 
+            color: #667eea;
+            transform: translateY(-2px);
+        }
+        .features { 
+            padding: 100px 0; 
+            background: white;
+        }
+        .features h2 { 
+            text-align: center; 
+            font-size: 2.5rem; 
+            margin-bottom: 3rem; 
+            color: #333;
+        }
+        .feature-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
+            gap: 2rem;
+        }
+        .feature-card { 
+            padding: 2rem; 
+            border-radius: 15px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            text-align: center;
+            transition: transform 0.3s ease;
+        }
+        .feature-card:hover { 
+            transform: translateY(-10px);
+        }
+        .feature-icon { 
+            font-size: 3rem; 
+            margin-bottom: 1rem;
+        }
+        .deployment-links {
+            padding: 50px 0;
+            background: #f8f9fa;
+            text-align: center;
+        }
+        .deployment-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            margin-top: 2rem;
+        }
+        .deployment-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        @media (max-width: 768px) {
+            .hero h1 { font-size: 2.5rem; }
+            .hero p { font-size: 1.2rem; }
+            .cta-buttons { flex-direction: column; align-items: center; }
+        }
+    </style>
+</head>
+<body>
+    <section class="hero">
+        <div class="container">
+            <h1>ScrollIntel™</h1>
+            <p>Replace your CTO with AI agents that analyze data, build models, and make technical decisions</p>
+            <div class="cta-buttons">
+                <a href="https://scrollintel.vercel.app" class="btn btn-primary">🚀 Launch Platform</a>
+                <a href="https://github.com/scrollintel/scrollintel" class="btn btn-secondary">📚 View Source</a>
+            </div>
+        </div>
+    </section>
+
+    <section class="features">
+        <div class="container">
+            <h2>🎯 Key Features</h2>
+            <div class="feature-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">🤖</div>
+                    <h3>AI Agents</h3>
+                    <p>20+ specialized AI agents including CTO, Data Scientist, ML Engineer, and Business Analyst</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>AutoML</h3>
+                    <p>Automated machine learning with model training, validation, and deployment</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">💬</div>
+                    <h3>Natural Language</h3>
+                    <p>Chat with your data using natural language queries and get instant insights</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📈</div>
+                    <h3>Dashboards</h3>
+                    <p>Interactive dashboards with real-time analytics and visualization</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>Enterprise Security</h3>
+                    <p>JWT authentication, role-based access, and comprehensive audit logging</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">⚡</div>
+                    <h3>Real-time</h3>
+                    <p>WebSocket connections for live updates and collaborative features</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="deployment-links">
+        <div class="container">
+            <h2>🌍 Available Worldwide</h2>
+            <p>Access ScrollIntel from anywhere in the world through our global deployment network</p>
+            <div class="deployment-grid">
+                <div class="deployment-card">
+                    <h3>🚀 Vercel</h3>
+                    <p>Global CDN deployment</p>
+                    <a href="https://scrollintel.vercel.app" class="btn btn-primary">Launch</a>
+                </div>
+                <div class="deployment-card">
+                    <h3>🎯 Render</h3>
+                    <p>Full-stack hosting</p>
+                    <a href="https://scrollintel.onrender.com" class="btn btn-primary">Launch</a>
+                </div>
+                <div class="deployment-card">
+                    <h3>🚂 Railway</h3>
+                    <p>Easy deployment</p>
+                    <a href="https://scrollintel.up.railway.app" class="btn btn-primary">Launch</a>
+                </div>
+                <div class="deployment-card">
+                    <h3>💜 Heroku</h3>
+                    <p>Cloud platform</p>
+                    <a href="https://scrollintel.herokuapp.com" class="btn btn-primary">Launch</a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        // Add some interactivity
+        document.addEventListener('DOMContentLoaded', function() {
+            // Smooth scrolling for anchor links
+            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+                anchor.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    document.querySelector(this.getAttribute('href')).scrollIntoView({
+                        behavior: 'smooth'
+                    });
+                });
+            });
+
+            // Add animation on scroll
+            const observerOptions = {
+                threshold: 0.1,
+                rootMargin: '0px 0px -50px 0px'
+            };
+
+            const observer = new IntersectionObserver(function(entries) {
+                entries.forEach(entry => {
+                    if (entry.isIntersecting) {
+                        entry.target.style.opacity = '1';
+                        entry.target.style.transform = 'translateY(0)';
+                    }
+                });
+            }, observerOptions);
+
+            document.querySelectorAll('.feature-card').forEach(card => {
+                card.style.opacity = '0';
+                card.style.transform = 'translateY(20px)';
+                card.style.transition = 'opacity 0.6s ease, transform 0.6s ease';
+                observer.observe(card);
+            });
+        });
+    </script>
+</body>
+</html>

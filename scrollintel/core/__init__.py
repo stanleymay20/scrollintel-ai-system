@@ -23,13 +23,9 @@ from .interfaces import (
 )
 
 from .config import (
-    ScrollIntelConfig,
-    DatabaseConfig,
-    AIServiceConfig,
-    SecurityConfig,
-    SystemConfig,
     get_config,
-    load_config_from_file,
+    get_default_config,
+    validate_config,
 )
 
 from .registry import (
@@ -83,13 +79,9 @@ __all__ = [
     "EngineError",
     "SecurityError",
     # Configuration
-    "ScrollIntelConfig",
-    "DatabaseConfig",
-    "AIServiceConfig",
-    "SecurityConfig",
-    "SystemConfig",
     "get_config",
-    "load_config_from_file",
+    "get_default_config",
+    "validate_config",
     # Registry
     "AgentRegistry",
     # Orchestration

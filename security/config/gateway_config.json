@@ -1,0 +1,318 @@
+{
+  "enabled": true,
+  "authentication": {
+    "jwt_secret": "${JWT_SECRET}",
+    "jwt_algorithm": "HS256",
+    "jwt_expiration": 3600,
+    "auth_methods": ["API_KEY", "JWT_TOKEN", "BASIC_AUTH"],
+    "require_auth": true,
+    "allow_anonymous_endpoints": [
+      "/health",
+      "/metrics",
+      "/api/v1/auth/login",
+      "/api/v1/auth/register",
+      "/docs",
+      "/openapi.json"
+    ]
+  },
+  "authorization": {
+    "permissions_map": {
+      "GET:/api/v1/health": [],
+      "GET:/api/v1/metrics": ["metrics:read"],
+      "GET:/api/v1/users": ["users:read"],
+      "POST:/api/v1/users": ["users:write"],
+      "PUT:/api/v1/users/*": ["users:write"],
+      "DELETE:/api/v1/users/*": ["users:delete"],
+      "GET:/api/v1/admin/*": ["admin:read"],
+      "POST:/api/v1/admin/*": ["admin:write"],
+      "PUT:/api/v1/admin/*": ["admin:write"],
+      "DELETE:/api/v1/admin/*": ["admin:delete"],
+      "GET:/api/v1/agents": ["agents:read"],
+      "POST:/api/v1/agents": ["agents:write"],
+      "PUT:/api/v1/agents/*": ["agents:write"],
+      "DELETE:/api/v1/agents/*": ["agents:delete"],
+      "GET:/api/v1/data": ["data:read"],
+      "POST:/api/v1/data": ["data:write"],
+      "PUT:/api/v1/data/*": ["data:write"],
+      "DELETE:/api/v1/data/*": ["data:delete"],
+      "GET:/api/v1/analytics": ["analytics:read"],
+      "POST:/api/v1/analytics": ["analytics:write"],
+      "GET:/api/v1/reports": ["reports:read"],
+      "POST:/api/v1/reports": ["reports:write"],
+      "GET:/api/v1/security": ["security:read"],
+      "POST:/api/v1/security": ["security:write"]
+    },
+    "role_permissions": {
+      "super_admin": ["*"],
+      "admin": [
+        "users:read", "users:write", "users:delete",
+        "agents:read", "agents:write", "agents:delete",
+        "data:read", "data:write", "data:delete",
+        "analytics:read", "analytics:write",
+        "reports:read", "reports:write",
+        "security:read", "security:write",
+        "admin:read", "admin:write", "admin:delete"
+      ],
+      "data_scientist": [
+        "data:read", "data:write",
+        "analytics:read", "analytics:write",
+        "reports:read", "reports:write",
+        "agents:read"
+      ],
+      "analyst": [
+        "data:read",
+        "analytics:read",
+        "reports:read",
+        "agents:read"
+      ],
+      "user": [
+        "users:read",
+        "data:read",
+        "analytics:read",
+        "reports:read"
+      ],
+      "viewer": [
+        "users:read",
+        "data:read",
+        "analytics:read",
+        "reports:read"
+      ],
+      "api_user": [
+        "data:read",
+        "analytics:read"
+      ]
+    },
+    "resource_based_permissions": {
+      "users": {
+        "own_profile": ["users:read_own", "users:write_own"],
+        "team_profiles": ["users:read_team"],
+        "all_profiles": ["users:read", "users:write", "users:delete"]
+      },
+      "data": {
+        "own_data": ["data:read_own", "data:write_own"],
+        "team_data": ["data:read_team", "data:write_team"],
+        "all_data": ["data:read", "data:write", "data:delete"]
+      }
+    }
+  },
+  "rate_limiting": {
+    "enabled": true,
+    "storage": "redis",
+    "redis_url": "${REDIS_URL}",
+    "rules": [
+      {
+        "type": "REQUESTS_PER_SECOND",
+        "limit": 10,
+        "window_size": 1,
+        "applies_to": "anonymous",
+        "burst_limit": 20
+      },
+      {
+        "type": "REQUESTS_PER_MINUTE",
+        "limit": 60,
+        "window_size": 60,
+        "applies_to": "anonymous"
+      },
+      {
+        "type": "REQUESTS_PER_MINUTE",
+        "limit": 300,
+        "window_size": 60,
+        "applies_to": "authenticated"
+      },
+      {
+        "type": "REQUESTS_PER_HOUR",
+        "limit": 1000,
+        "window_size": 3600,
+        "applies_to": "user"
+      },
+      {
+        "type": "REQUESTS_PER_HOUR",
+        "limit": 5000,
+        "window_size": 3600,
+        "applies_to": "admin"
+      },
+      {
+        "type": "REQUESTS_PER_DAY",
+        "limit": 10000,
+        "window_size": 86400,
+        "applies_to": "api_user"
+      },
+      {
+        "type": "CONCURRENT_REQUESTS",
+        "limit": 5,
+        "window_size": 1,
+        "applies_to": "anonymous"
+      },
+      {
+        "type": "CONCURRENT_REQUESTS",
+        "limit": 20,
+        "window_size": 1,
+        "applies_to": "authenticated"
+      }
+    ],
+    "custom_limits": {
+      "/api/v1/data/upload": {
+        "type": "REQUESTS_PER_MINUTE",
+        "limit": 10,
+        "window_size": 60
+      },
+      "/api/v1/analytics/heavy-computation": {
+        "type": "REQUESTS_PER_HOUR",
+        "limit": 5,
+        "window_size": 3600
+      },
+      "/api/v1/reports/generate": {
+        "type": "CONCURRENT_REQUESTS",
+        "limit": 2,
+        "window_size": 1
+      }
+    }
+  },
+  "security": {
+    "cors": {
+      "enabled": true,
+      "allowed_origins": [
+        "https://scrollintel.com",
+        "https://*.scrollintel.com",
+        "http://localhost:3000",
+        "http://localhost:8000"
+      ],
+      "allowed_methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+      "allowed_headers": [
+        "Content-Type",
+        "Authorization",
+        "X-API-Key",
+        "X-Requested-With",
+        "Accept",
+        "Origin"
+      ],
+      "expose_headers": [
+        "X-Rate-Limit-Limit",
+        "X-Rate-Limit-Remaining",
+        "X-Rate-Limit-Reset"
+      ],
+      "allow_credentials": true,
+      "max_age": 86400
+    },
+    "headers": {
+      "X-Content-Type-Options": "nosniff",
+      "X-Frame-Options": "DENY",
+      "X-XSS-Protection": "1; mode=block",
+      "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+      "Content-Security-Policy": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'",
+      "Referrer-Policy": "strict-origin-when-cross-origin",
+      "Permissions-Policy": "geolocation=(), microphone=(), camera=()"
+    },
+    "request_validation": {
+      "max_request_size": 10485760,
+      "max_header_size": 8192,
+      "max_query_params": 100,
+      "max_form_fields": 100,
+      "allowed_content_types": [
+        "application/json",
+        "application/x-www-form-urlencoded",
+        "multipart/form-data",
+        "text/plain"
+      ]
+    },
+    "ip_filtering": {
+      "enabled": false,
+      "whitelist": [],
+      "blacklist": [],
+      "geo_blocking": {
+        "enabled": false,
+        "blocked_countries": [],
+        "allowed_countries": []
+      }
+    }
+  },
+  "monitoring": {
+    "metrics": {
+      "enabled": true,
+      "endpoint": "/metrics",
+      "include_request_duration": true,
+      "include_response_size": true,
+      "include_error_rates": true
+    },
+    "logging": {
+      "enabled": true,
+      "level": "INFO",
+      "include_request_body": false,
+      "include_response_body": false,
+      "include_headers": true,
+      "sensitive_headers": [
+        "Authorization",
+        "X-API-Key",
+        "Cookie",
+        "Set-Cookie"
+      ]
+    },
+    "health_check": {
+      "enabled": true,
+      "endpoint": "/health",
+      "include_dependencies": true,
+      "timeout": 5
+    }
+  },
+  "caching": {
+    "enabled": true,
+    "default_ttl": 300,
+    "cache_control_headers": true,
+    "etag_support": true,
+    "cache_rules": {
+      "GET:/api/v1/users": {
+        "ttl": 60,
+        "vary_by": ["Authorization"]
+      },
+      "GET:/api/v1/data": {
+        "ttl": 300,
+        "vary_by": ["Authorization", "X-API-Key"]
+      },
+      "GET:/api/v1/analytics": {
+        "ttl": 600,
+        "vary_by": ["Authorization"]
+      }
+    }
+  },
+  "circuit_breaker": {
+    "enabled": true,
+    "failure_threshold": 5,
+    "recovery_timeout": 60,
+    "expected_recovery_time": 30,
+    "monitored_endpoints": [
+      "/api/v1/data",
+      "/api/v1/analytics",
+      "/api/v1/reports"
+    ]
+  },
+  "load_balancing": {
+    "enabled": false,
+    "strategy": "round_robin",
+    "health_check_interval": 30,
+    "upstream_servers": []
+  },
+  "ssl_termination": {
+    "enabled": true,
+    "cert_path": "/etc/ssl/certs/scrollintel.crt",
+    "key_path": "/etc/ssl/private/scrollintel.key",
+    "protocols": ["TLSv1.2", "TLSv1.3"],
+    "ciphers": [
+      "ECDHE-RSA-AES256-GCM-SHA384",
+      "ECDHE-RSA-AES128-GCM-SHA256",
+      "ECDHE-RSA-AES256-SHA384",
+      "ECDHE-RSA-AES128-SHA256"
+    ]
+  },
+  "api_versioning": {
+    "enabled": true,
+    "default_version": "v1",
+    "version_header": "X-API-Version",
+    "supported_versions": ["v1", "v2"],
+    "deprecation_warnings": {
+      "v1": {
+        "deprecated": false,
+        "sunset_date": null
+      }
+    }
+  }
+}

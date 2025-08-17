@@ -27,8 +27,9 @@ from .core.interfaces import (
 )
 
 from .core.config import (
-    ScrollIntelConfig,
     get_config,
+    get_default_config,
+    validate_config,
 )
 
 from .core.registry import (
@@ -58,8 +59,9 @@ __all__ = [
     "EngineError",
     "SecurityError",
     # Configuration
-    "ScrollIntelConfig",
     "get_config",
+    "get_default_config",
+    "validate_config",
     # Registry
     "AgentRegistry",
     "TaskOrchestrator",

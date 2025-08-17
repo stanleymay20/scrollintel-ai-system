@@ -1,0 +1,7 @@
+
+title: ScrollIntel™ - AI-Powered CTO Platform
+description: Replace your CTO with AI agents that analyze data, build models, and make technical decisions
+theme: minima
+plugins:
+  - jekyll-feed
+  - jekyll-sitemap

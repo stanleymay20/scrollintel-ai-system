@@ -22,7 +22,7 @@ from ..core.error_middleware import ErrorHandlingMiddleware
 from ..core.error_monitoring import error_monitor, start_error_monitoring, stop_error_monitoring
 from ..security.middleware import SecurityMiddleware, RateLimitMiddleware
 from ..security.auth import authenticator
-from .routes import agent_routes, auth_routes, health_routes, admin_routes, file_routes, automodel_routes, scroll_qa_routes, scroll_viz_routes
+from .routes import agent_routes, auth_routes, health_routes, admin_routes, file_routes
 
 
 class ScrollIntelGateway:
@@ -33,6 +33,13 @@ class ScrollIntelGateway:
         self.agent_registry = AgentRegistry()
         self.task_orchestrator = TaskOrchestrator(self.agent_registry)
         self.app = self._create_app()
+    
+    def _get_config_value(self, key: str, default=None):
+        """Get configuration value handling both dict and object formats."""
+        if isinstance(self.config, dict):
+            return self.config.get(key, default)
+        else:
+            return getattr(self.config, key, default)
     
     def _create_app(self) -> FastAPI:
         """Create and configure FastAPI application."""
@@ -50,8 +57,8 @@ class ScrollIntelGateway:
             title="ScrollIntel™ API",
             description="Sovereign AI Intelligence System API",
             version="1.0.0",
-            docs_url="/docs" if not self.config.is_production else None,
-            redoc_url="/redoc" if not self.config.is_production else None,
+            docs_url="/docs" if not self._get_config_value('is_production', False) else None,
+            redoc_url="/redoc" if not self._get_config_value('is_production', False) else None,
             lifespan=lifespan
         )
         
@@ -72,13 +79,13 @@ class ScrollIntelGateway:
         # Error handling middleware (should be first to catch all errors)
         app.add_middleware(
             ErrorHandlingMiddleware,
-            enable_detailed_errors=not self.config.is_production
+            enable_detailed_errors=not self._get_config_value('is_production', False)
         )
         
         # CORS middleware
         app.add_middleware(
             CORSMiddleware,
-            allow_origins=["*"] if not self.config.is_production else ["https://scrollintel.com"],
+            allow_origins=["*"] if not self._get_config_value('is_production', False) else ["https://scrollintel.com"],
             allow_credentials=True,
             allow_methods=["*"],
             allow_headers=["*"],
@@ -90,7 +97,7 @@ class ScrollIntelGateway:
         # Rate limiting
         app.add_middleware(
             RateLimitMiddleware,
-            requests_per_minute=self.config.rate_limit_requests
+            requests_per_minute=self._get_config_value('rate_limit_requests', 100)
         )
         
         # Security middleware (authentication, authorization, audit)
@@ -177,7 +184,7 @@ class ScrollIntelGateway:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
                     "error": "Internal Server Error",
-                    "message": "An unexpected error occurred" if self.config.is_production else str(exc),
+                    "message": "An unexpected error occurred" if self._get_config_value('is_production', False) else str(exc),
                     "type": "internal_error",
                     "timestamp": time.time()
                 }
@@ -234,23 +241,23 @@ class ScrollIntelGateway:
             tags=["File Management"]
         )
         
-        # AutoModel routes (authentication required)
-        app.include_router(
-            automodel_routes.router,
-            tags=["AutoModel"]
-        )
+        # AutoModel routes (authentication required) - Temporarily disabled
+        # app.include_router(
+        #     automodel_routes.router,
+        #     tags=["AutoModel"]
+        # )
         
-        # ScrollQA routes (authentication required)
-        app.include_router(
-            scroll_qa_routes.router,
-            tags=["ScrollQA"]
-        )
+        # ScrollQA routes (authentication required) - Temporarily disabled
+        # app.include_router(
+        #     scroll_qa_routes.router,
+        #     tags=["ScrollQA"]
+        # )
         
-        # ScrollViz routes (authentication required)
-        app.include_router(
-            scroll_viz_routes.router,
-            tags=["ScrollViz"]
-        )
+        # ScrollViz routes (authentication required) - Temporarily disabled
+        # app.include_router(
+        #     scroll_viz_routes.router,
+        #     tags=["ScrollViz"]
+        # )
         
         # Vault routes (authentication required)
         from .routes import vault_routes
@@ -280,6 +287,20 @@ class ScrollIntelGateway:
             tags=["Continuous Innovation"]
         )
         
+        # Conversation routes (authentication required) - Temporarily disabled
+        # from .routes import conversation_routes
+        # app.include_router(
+        #     conversation_routes.router,
+        #     tags=["Conversations"]
+        # )
+        
+        # WebSocket routes for real-time chat
+        from .websocket_handler import get_websocket_router
+        app.include_router(
+            get_websocket_router(),
+            tags=["WebSocket"]
+        )
+        
         # Root endpoint
         @app.get("/", tags=["Root"])
         async def root():
@@ -290,7 +311,7 @@ class ScrollIntelGateway:
                 "description": "Sovereign AI Intelligence System",
                 "status": "operational",
                 "timestamp": time.time(),
-                "environment": self.config.environment
+                "environment": self._get_config_value('environment', 'development')
             }
         
         # System status endpoint
@@ -304,7 +325,7 @@ class ScrollIntelGateway:
                 "system": "ScrollIntel™",
                 "status": "operational",
                 "timestamp": time.time(),
-                "environment": self.config.environment,
+                "environment": self._get_config_value('environment', 'development'),
                 "agents": registry_status,
                 "uptime": time.time() - getattr(self, '_start_time', time.time()),
                 "error_metrics": {
@@ -349,14 +370,14 @@ class ScrollIntelGateway:
         # Initialize logging
         import logging
         logging.basicConfig(
-            level=getattr(logging, self.config.system.log_level.upper()),
+            level=getattr(logging, self._get_config_value('log_level', 'INFO').upper()),
             format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
         )
         
         logger = logging.getLogger(__name__)
         logger.info("Starting ScrollIntel™ API Gateway")
-        logger.info(f"Environment: {self.config.environment}")
-        logger.info(f"Debug mode: {self.config.debug}")
+        logger.info(f"Environment: {self._get_config_value('environment', 'development')}")
+        logger.info(f"Debug mode: {self._get_config_value('debug', False)}")
         
         # Start error monitoring system
         logger.info("Starting error monitoring system...")

@@ -1,76 +1,50 @@
 """
-ScrollIntel Core Configuration
-Simplified configuration for focused platform
+Configuration management for ScrollIntel Core
 """
-
 import os
 from typing import Optional
-from pydantic import Field
-from pydantic_settings import BaseSettings
+from pydantic import BaseSettings
 
 
 class Settings(BaseSettings):
-    """Core application settings"""
+    """Application settings"""
     
-    # Environment
-    environment: str = Field(default="development", description="Environment: development, production")
-    debug: bool = Field(default=True, description="Debug mode")
-    
-    # API Settings
-    api_host: str = Field(default="0.0.0.0", description="API host")
-    api_port: int = Field(default=8000, description="API port")
+    # Application
+    APP_NAME: str = "ScrollIntel Core"
+    APP_VERSION: str = "1.0.0"
+    DEBUG: bool = False
     
     # Database
-    postgres_host: str = Field(default="localhost", description="PostgreSQL host")
-    postgres_port: int = Field(default=5432, description="PostgreSQL port")
-    postgres_db: str = Field(default="scrollintel_core", description="Database name")
-    postgres_user: str = Field(default="postgres", description="Database user")
-    postgres_password: str = Field(description="Database password")
+    DATABASE_URL: str = "postgresql://scrollintel:password@localhost:5432/scrollintel_core"
+    DATABASE_POOL_SIZE: int = 10
+    DATABASE_MAX_OVERFLOW: int = 20
     
     # Redis
-    redis_host: str = Field(default="localhost", description="Redis host")
-    redis_port: int = Field(default=6379, description="Redis port")
-    redis_password: Optional[str] = Field(default=None, description="Redis password")
+    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_SESSION_DB: int = 1
+    REDIS_CACHE_DB: int = 2
     
     # Security
-    jwt_secret_key: str = Field(description="JWT secret key")
-    jwt_algorithm: str = Field(default="HS256", description="JWT algorithm")
-    jwt_expiration_hours: int = Field(default=24, description="JWT expiration in hours")
+    SECRET_KEY: str = "your-secret-key-change-in-production"
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
     
-    # AI Services
-    openai_api_key: Optional[str] = Field(default=None, description="OpenAI API key")
-    anthropic_api_key: Optional[str] = Field(default=None, description="Anthropic API key")
+    # API
+    API_V1_PREFIX: str = "/api/v1"
+    CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8000"]
     
-    # File Upload
-    upload_dir: str = Field(default="./uploads", description="Upload directory")
-    max_file_size_mb: int = Field(default=100, description="Max file size in MB")
+    # File Processing
+    MAX_FILE_SIZE: int = 100 * 1024 * 1024  # 100MB
+    UPLOAD_DIR: str = "uploads"
+    
+    # Agent Configuration
+    OPENAI_API_KEY: Optional[str] = None
+    ANTHROPIC_API_KEY: Optional[str] = None
     
     class Config:
         env_file = ".env"
-        case_sensitive = False
-    
-    @property
-    def database_url(self) -> str:
-        """PostgreSQL database URL"""
-        return f"postgresql://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
-    
-    @property
-    def async_database_url(self) -> str:
-        """Async PostgreSQL database URL"""
-        return f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
-    
-    @property
-    def redis_url(self) -> str:
-        """Redis URL"""
-        if self.redis_password:
-            return f"redis://:{self.redis_password}@{self.redis_host}:{self.redis_port}/0"
-        return f"redis://{self.redis_host}:{self.redis_port}/0"
+        case_sensitive = True
 
 
 # Global settings instance
 settings = Settings()
-
-
-def get_settings() -> Settings:
-    """Get application settings"""
-    return settings

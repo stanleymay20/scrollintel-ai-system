@@ -1,0 +1,404 @@
+# Application Security Framework Configuration
+
+security_scanner:
+  enabled: true
+  security_gates:
+    max_critical: 0
+    max_high: 5
+    max_medium: 20
+    block_deployment_on_failure: true
+  
+  scan_tools:
+    semgrep:
+      enabled: true
+      config: "auto"
+      timeout: 300
+    
+    bandit:
+      enabled: true
+      confidence_level: "HIGH"
+      severity_level: "MEDIUM"
+    
+    safety:
+      enabled: true
+      ignore_vulnerabilities: []
+    
+    zap:
+      enabled: true
+      baseline_scan: true
+      full_scan: false
+      timeout: 600
+    
+    trivy:
+      enabled: true
+      scan_types: ["vuln", "config", "secret"]
+      severity: ["CRITICAL", "HIGH", "MEDIUM"]
+    
+    docker_bench:
+      enabled: true
+    
+    codeql:
+      enabled: false  # Requires GitHub CodeQL setup
+    
+    snyk:
+      enabled: false  # Requires Snyk API token
+      api_token: null
+    
+    nuclei:
+      enabled: true
+      templates: ["cves", "vulnerabilities", "exposures"]
+  
+  results_storage: "/tmp/security_scans"
+  
+  notifications:
+    slack_webhook: null
+    email_recipients: []
+    teams_webhook: null
+
+rasp_protection:
+  enabled: true
+  learning_mode: false  # Set to true for initial learning phase
+  anomaly_threshold: 0.8
+  
+  rate_limiting:
+    max_requests_per_5min: 100
+    max_requests_per_hour: 1000
+    max_requests_per_day: 10000
+  
+  behavioral_analysis:
+    track_user_patterns: true
+    anomaly_detection: true
+    suspicious_user_agents: true
+  
+  threat_detection:
+    sql_injection: true
+    xss: true
+    command_injection: true
+    path_traversal: true
+    deserialization: true
+    authentication_bypass: true
+    privilege_escalation: true
+    data_exfiltration: true
+    brute_force: true
+    ddos: true
+    malicious_file_upload: true
+    api_abuse: true
+  
+  response_actions:
+    default_action: "block"  # block, monitor, rate_limit, challenge, quarantine, alert_only
+    escalation_enabled: true
+  
+  alert_webhook: null
+  siem_integration: null
+
+api_gateway:
+  enabled: true
+  
+  authentication:
+    jwt_secret: "your-jwt-secret-key-change-this-in-production"
+    jwt_algorithm: "HS256"
+    jwt_expiration: 3600  # 1 hour
+    
+    api_key_header: "X-API-Key"
+    api_key_query_param: "api_key"
+    
+    oauth2_enabled: false
+    oauth2_provider_url: null
+    
+    mutual_tls_enabled: false
+    client_cert_required: false
+  
+  rate_limiting:
+    redis_url: "redis://localhost:6379"
+    default_limits:
+      requests_per_minute: 100
+      requests_per_hour: 1000
+      requests_per_day: 10000
+      bandwidth_per_minute: 104857600  # 100MB
+    
+    burst_allowance: 10
+    penalty_duration: 300  # 5 minutes
+  
+  security_headers:
+    X-Content-Type-Options: "nosniff"
+    X-Frame-Options: "DENY"
+    X-XSS-Protection: "1; mode=block"
+    Strict-Transport-Security: "max-age=31536000; includeSubDomains"
+    Content-Security-Policy: "default-src 'self'"
+    Referrer-Policy: "strict-origin-when-cross-origin"
+    Permissions-Policy: "geolocation=(), microphone=(), camera=()"
+  
+  cors:
+    enabled: true
+    allow_origins: ["*"]
+    allow_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+    allow_headers: ["*"]
+    allow_credentials: false
+    max_age: 86400
+  
+  request_limits:
+    max_request_size: 10485760  # 10MB
+    max_response_size: 52428800  # 50MB
+    request_timeout: 30
+  
+  ip_filtering:
+    admin_ip_whitelist: ["127.0.0.1", "::1"]
+    global_ip_blacklist: []
+    geo_blocking_enabled: false
+    blocked_countries: []
+  
+  monitoring:
+    metrics_enabled: true
+    detailed_logging: true
+    performance_tracking: true
+
+secrets_manager:
+  enabled: true
+  cache_ttl: 300  # 5 minutes
+  
+  encryption:
+    master_password: "change-this-master-password-in-production"
+    salt: "change-this-salt-16b"
+    algorithm: "PBKDF2HMAC"
+    iterations: 100000
+  
+  providers:
+    # HashiCorp Vault
+    vault:
+      enabled: false
+      url: "http://localhost:8200"
+      token: null
+      mount_point: "secret"
+      namespace: null
+      ca_cert: null
+      client_cert: null
+      client_key: null
+    
+    # AWS Secrets Manager
+    aws_secrets_manager:
+      enabled: false
+      region: "us-east-1"
+      access_key_id: null
+      secret_access_key: null
+      session_token: null
+      profile: null
+    
+    # Azure Key Vault
+    azure_key_vault:
+      enabled: false
+      vault_url: null
+      client_id: null
+      client_secret: null
+      tenant_id: null
+    
+    # Local encrypted storage (fallback)
+    local_storage:
+      enabled: true
+      storage_path: "/tmp/encrypted_secrets.json"
+      encryption_key: "local-encryption-key-change-this"
+      backup_enabled: true
+      backup_path: "/tmp/secrets_backup"
+  
+  rotation:
+    enabled: true
+    default_interval_days: 90
+    
+    policies:
+      api_keys:
+        interval_days: 30
+        auto_rotate: true
+      
+      database_credentials:
+        interval_days: 90
+        auto_rotate: false  # Requires coordination with database
+      
+      encryption_keys:
+        interval_days: 365
+        auto_rotate: true
+      
+      certificates:
+        interval_days: 30  # Check for expiration
+        auto_rotate: false
+
+input_validation:
+  enabled: true
+  strict_mode: true
+  auto_sanitize: true
+  
+  security_scanning:
+    sql_injection_detection: true
+    xss_detection: true
+    command_injection_detection: true
+    path_traversal_detection: true
+    ldap_injection_detection: true
+    xml_injection_detection: true
+  
+  html_sanitization:
+    enabled: true
+    allowed_tags:
+      - "p"
+      - "br"
+      - "strong"
+      - "em"
+      - "u"
+      - "ol"
+      - "ul"
+      - "li"
+      - "a"
+      - "h1"
+      - "h2"
+      - "h3"
+      - "h4"
+      - "h5"
+      - "h6"
+      - "blockquote"
+      - "code"
+      - "pre"
+    
+    allowed_attributes:
+      a: ["href", "title", "target"]
+      "*": ["class", "id"]
+    
+    strip_disallowed: true
+  
+  file_validation:
+    max_filename_length: 255
+    allowed_extensions:
+      - ".jpg"
+      - ".jpeg"
+      - ".png"
+      - ".gif"
+      - ".pdf"
+      - ".txt"
+      - ".csv"
+      - ".json"
+      - ".xml"
+      - ".docx"
+      - ".xlsx"
+    
+    blocked_extensions:
+      - ".exe"
+      - ".bat"
+      - ".cmd"
+      - ".com"
+      - ".scr"
+      - ".pif"
+      - ".vbs"
+      - ".js"
+      - ".jar"
+      - ".sh"
+    
+    max_file_size: 10485760  # 10MB
+    virus_scanning: false  # Requires ClamAV or similar
+  
+  data_masking:
+    credit_card_masking: true
+    ssn_masking: true
+    phone_masking: false
+    email_masking: false
+  
+  custom_patterns:
+    # Add custom regex patterns for validation
+    patterns: {}
+    
+    # Add custom sanitizers
+    sanitizers: {}
+
+# CI/CD Integration
+cicd_integration:
+  enabled: true
+  
+  pipeline_stages:
+    pre_commit:
+      - "input_validation"
+      - "secrets_scanning"
+    
+    build:
+      - "sast_scanning"
+      - "dependency_scanning"
+    
+    test:
+      - "security_unit_tests"
+      - "rasp_testing"
+    
+    staging:
+      - "dast_scanning"
+      - "penetration_testing"
+    
+    production:
+      - "security_monitoring"
+      - "threat_detection"
+  
+  security_gates:
+    block_on_critical: true
+    block_on_high_threshold: 5
+    allow_override: false
+    override_approvers: []
+  
+  reporting:
+    generate_reports: true
+    report_formats: ["json", "html", "pdf"]
+    send_notifications: true
+
+# Monitoring and Alerting
+monitoring:
+  enabled: true
+  
+  metrics:
+    security_events: true
+    performance_metrics: true
+    error_rates: true
+    threat_intelligence: true
+  
+  alerting:
+    channels:
+      email: []
+      slack: null
+      webhook: null
+      sms: []
+    
+    thresholds:
+      critical_threats: 1
+      high_threats: 5
+      failed_authentications: 10
+      rate_limit_violations: 50
+  
+  dashboards:
+    security_overview: true
+    threat_intelligence: true
+    performance_metrics: true
+    compliance_status: true
+  
+  log_retention:
+    security_logs: 365  # days
+    audit_logs: 2555   # 7 years
+    performance_logs: 30
+    debug_logs: 7
+
+# Compliance and Audit
+compliance:
+  frameworks:
+    - "SOC2"
+    - "GDPR"
+    - "HIPAA"
+    - "PCI-DSS"
+    - "ISO27001"
+  
+  audit_logging:
+    enabled: true
+    log_level: "INFO"
+    include_request_body: false
+    include_response_body: false
+    retention_days: 2555  # 7 years
+  
+  data_protection:
+    encryption_at_rest: true
+    encryption_in_transit: true
+    key_rotation: true
+    data_classification: true
+  
+  access_controls:
+    principle_of_least_privilege: true
+    role_based_access: true
+    multi_factor_authentication: true
+    session_management: true

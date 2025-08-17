@@ -1,8 +1,8 @@
 """
-Agent Lifecycle Management System for ScrollIntel
+Agent Lifecycle Management System
 
-This module provides comprehensive lifecycle management for agents including
-registration, discovery, monitoring, scaling, and replacement capabilities.
+This module manages the complete lifecycle of agents including registration,
+configurtion, discovery, monitoring, scaling, and replacement capabilities.
 """
 
 import asyncio

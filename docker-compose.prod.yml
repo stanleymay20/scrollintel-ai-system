@@ -1,211 +1,76 @@
-# ================================
-# ScrollIntel Production Docker Compose
-# Optimized for production deployment
-# ================================
 
 version: '3.8'
 
 services:
-  # PostgreSQL Database
-  postgres:
-    image: postgres:15-alpine
-    container_name: scrollintel-postgres-prod
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-scrollintel}
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - postgres_prod_data:/var/lib/postgresql/data
-    networks:
-      - scrollintel-prod-network
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 1G
-          cpus: '0.5'
-
-  # Redis Cache
-  redis:
-    image: redis:7-alpine
-    container_name: scrollintel-redis-prod
-    volumes:
-      - redis_prod_data:/data
-    networks:
-      - scrollintel-prod-network
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-    restart: unless-stopped
-    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.25'
-
-  # Backend API
-  backend:
+  scrollintel-api:
     build:
       context: .
-      dockerfile: Dockerfile
-      target: production
-    container_name: scrollintel-backend-prod
+      dockerfile: Dockerfile.prod
+    ports:
+      - "8000:8000"
     environment:
-      - ENVIRONMENT=production
-      - DEBUG=false
-      - LOG_LEVEL=WARNING
-      - POSTGRES_HOST=postgres
-      - POSTGRES_PORT=5432
-      - POSTGRES_DB=${POSTGRES_DB:-scrollintel}
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - DATABASE_URL=postgresql://scrollintel:${POSTGRES_PASSWORD}@db:5432/scrollintel
+      - REDIS_URL=redis://redis:6379
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - PINECONE_API_KEY=${PINECONE_API_KEY}
-      - SUPABASE_URL=${SUPABASE_URL}
-      - SUPABASE_KEY=${SUPABASE_KEY}
-    volumes:
-      - ./models:/app/models:ro
-      - ./uploads:/app/uploads
-      - ./logs:/app/logs
-    networks:
-      - scrollintel-prod-network
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
     depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
+      - db
+      - redis
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 60s
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-          cpus: '1.0'
-      replicas: 2
 
-  # Frontend Application
-  frontend:
+  scrollintel-frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
-    container_name: scrollintel-frontend-prod
+    ports:
+      - "3000:3000"
     environment:
-      - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://backend:8000
-    networks:
-      - scrollintel-prod-network
+      - NEXT_PUBLIC_API_URL=http://scrollintel-api:8000
     depends_on:
-      - backend
+      - scrollintel-api
+    restart: unless-stopped
+
+  db:
+    image: postgres:15
+    environment:
+      - POSTGRES_DB=scrollintel
+      - POSTGRES_USER=scrollintel
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      test: ["CMD-SHELL", "pg_isready -U scrollintel"]
       interval: 30s
       timeout: 10s
       retries: 3
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
 
-  # NGINX Reverse Proxy
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
   nginx:
     image: nginx:alpine
-    container_name: scrollintel-nginx-prod
     ports:
       - "80:80"
       - "443:443"
     volumes:
-      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
-      - ./logs/nginx:/var/log/nginx
-    networks:
-      - scrollintel-prod-network
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/ssl:/etc/nginx/ssl
     depends_on:
-      - backend
-      - frontend
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
+      - scrollintel-frontend
+      - scrollintel-api
     restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: '0.25'
-
-  # Monitoring - Prometheus
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: scrollintel-prometheus-prod
-    ports:
-      - "9090:9090"
-    volumes:
-      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_prod_data:/prometheus
-    networks:
-      - scrollintel-prod-network
-    command:
-      - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'
-      - '--web.console.libraries=/etc/prometheus/console_libraries'
-      - '--web.console.templates=/etc/prometheus/consoles'
-      - '--storage.tsdb.retention.time=30d'
-      - '--web.enable-lifecycle'
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 512M
-          cpus: '0.5'
-
-  # Monitoring - Grafana
-  grafana:
-    image: grafana/grafana:latest
-    container_name: scrollintel-grafana-prod
-    ports:
-      - "3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-admin}
-      - GF_USERS_ALLOW_SIGN_UP=false
-    volumes:
-      - grafana_prod_data:/var/lib/grafana
-    networks:
-      - scrollintel-prod-network
-    depends_on:
-      - prometheus
-    restart: unless-stopped
-    deploy:
-      resources:
-        limits:
-          memory: 256M
-          cpus: '0.25'
 
 volumes:
-  postgres_prod_data:
-  redis_prod_data:
-  prometheus_prod_data:
-  grafana_prod_data:
-
-networks:
-  scrollintel-prod-network:
-    driver: bridge
+  postgres_data:

@@ -1,0 +1,40 @@
+{
+  "name": "ScrollIntel AI-CTO Platform",
+  "description": "Replace your CTO with AI agents that analyze data, build models, and make technical decisions",
+  "repository": "https://github.com/scrollintel/scrollintel",
+  "logo": "https://scrollintel.com/logo.png",
+  "keywords": [
+    "ai",
+    "cto",
+    "machine-learning",
+    "data-science",
+    "automation"
+  ],
+  "stack": "heroku-22",
+  "buildpacks": [
+    {
+      "url": "heroku/python"
+    }
+  ],
+  "env": {
+    "OPENAI_API_KEY": {
+      "description": "OpenAI API key for AI features",
+      "required": true
+    },
+    "JWT_SECRET_KEY": {
+      "description": "JWT secret for authentication",
+      "generator": "secret"
+    },
+    "DATABASE_URL": {
+      "description": "PostgreSQL database URL",
+      "required": false
+    }
+  },
+  "addons": [
+    "heroku-postgresql:mini",
+    "heroku-redis:mini"
+  ],
+  "scripts": {
+    "postdeploy": "python init_database.py"
+  }
+}

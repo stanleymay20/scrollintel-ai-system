@@ -2575,3 +2575,98 @@ class FileProcessorEngine(BaseEngine):
                 "progress_tracking": True
             }
         }
+
+class FileProcessor:
+    """Main file processing engine."""
+    
+    def __init__(self):
+        self.supported_formats = {
+            '.csv': self._process_csv,
+            '.xlsx': self._process_excel,
+            '.xls': self._process_excel,
+            '.json': self._process_json,
+            '.txt': self._process_text,
+            '.parquet': self._process_parquet
+        }
+    
+    async def process_file(self, file_path: str, file_type: str = None) -> Dict[str, Any]:
+        """Process a file and return analysis results."""
+        try:
+            # Determine file type
+            if not file_type:
+                file_type = Path(file_path).suffix.lower()
+            
+            if file_type not in self.supported_formats:
+                raise EngineError(f"Unsupported file type: {file_type}")
+            
+            # Process the file
+            processor = self.supported_formats[file_type]
+            result = await processor(file_path)
+            
+            return {
+                "status": "success",
+                "file_path": file_path,
+                "file_type": file_type,
+                "processed_at": datetime.utcnow().isoformat(),
+                "result": result
+            }
+            
+        except Exception as e:
+            raise EngineError(f"File processing failed: {str(e)}")
+    
+    async def _process_csv(self, file_path: str) -> Dict[str, Any]:
+        """Process CSV file."""
+        df = pd.read_csv(file_path)
+        return self._analyze_dataframe(df)
+    
+    async def _process_excel(self, file_path: str) -> Dict[str, Any]:
+        """Process Excel file."""
+        df = pd.read_excel(file_path)
+        return self._analyze_dataframe(df)
+    
+    async def _process_json(self, file_path: str) -> Dict[str, Any]:
+        """Process JSON file."""
+        with open(file_path, 'r') as f:
+            data = json.load(f)
+        
+        if isinstance(data, list) and len(data) > 0 and isinstance(data[0], dict):
+            df = pd.DataFrame(data)
+            return self._analyze_dataframe(df)
+        else:
+            return {"data_type": "json", "structure": str(type(data)), "size": len(str(data))}
+    
+    async def _process_text(self, file_path: str) -> Dict[str, Any]:
+        """Process text file."""
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return {
+            "data_type": "text",
+            "character_count": len(content),
+            "line_count": content.count('\n') + 1,
+            "word_count": len(content.split())
+        }
+    
+    async def _process_parquet(self, file_path: str) -> Dict[str, Any]:
+        """Process Parquet file."""
+        df = pd.read_parquet(file_path)
+        return self._analyze_dataframe(df)
+    
+    def _analyze_dataframe(self, df: pd.DataFrame) -> Dict[str, Any]:
+        """Analyze a pandas DataFrame."""
+        analysis = {
+            "data_type": "tabular",
+            "shape": df.shape,
+            "columns": list(df.columns),
+            "dtypes": df.dtypes.to_dict(),
+            "null_counts": df.isnull().sum().to_dict(),
+            "memory_usage": df.memory_usage(deep=True).sum(),
+            "sample_data": df.head(5).to_dict('records') if len(df) > 0 else []
+        }
+        
+        # Add basic statistics for numeric columns
+        numeric_cols = df.select_dtypes(include=[np.number]).columns
+        if len(numeric_cols) > 0:
+            analysis["numeric_summary"] = df[numeric_cols].describe().to_dict()
+        
+        return analysis

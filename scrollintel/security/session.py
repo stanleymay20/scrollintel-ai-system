@@ -71,8 +71,17 @@ class SessionManager:
     def __init__(self):
         self.config = get_config()
         self.redis_client: Optional[redis.Redis] = None
-        self.session_timeout = timedelta(minutes=self.config.session_timeout_minutes)
-        self.max_sessions_per_user = self.config.max_sessions_per_user
+        
+        # Handle both dict and object config formats
+        if isinstance(self.config, dict):
+            session_timeout_minutes = self.config.get('session_timeout_minutes', 60)
+            max_sessions_per_user = self.config.get('max_sessions_per_user', 5)
+        else:
+            session_timeout_minutes = getattr(self.config, 'session_timeout_minutes', 60)
+            max_sessions_per_user = getattr(self.config, 'max_sessions_per_user', 5)
+            
+        self.session_timeout = timedelta(minutes=session_timeout_minutes)
+        self.max_sessions_per_user = max_sessions_per_user
     
     async def initialize(self) -> None:
         """Initialize Redis connection."""

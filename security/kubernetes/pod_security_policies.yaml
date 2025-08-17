@@ -1,0 +1,180 @@
+# Pod Security Standards and Security Contexts
+# Implements restricted pod security standards
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: scrollintel
+  labels:
+    pod-security.kubernetes.io/enforce: restricted
+    pod-security.kubernetes.io/audit: restricted
+    pod-security.kubernetes.io/warn: restricted
+
+---
+apiVersion: v1
+kind: SecurityContextConstraints
+metadata:
+  name: scrollintel-restricted
+allowHostDirVolumePlugin: false
+allowHostIPC: false
+allowHostNetwork: false
+allowHostPID: false
+allowHostPorts: false
+allowPrivilegedContainer: false
+allowedCapabilities: []
+defaultAddCapabilities: []
+requiredDropCapabilities:
+- ALL
+allowedFlexVolumes: []
+fsGroup:
+  type: MustRunAs
+  ranges:
+  - min: 1000
+    max: 65535
+readOnlyRootFilesystem: true
+runAsUser:
+  type: MustRunAsNonRoot
+seLinuxContext:
+  type: MustRunAs
+supplementalGroups:
+  type: MustRunAs
+  ranges:
+  - min: 1000
+    max: 65535
+volumes:
+- configMap
+- downwardAPI
+- emptyDir
+- persistentVolumeClaim
+- projected
+- secret
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: scrollintel-api-secure
+  namespace: scrollintel
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: scrollintel-api
+  template:
+    metadata:
+      labels:
+        app: scrollintel-api
+        service-mesh: istio
+      annotations:
+        sidecar.istio.io/inject: "true"
+    spec:
+      serviceAccountName: scrollintel-api
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+      - name: api
+        image: scrollintel/api:latest
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        ports:
+        - containerPort: 8000
+          protocol: TCP
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: scrollintel-secrets
+              key: database-url
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: scrollintel-secrets
+              key: jwt-secret
+        volumeMounts:
+        - name: tmp
+          mountPath: /tmp
+        - name: cache
+          mountPath: /app/cache
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "250m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: 8000
+          initialDelaySeconds: 5
+          periodSeconds: 5
+      volumes:
+      - name: tmp
+        emptyDir: {}
+      - name: cache
+        emptyDir: {}
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: scrollintel-api
+  namespace: scrollintel
+automountServiceAccountToken: false
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  namespace: scrollintel
+  name: scrollintel-api-role
+rules:
+- apiGroups: [""]
+  resources: ["configmaps", "secrets"]
+  verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: scrollintel-api-binding
+  namespace: scrollintel
+subjects:
+- kind: ServiceAccount
+  name: scrollintel-api
+  namespace: scrollintel
+roleRef:
+  kind: Role
+  name: scrollintel-api-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: scrollintel-secrets
+  namespace: scrollintel
+type: Opaque
+data:
+  database-url: cG9zdGdyZXNxbDovL3VzZXI6cGFzc0BkYi5leGFtcGxlLmNvbS9kYg==
+  jwt-secret: c3VwZXItc2VjdXJlLWp3dC1zZWNyZXQtZm9yLXNjcm9sbGludGVs

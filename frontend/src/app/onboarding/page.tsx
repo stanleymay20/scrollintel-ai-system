@@ -24,58 +24,30 @@ const mockAgents: Agent[] = [
   {
     id: 'cto-1',
     name: 'ScrollCTO',
-    type: 'CTO',
     status: 'active',
     capabilities: ['Architecture', 'Scaling', 'Tech Stack', 'Cost Analysis'],
     description: 'AI-powered CTO for technical decisions and architecture planning',
-    last_active: new Date().toISOString(),
-    metrics: {
-      requests_handled: 1247,
-      avg_response_time: 850,
-      success_rate: 98.5,
-    },
   },
   {
     id: 'ds-1',
     name: 'ScrollDataScientist',
-    type: 'DataScientist',
     status: 'active',
     capabilities: ['EDA', 'Statistical Analysis', 'Hypothesis Testing', 'Feature Engineering'],
     description: 'Advanced data science and statistical analysis capabilities',
-    last_active: new Date().toISOString(),
-    metrics: {
-      requests_handled: 892,
-      avg_response_time: 1200,
-      success_rate: 96.8,
-    },
   },
   {
     id: 'ml-1',
     name: 'ScrollMLEngineer',
-    type: 'MLEngineer',
     status: 'active',
     capabilities: ['Model Training', 'MLOps', 'Deployment', 'Monitoring'],
     description: 'Machine learning engineering and model deployment',
-    last_active: new Date().toISOString(),
-    metrics: {
-      requests_handled: 634,
-      avg_response_time: 2100,
-      success_rate: 94.2,
-    },
   },
   {
     id: 'ai-1',
     name: 'ScrollAIEngineer',
-    type: 'AIEngineer',
     status: 'active',
     capabilities: ['RAG', 'LLM Integration', 'Vector Search', 'Embeddings'],
     description: 'AI engineering with memory-enhanced capabilities',
-    last_active: new Date().toISOString(),
-    metrics: {
-      requests_handled: 1456,
-      avg_response_time: 950,
-      success_rate: 97.3,
-    },
   },
 ]
 

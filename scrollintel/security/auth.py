@@ -129,3 +129,13 @@ async def get_current_active_user(current_user: Dict[str, Any] = Depends(get_cur
     """FastAPI dependency to get current active user"""
     # Add any additional checks here (e.g., user is active)
     return current_user
+
+def get_current_user_websocket(token: str) -> Dict[str, Any]:
+    """Get current user from WebSocket token."""
+    try:
+        authenticator = JWTAuthenticator()
+        payload = authenticator.verify_token(token)
+        return payload
+    except HTTPException:
+        # For WebSocket, we can't raise HTTP exceptions
+        return None

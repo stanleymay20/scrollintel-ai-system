@@ -65,7 +65,7 @@ class User(Base):
     agent_requests = relationship("AgentRequest", back_populates="user", cascade="all, delete-orphan")
     dashboards = relationship("Dashboard", back_populates="user", cascade="all, delete-orphan")
     audit_logs = relationship("AuditLog", back_populates="user", cascade="all, delete-orphan")
-    user_audit_logs = relationship("UserAuditLog", back_populates="user", cascade="all, delete-orphan")
+    # user_audit_logs = relationship("UserAuditLog", back_populates="user", cascade="all, delete-orphan")  # Defined in user_management_models
     
     # Indexes
     __table_args__ = (

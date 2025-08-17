@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Slider } from '@/components/ui/slider'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
-import { Upload, Layers, Eye, Cube, Zap, Crown } from 'lucide-react'
+import { Upload, Layers, Eye, Box, Zap, Crown } from 'lucide-react'
 
 interface DepthVisualizationToolsProps {
   onGenerate: (type: string, params: any) => void
@@ -99,7 +99,7 @@ export function DepthVisualizationTools({ onGenerate }: DepthVisualizationToolsP
                           className="w-full h-full object-cover rounded-lg"
                         />
                       ) : (
-                        <Cube className="w-8 h-8 text-slate-400" />
+                        <Box className="w-8 h-8 text-slate-400" />
                       )}
                     </div>
                     <p className="text-white font-medium">
@@ -348,7 +348,7 @@ export function DepthVisualizationTools({ onGenerate }: DepthVisualizationToolsP
             className="w-full bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-700 hover:to-blue-700 text-white disabled:opacity-50"
             size="lg"
           >
-            <Cube className="w-5 h-5 mr-2" />
+            <Box className="w-5 h-5 mr-2" />
             Convert to Ultra-Realistic 3D
           </Button>
 

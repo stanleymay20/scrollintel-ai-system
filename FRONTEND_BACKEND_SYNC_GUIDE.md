@@ -25,7 +25,7 @@ docker-compose up -d
 ```
 
 3. **Access the application**:
-- Frontend UI: http://localhost:3000
+- Frontend UI: http://localhost:30im00
 - Backend API: http://localhost:8000
 - API Documentation: http://localhost:8000/docs
 

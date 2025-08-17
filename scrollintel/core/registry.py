@@ -230,3 +230,25 @@ def get_engine(name: str) -> Optional[Any]:
     """Get an engine from the global registry."""
     global _global_engine_registry
     return _global_engine_registry.get(name)
+
+
+# Monkey patch the AgentRegistry class to add missing methods
+def _list_agents(self) -> List[Dict[str, Any]]:
+    """List all registered agents."""
+    agents_list = []
+    for agent_id, agent in self._agents.items():
+        agents_list.append({
+            "agent_id": agent_id,
+            "agent_type": str(agent.agent_type) if hasattr(agent, 'agent_type') else "unknown",
+            "status": str(agent.status) if hasattr(agent, 'status') else "unknown",
+            "capabilities": []
+        })
+    return agents_list
+
+def _get_agent(self, agent_id: str) -> Optional[BaseAgent]:
+    """Get an agent by ID."""
+    return self._agents.get(agent_id)
+
+# Add methods to AgentRegistry class
+AgentRegistry.list_agents = _list_agents
+AgentRegistry.get_agent = _get_agent

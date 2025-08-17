@@ -35,6 +35,30 @@ class ConversationTurn:
 
 
 @dataclass
+class ConversationContext:
+    """Context for maintaining conversation state and memory."""
+    conversation_id: str
+    user_id: str
+    agent_id: str
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    last_activity: datetime = field(default_factory=datetime.utcnow)
+    turn_count: int = 0
+    context_summary: str = ""
+    active_topics: List[str] = field(default_factory=list)
+    user_mood: Optional[str] = None
+    conversation_goal: Optional[str] = None
+
+
+@dataclass
+class ResponseContext:
+    """Context for generating responses."""
+    conversation_context: ConversationContext
+    recent_turns: List[ConversationTurn] = field(default_factory=list)
+    user_profile: Optional['UserProfile'] = None
+    agent_state: Dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class UserProfile:
     """User profile for personalized interactions."""
     user_id: str

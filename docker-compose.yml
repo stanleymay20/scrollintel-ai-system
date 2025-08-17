@@ -3,8 +3,6 @@
 # Development and Production environments
 # ================================
 
-version: '3.8'
-
 services:
   # PostgreSQL Database
   postgres:

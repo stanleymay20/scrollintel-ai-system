@@ -30,29 +30,59 @@ class DatabaseManager:
     def __init__(self, database_url: Optional[str] = None, echo: bool = False):
         """Initialize database manager."""
         self.config = get_config()
-        self.database_url = database_url or self.config.database_url
-        self.echo = echo or self.config.debug
+        self.database_url = database_url or self.config.get('database_url', 'sqlite:///./scrollintel.db')
+        self.echo = echo or self.config.get('debug', False)
         
-        # Create engines
-        self.engine = create_engine(
-            self.database_url,
-            echo=self.echo,
-            pool_size=self.config.db_pool_size,
-            max_overflow=self.config.db_max_overflow,
-            pool_pre_ping=True,
-            pool_recycle=3600,
-        )
-        
-        # Create async engine for async operations
-        async_url = self.database_url.replace("postgresql://", "postgresql+asyncpg://")
-        self.async_engine = create_async_engine(
-            async_url,
-            echo=self.echo,
-            pool_size=self.config.db_pool_size,
-            max_overflow=self.config.db_max_overflow,
-            pool_pre_ping=True,
-            pool_recycle=3600,
-        )
+        # Create engines with SQLite-specific handling
+        if self.database_url.startswith("sqlite"):
+            # Async SQLite configuration
+            self.async_engine = create_async_engine(
+                self.database_url,
+                echo=self.echo,
+                poolclass=StaticPool,
+                connect_args={"check_same_thread": False},
+            )
+            
+            # Sync engine for migrations and setup
+            sync_url = self.database_url.replace("sqlite+aiosqlite://", "sqlite://")
+            self.engine = create_engine(
+                sync_url,
+                echo=self.echo,
+                poolclass=StaticPool,
+                connect_args={"check_same_thread": False},
+            )
+            
+            # Enable foreign key constraints for SQLite
+            from sqlalchemy import event
+            @event.listens_for(self.engine, "connect")
+            def set_sqlite_pragma(dbapi_connection, connection_record):
+                cursor = dbapi_connection.cursor()
+                cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.close()
+        else:
+            # PostgreSQL configuration - convert URLs to use appropriate drivers
+            sync_url = self.database_url.replace('postgresql://', 'postgresql+psycopg2://')
+            async_url = self.database_url.replace('postgresql://', 'postgresql+asyncpg://')
+            
+            # PostgreSQL async configuration
+            self.async_engine = create_async_engine(
+                async_url,
+                echo=self.echo,
+                pool_size=self.config.get('db_pool_size', 10),
+                max_overflow=self.config.get('db_max_overflow', 20),
+                pool_pre_ping=True,
+                pool_recycle=3600,
+            )
+            
+            # Create sync engine for migrations
+            self.engine = create_engine(
+                sync_url,
+                echo=self.echo,
+                pool_size=self.config.get('db_pool_size', 10),
+                max_overflow=self.config.get('db_max_overflow', 20),
+                pool_pre_ping=True,
+                pool_recycle=3600,
+            )
         
         # Create session factories
         self.SessionLocal = sessionmaker(
@@ -90,22 +120,29 @@ class DatabaseManager:
     
     async def _initialize_redis(self) -> None:
         """Initialize Redis connections."""
+        # Skip Redis if configured to do so
+        if getattr(self.config, 'skip_redis', False):
+            logger.info("Skipping Redis initialization (skip_redis=True)")
+            self.redis_client = None
+            self.sync_redis_client = None
+            return
+            
         try:
             self.redis_client = redis.Redis(
-                host=self.config.redis_host,
-                port=self.config.redis_port,
-                password=self.config.redis_password,
-                db=self.config.redis_db,
+                host=self.config.get('redis_host', 'localhost'),
+                port=self.config.get('redis_port', 6379),
+                password=self.config.get('redis_password', ''),
+                db=self.config.get('redis_db', 0),
                 decode_responses=True,
                 socket_connect_timeout=5,
                 socket_timeout=5,
             )
             
             self.sync_redis_client = sync_redis.Redis(
-                host=self.config.redis_host,
-                port=self.config.redis_port,
-                password=self.config.redis_password,
-                db=self.config.redis_db,
+                host=self.config.get('redis_host', 'localhost'),
+                port=self.config.get('redis_port', 6379),
+                password=self.config.get('redis_password', ''),
+                db=self.config.get('redis_db', 0),
                 decode_responses=True,
                 socket_connect_timeout=5,
                 socket_timeout=5,

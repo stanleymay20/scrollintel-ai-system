@@ -87,6 +87,15 @@ export interface SystemStats {
   }
 }
 
+export interface SystemMetrics {
+  cpu_usage: number
+  memory_usage: number
+  disk_usage: number
+  active_connections: number
+  response_time: number
+  uptime: number
+}
+
 // File upload types
 export interface FileUpload {
   id: string

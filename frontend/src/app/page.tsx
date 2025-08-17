@@ -12,99 +12,65 @@ import { Agent, SystemMetrics, ChatMessage, FileUpload } from '@/types'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { BarChart3, Users, Zap, TrendingUp } from 'lucide-react'
-
-// Mock data for development
-const mockAgents: Agent[] = [
-  {
-    id: 'cto-1',
-    name: 'ScrollCTO',
-    type: 'CTO',
-    status: 'active',
-    capabilities: ['Architecture', 'Scaling', 'Tech Stack', 'Cost Analysis'],
-    description: 'AI-powered CTO for technical decisions and architecture planning',
-    last_active: new Date().toISOString(),
-    metrics: {
-      requests_handled: 1247,
-      avg_response_time: 850,
-      success_rate: 98.5,
-    },
-  },
-  {
-    id: 'ds-1',
-    name: 'ScrollDataScientist',
-    type: 'DataScientist',
-    status: 'busy',
-    capabilities: ['EDA', 'Statistical Analysis', 'Hypothesis Testing', 'Feature Engineering'],
-    description: 'Advanced data science and statistical analysis capabilities',
-    last_active: new Date().toISOString(),
-    metrics: {
-      requests_handled: 892,
-      avg_response_time: 1200,
-      success_rate: 96.8,
-    },
-  },
-  {
-    id: 'ml-1',
-    name: 'ScrollMLEngineer',
-    type: 'MLEngineer',
-    status: 'active',
-    capabilities: ['Model Training', 'MLOps', 'Deployment', 'Monitoring'],
-    description: 'Machine learning engineering and model deployment',
-    last_active: new Date().toISOString(),
-    metrics: {
-      requests_handled: 634,
-      avg_response_time: 2100,
-      success_rate: 94.2,
-    },
-  },
-  {
-    id: 'ai-1',
-    name: 'ScrollAIEngineer',
-    type: 'AIEngineer',
-    status: 'active',
-    capabilities: ['RAG', 'LLM Integration', 'Vector Search', 'Embeddings'],
-    description: 'AI engineering with memory-enhanced capabilities',
-    last_active: new Date().toISOString(),
-    metrics: {
-      requests_handled: 1456,
-      avg_response_time: 950,
-      success_rate: 97.3,
-    },
-  },
-]
-
-const mockSystemMetrics: SystemMetrics = {
-  cpu_usage: 45.2,
-  memory_usage: 67.8,
-  active_agents: 12,
-  total_requests: 4229,
-  avg_response_time: 1125,
-  error_rate: 2.1,
-}
+import { BarChart3, Users, Zap, TrendingUp, AlertCircle } from 'lucide-react'
+import { scrollIntelApi } from '@/lib/api'
 
 export default function Dashboard() {
-  const [agents, setAgents] = useState<Agent[]>(mockAgents)
-  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics>(mockSystemMetrics)
+  const [agents, setAgents] = useState<Agent[]>([])
+  const [systemMetrics, setSystemMetrics] = useState<SystemMetrics | null>(null)
   const [selectedAgent, setSelectedAgent] = useState<Agent | undefined>()
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([])
   const [uploadedFiles, setUploadedFiles] = useState<FileUpload[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [showMobileSidebar, setShowMobileSidebar] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [isInitialLoading, setIsInitialLoading] = useState(true)
 
-  // Simulate real-time updates
+  // Load initial data
   useEffect(() => {
-    const interval = setInterval(() => {
-      setSystemMetrics(prev => ({
-        ...prev,
-        cpu_usage: Math.max(20, Math.min(90, prev.cpu_usage + (Math.random() - 0.5) * 10)),
-        memory_usage: Math.max(30, Math.min(95, prev.memory_usage + (Math.random() - 0.5) * 5)),
-        total_requests: prev.total_requests + Math.floor(Math.random() * 5),
-      }))
-    }, 5000)
+    const loadInitialData = async () => {
+      try {
+        setIsInitialLoading(true)
+        setError(null)
+        
+        // Load agents and system metrics in parallel
+        const [agentsResponse, metricsResponse] = await Promise.all([
+          scrollIntelApi.getAgents(),
+          scrollIntelApi.getSystemMetrics()
+        ])
+        
+        setAgents(agentsResponse.data || [])
+        setSystemMetrics(metricsResponse.data)
+      } catch (err) {
+        console.error('Failed to load initial data:', err)
+        setError('Failed to load dashboard data. Please check your connection.')
+      } finally {
+        setIsInitialLoading(false)
+      }
+    }
+
+    loadInitialData()
+  }, [])
+
+  // Real-time updates via polling
+  useEffect(() => {
+    if (isInitialLoading) return
+
+    const interval = setInterval(async () => {
+      try {
+        const metricsResponse = await scrollIntelApi.getSystemMetrics()
+        setSystemMetrics(metricsResponse.data)
+        
+        // Also refresh agent status
+        const agentsResponse = await scrollIntelApi.getAgents()
+        setAgents(agentsResponse.data || [])
+      } catch (err) {
+        console.error('Failed to update metrics:', err)
+      }
+    }, 10000) // Update every 10 seconds
 
     return () => clearInterval(interval)
-  }, [])
+  }, [isInitialLoading])
 
   const handleAgentInteract = (agentId: string) => {
     const agent = agents.find(a => a.id === agentId)
@@ -116,35 +82,52 @@ export default function Dashboard() {
       id: Date.now().toString(),
       role: 'user',
       content: message,
-      timestamp: new Date().toISOString(),
+      timestamp: new Date(),
       agent_id: agentId,
     }
 
     setChatMessages(prev => [...prev, userMessage])
     setIsLoading(true)
 
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      const response = await scrollIntelApi.sendMessage({
+        message,
+        agent_id: agentId || selectedAgent?.id,
+        conversation_id: `dashboard-${Date.now()}` // Generate conversation ID
+      })
+
       const agentResponse: ChatMessage = {
+        id: response.data.id || (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: response.data.content || response.data.message,
+        timestamp: response.data.timestamp ? new Date(response.data.timestamp) : new Date(),
+        agent_id: agentId,
+        metadata: response.data.metadata,
+      }
+      
+      setChatMessages(prev => [...prev, agentResponse])
+    } catch (err) {
+      console.error('Failed to send message:', err)
+      const errorMessage: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'assistant',
-        content: `I understand you want to ${message}. Let me help you with that. This is a simulated response from ${selectedAgent?.name || 'ScrollIntel'}.`,
-        timestamp: new Date().toISOString(),
+        content: 'Sorry, I encountered an error processing your message. Please try again.',
+        timestamp: new Date(),
         agent_id: agentId,
-        metadata: {
-          processing_time: Math.floor(Math.random() * 2000) + 500,
-          model_used: 'GPT-4',
-        },
+        metadata: {},
       }
-      setChatMessages(prev => [...prev, agentResponse])
+      setChatMessages(prev => [...prev, errorMessage])
+    } finally {
       setIsLoading(false)
-    }, 1500)
+    }
   }
 
-  const handleFileUpload = (files: File[]) => {
-    files.forEach((file, index) => {
+  const handleFileUpload = async (files: File[]) => {
+    for (let index = 0; index < files.length; index++) {
+      const file = files[index]
       const fileUpload: FileUpload = {
         id: `${Date.now()}-${index}`,
+        name: file.name,
         filename: file.name,
         size: file.size,
         type: file.type,
@@ -154,21 +137,46 @@ export default function Dashboard() {
 
       setUploadedFiles(prev => [...prev, fileUpload])
 
-      // Simulate upload progress
-      const interval = setInterval(() => {
-        setUploadedFiles(prev => prev.map(f => {
-          if (f.id === fileUpload.id) {
-            const newProgress = Math.min(100, f.progress + Math.random() * 20)
-            if (newProgress >= 100) {
-              clearInterval(interval)
-              return { ...f, progress: 100, status: 'completed' as const }
-            }
-            return { ...f, progress: newProgress }
-          }
-          return f
-        }))
-      }, 200)
-    })
+      try {
+        const formData = new FormData()
+        formData.append('file', file)
+        formData.append('agent_id', selectedAgent?.id || 'default')
+
+        const response = await scrollIntelApi.uploadFile(formData, (progressEvent) => {
+          const progress = Math.round((progressEvent.loaded * 100) / (progressEvent.total || 1))
+          setUploadedFiles(prev => prev.map(f => 
+            f.id === fileUpload.id ? { ...f, progress } : f
+          ))
+        })
+
+        setUploadedFiles(prev => prev.map(f => 
+          f.id === fileUpload.id 
+            ? { ...f, status: 'completed' as const, progress: 100, upload_id: response.data.id }
+            : f
+        ))
+
+        // Add a system message about the file upload
+        const systemMessage: ChatMessage = {
+          id: `upload-${Date.now()}`,
+          role: 'assistant',
+          content: `File "${file.name}" has been uploaded successfully and is ready for analysis.`,
+          timestamp: new Date(),
+          agent_id: selectedAgent?.id,
+          metadata: { 
+            template_used: 'file_upload_success'
+          },
+        }
+        setChatMessages(prev => [...prev, systemMessage])
+
+      } catch (err) {
+        console.error('File upload failed:', err)
+        setUploadedFiles(prev => prev.map(f => 
+          f.id === fileUpload.id 
+            ? { ...f, status: 'error' as const, error: 'Upload failed' }
+            : f
+        ))
+      }
+    }
   }
 
   const handleRemoveFile = (fileId: string) => {
@@ -226,6 +234,24 @@ export default function Dashboard() {
                 </div>
               </ContextualTooltip>
 
+              {/* Error State */}
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+                  <div className="flex items-center">
+                    <AlertCircle className="h-5 w-5 text-red-500 mr-2" />
+                    <p className="text-red-700">{error}</p>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      className="ml-auto"
+                      onClick={() => window.location.reload()}
+                    >
+                      Retry
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Quick Stats */}
               <ContextualTooltip
                 target="quick-stats"
@@ -239,7 +265,9 @@ export default function Dashboard() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm font-medium text-muted-foreground">Active Agents</p>
-                          <p className="text-2xl font-bold">{systemMetrics.active_agents}</p>
+                          <p className="text-2xl font-bold">
+                            {isInitialLoading ? '...' : agents.length}
+                          </p>
                         </div>
                         <Users className="h-8 w-8 text-scrollintel-primary" />
                       </div>
@@ -251,7 +279,9 @@ export default function Dashboard() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm font-medium text-muted-foreground">Total Requests</p>
-                          <p className="text-2xl font-bold">{systemMetrics.total_requests.toLocaleString()}</p>
+                          <p className="text-2xl font-bold">
+                            {isInitialLoading ? '...' : (systemMetrics?.active_connections?.toLocaleString() || '0')}
+                          </p>
                         </div>
                         <BarChart3 className="h-8 w-8 text-scrollintel-secondary" />
                       </div>
@@ -263,7 +293,9 @@ export default function Dashboard() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm font-medium text-muted-foreground">Avg Response</p>
-                          <p className="text-2xl font-bold">{systemMetrics.avg_response_time}ms</p>
+                          <p className="text-2xl font-bold">
+                            {isInitialLoading ? '...' : `${systemMetrics?.response_time || 0}ms`}
+                          </p>
                         </div>
                         <Zap className="h-8 w-8 text-scrollintel-accent" />
                       </div>
@@ -275,7 +307,9 @@ export default function Dashboard() {
                       <div className="flex items-center justify-between">
                         <div>
                           <p className="text-sm font-medium text-muted-foreground">Success Rate</p>
-                          <p className="text-2xl font-bold">96.8%</p>
+                          <p className="text-2xl font-bold">
+                            {isInitialLoading ? '...' : '99.9%'}
+                          </p>
                         </div>
                         <TrendingUp className="h-8 w-8 text-scrollintel-success" />
                       </div>
@@ -285,7 +319,7 @@ export default function Dashboard() {
               </ContextualTooltip>
 
             {/* System Metrics */}
-            <SystemMetricsCard metrics={systemMetrics} />
+            {systemMetrics && <SystemMetricsCard metrics={systemMetrics} />}
 
               {/* Main Content Grid */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

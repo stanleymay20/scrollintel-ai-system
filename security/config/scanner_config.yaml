@@ -1,0 +1,178 @@
+# Security Scanner Configuration
+# Configuration for SAST/DAST security scanning integration
+
+sast:
+  enabled: true
+  tools:
+    - bandit
+    - semgrep
+    - sonarqube
+  
+  bandit:
+    enabled: true
+    config_file: ".bandit"
+    exclude_paths:
+      - "*/tests/*"
+      - "*/venv/*"
+      - "*/node_modules/*"
+    severity_threshold: "HIGH"
+    confidence_threshold: "HIGH"
+  
+  semgrep:
+    enabled: true
+    config: "auto"  # Use Semgrep's curated rules
+    custom_rules: []
+    exclude_paths:
+      - "*/tests/*"
+      - "*/venv/*"
+      - "*/node_modules/*"
+    timeout: 600
+  
+  sonarqube:
+    enabled: false  # Requires SonarQube server
+    server_url: "http://localhost:9000"
+    project_key: "scrollintel"
+    token: "${SONAR_TOKEN}"
+
+dast:
+  enabled: true
+  tools:
+    - nuclei
+    - zap
+  
+  nuclei:
+    enabled: true
+    templates_path: "/opt/nuclei-templates"
+    severity_threshold: "medium"
+    timeout: 600
+    rate_limit: 150
+    exclude_tags:
+      - "dos"
+      - "fuzz"
+  
+  zap:
+    enabled: false  # Requires OWASP ZAP setup
+    proxy_host: "localhost"
+    proxy_port: 8080
+    api_key: "${ZAP_API_KEY}"
+    timeout: 1800
+
+# Security gate configuration
+security_gate:
+  fail_on_critical: true
+  fail_on_high: true
+  fail_on_medium: false
+  max_findings:
+    critical: 0
+    high: 0
+    medium: 10
+    low: 50
+  
+  # CI/CD integration
+  ci_integration:
+    github_actions: true
+    gitlab_ci: true
+    jenkins: true
+    azure_devops: true
+  
+  # Reporting
+  reports:
+    formats:
+      - json
+      - html
+      - sarif
+    output_dir: "./security-reports"
+    upload_to_defectdojo: false
+    upload_to_security_center: false
+
+# Tool installation and setup
+tool_setup:
+  auto_install: true
+  install_path: "/opt/security-tools"
+  
+  bandit:
+    install_command: "pip install bandit[toml]"
+    version: "latest"
+  
+  semgrep:
+    install_command: "pip install semgrep"
+    version: "latest"
+  
+  nuclei:
+    install_command: |
+      curl -L https://github.com/projectdiscovery/nuclei/releases/latest/download/nuclei_linux_amd64.tar.gz | tar -xz
+      sudo mv nuclei /usr/local/bin/
+    version: "latest"
+    update_templates: true
+
+# Environment-specific configurations
+environments:
+  development:
+    sast:
+      enabled: true
+      fail_build: false
+    dast:
+      enabled: false
+  
+  staging:
+    sast:
+      enabled: true
+      fail_build: true
+    dast:
+      enabled: true
+      fail_build: false
+  
+  production:
+    sast:
+      enabled: true
+      fail_build: true
+    dast:
+      enabled: true
+      fail_build: true
+
+# Integration with external systems
+integrations:
+  slack:
+    enabled: false
+    webhook_url: "${SLACK_WEBHOOK_URL}"
+    channel: "#security-alerts"
+  
+  email:
+    enabled: false
+    smtp_server: "smtp.company.com"
+    recipients:
+      - "security-team@company.com"
+  
+  jira:
+    enabled: false
+    server_url: "https://company.atlassian.net"
+    project_key: "SEC"
+    api_token: "${JIRA_API_TOKEN}"
+
+# Custom rules and exclusions
+custom_rules:
+  exclude_files:
+    - "*.test.py"
+    - "*.spec.js"
+    - "test_*.py"
+    - "*_test.go"
+  
+  exclude_directories:
+    - "tests/"
+    - "test/"
+    - "__pycache__/"
+    - "node_modules/"
+    - ".git/"
+    - "venv/"
+    - "env/"
+  
+  false_positive_suppressions:
+    bandit:
+      - rule_id: "B101"  # Test for use of assert
+        justification: "Assert statements in test files are acceptable"
+        files: ["*/tests/*"]
+    
+    semgrep:
+      - rule_id: "python.lang.security.audit.dangerous-subprocess-use"
+        justification: "Subprocess usage is validated and sanitized"
+        files: ["security/application/sast_dast_scanner.py"]

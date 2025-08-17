@@ -1,5 +1,9 @@
 """
-ScrollDataScntel.core.interfaces import BaseAgent, AgentType, AgentRequest, AgentResponse, AgentCapability, ResponseStatus
+ScrollIntel Data Scientist Agent
+Advanced data science capabilities with AI-enhanced insights
+"""
+
+from scrollintel.core.interfaces import BaseAgent, AgentType, AgentRequest, AgentResponse, AgentCapability, ResponseStatus
 import asyncio
 import json
 import os
@@ -395,7 +399,7 @@ class ScrollDataScientist(BaseAgent):
 ## Processed Dataset Quality
 - **Shape**: {processed_df.shape}
 - **Missing Values**: {processed_df.isnull().sum().sum()}
-- **Data Quality Score**: {preprocessing_report['quality_score']:.2f}/10
+- **Data Quality Score**: {round(preprocessing_report.get('quality_score', 0), 2)} out of 10
 
 ## Quality Metrics
 {self._format_quality_metrics(preprocessing_report['quality_metrics'])}
@@ -404,7 +408,7 @@ class ScrollDataScientist(BaseAgent):
 {ai_insights}
 
 ## Data Ready for Analysis
-✅ Dataset is now ready for:
+Dataset is now ready for:
 - Exploratory Data Analysis
 - Statistical Modeling
 - Machine Learning with AutoModel engine
@@ -448,7 +452,7 @@ class ScrollDataScientist(BaseAgent):
 - **Features**: {model_request['feature_count']}
 - **Target**: {target_column}
 - **Model Type**: {model_request['model_type']}
-- **Data Quality**: {model_request['data_quality_score']:.2f}/10
+- **Data Quality**: {round(model_request.get('data_quality_score', 0), 2)} out of 10
 
 ## Recommended Algorithms
 {chr(10).join(f"- {algo}: {reason}" for algo, reason in model_request['recommended_algorithms'].items())}
@@ -468,7 +472,7 @@ class ScrollDataScientist(BaseAgent):
 4. Set up model monitoring and retraining pipeline
 
 ## AutoModel Request Ready
-✅ Dataset and configuration prepared for AutoModel engine training
+Dataset and configuration prepared for AutoModel engine training
 
 ---
 *AutoModel integration prepared at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*

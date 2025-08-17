@@ -1,6 +1,10 @@
 # Implementation Plan - Data Pipeline Automation System
 
 - [ ] 1. Build visual pipeline builder foundation
+
+
+
+
   - Create Pipeline and PipelineNode data models with SQLAlchemy
   - Implement PipelineBuilder class with CRUD operations
   - Build drag-and-drop visual interface with React Flow
