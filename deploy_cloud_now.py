@@ -48,7 +48,7 @@ def create_render_deployment():
       - key: JWT_SECRET_KEY
         generateValue: true
       - key: OPENAI_API_KEY
-        value: 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
+        value: your-openai-api-key-here
 """
     
     with open("render.yaml", "w") as f:
@@ -100,7 +100,7 @@ def create_vercel_deployment():
         "env": {
             "ENVIRONMENT": "production",
             "DEBUG": "false",
-            "OPENAI_API_KEY": "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"
+            "OPENAI_API_KEY": "your-openai-api-key-here"
         }
     }
     

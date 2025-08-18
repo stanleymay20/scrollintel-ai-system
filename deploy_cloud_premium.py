@@ -346,7 +346,7 @@ LOG_LEVEL=INFO
 JWT_SECRET_KEY=cloud_production_jwt_secret_2024
 
 # API Keys
-OPENAI_API_KEY=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
+OPENAI_API_KEY=your-openai-api-key-here
 
 # Application
 API_HOST=0.0.0.0
