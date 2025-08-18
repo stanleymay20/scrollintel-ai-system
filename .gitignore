@@ -233,9 +233,9 @@ web_modules/
 .parcel-cache
 
 # Next.js build output
-.next
 .next/
 out/
+frontend/.next/
 
 # Nuxt.js build / generate output
 .nuxt
@@ -335,6 +335,9 @@ models/
 *.joblib
 *.h5
 *.pb
+
+# Large test files
+test_file_*.txt
 
 # Jupyter notebooks checkpoints
 .ipynb_checkpoints/
