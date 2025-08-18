@@ -71,7 +71,7 @@ Your production environment is already configured with:
 ```bash
 ENVIRONMENT=production
 DEBUG=false
-OPENAI_API_KEY=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
+OPENAI_API_KEY=your-openai-api-key-here
 JWT_SECRET_KEY=APV3H15hdjnZFq6oG5UBjnmYK0htYgyfTcPCujPZkv3raBjZDviqWltxNtPr3sTzDuo9Q7rApIXYF27wO+LedA==
 ```
 

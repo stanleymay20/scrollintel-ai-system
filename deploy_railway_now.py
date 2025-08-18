@@ -22,7 +22,7 @@ def deploy_to_railway():
     
     print("\n🔧 Optional Environment Variables (Railway auto-configures most):")
     env_vars = {
-        "OPENAI_API_KEY": "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",
+        "OPENAI_API_KEY": "your-openai-api-key-here",
         "PORT": "8000"
     }
     
