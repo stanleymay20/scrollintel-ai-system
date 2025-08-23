@@ -1,991 +1,1067 @@
 """
-Pattern Recognition Engine for Autonomous Innovation Lab
+Pattern Recognition Engine for Business Opportunity Identification
 
-This module implements the pattern recognition engine that identifies patterns
-and insights across innovations, performs pattern analysis and interpretation,
-and builds pattern-based innovation optimization and enhancement.
+This engine identifies patterns, trends, anomalies, and business opportunities
+in enterprise data using advanced machine learning and statistical techniques.
 """
 
 import asyncio
 import logging
-from typing import List, Dict, Any, Optional, Set, Tuple
 from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Tuple
 import numpy as np
-from dataclasses import asdict
-from collections import Counter, defaultdict
-import networkx as nx
-from sklearn.cluster import KMeans, DBSCAN
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+import pandas as pd
+from collections import defaultdict, deque
+from scipy import stats
+from sklearn.cluster import DBSCAN, KMeans
+from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+from sklearn.ensemble import IsolationForest
+import json
 
-from ..models.knowledge_integration_models import (
-    KnowledgeItem, Pattern, PatternRecognitionResult,
-    PatternType, ConfidenceLevel, KnowledgeType
+from ..models.advanced_analytics_models import (
+    PatternRecognitionRequest, RecognizedPattern, PatternRecognitionResult,
+    PatternType, AnalyticsInsight
 )
+from ..core.config import get_settings
 
 logger = logging.getLogger(__name__)
+settings = get_settings()
 
 
 class PatternRecognitionEngine:
     """
-    Engine for recognizing patterns and insights across innovations
+    Advanced pattern recognition engine for identifying business opportunities.
+    
+    Capabilities:
+    - Trend detection and analysis
+    - Anomaly detection using multiple algorithms
+    - Cyclical pattern identification
+    - Clustering and segmentation analysis
+    - Correlation pattern discovery
+    - Real-time pattern monitoring
+    - Predictive pattern modeling
     """
     
     def __init__(self):
-        self.patterns: Dict[str, Pattern] = {}
-        self.pattern_cache: Dict[str, PatternRecognitionResult] = {}
-        self.vectorizer = TfidfVectorizer(max_features=1000, stop_words='english')
+        self.data_cache = {}
+        self.pattern_cache = {}
+        self.model_cache = {}
+        self.scaler = StandardScaler()
+        self.anomaly_detector = IsolationForest(contamination=0.1, random_state=42)
         
-    async def recognize_patterns(
-        self,
-        knowledge_items: List[KnowledgeItem],
-        pattern_types: Optional[List[PatternType]] = None
-    ) -> PatternRecognitionResult:
+    async def recognize_patterns(self, request: PatternRecognitionRequest) -> PatternRecognitionResult:
         """
-        Recognize patterns across knowledge items
+        Recognize patterns in business data based on the request parameters.
         
         Args:
-            knowledge_items: List of knowledge items to analyze
-            pattern_types: Optional list of specific pattern types to look for
+            request: Pattern recognition request with data source and parameters
             
         Returns:
-            Pattern recognition result
+            Comprehensive pattern recognition results
         """
+        start_time = datetime.utcnow()
+        
         try:
-            start_time = datetime.now()
+            # Load and prepare data
+            data = await self._load_data_from_source(request.data_source)
+            processed_data = await self._preprocess_data(data, request)
             
-            if pattern_types is None:
-                pattern_types = list(PatternType)
+            recognized_patterns = []
             
-            patterns_found = []
+            # Perform pattern recognition based on requested types
+            for pattern_type in request.pattern_types:
+                patterns = await self._detect_pattern_type(pattern_type, processed_data, request)
+                recognized_patterns.extend(patterns)
             
-            # Handle empty knowledge items
-            if not knowledge_items:
-                return PatternRecognitionResult(
-                    patterns_found=[],
-                    analysis_method="multi_pattern_recognition",
-                    confidence=ConfidenceLevel.LOW,
-                    processing_time=0.0,
-                    recommendations=["No knowledge items provided for pattern recognition"]
-                )
+            # Filter patterns by strength and confidence
+            filtered_patterns = [
+                p for p in recognized_patterns 
+                if p.strength >= request.min_pattern_strength and p.confidence >= request.sensitivity
+            ]
             
-            # Recognize different types of patterns
-            for pattern_type in pattern_types:
-                if pattern_type == PatternType.CORRELATION:
-                    patterns = await self._recognize_correlation_patterns(knowledge_items)
-                elif pattern_type == PatternType.CAUSAL:
-                    patterns = await self._recognize_causal_patterns(knowledge_items)
-                elif pattern_type == PatternType.TEMPORAL:
-                    patterns = await self._recognize_temporal_patterns(knowledge_items)
-                elif pattern_type == PatternType.STRUCTURAL:
-                    patterns = await self._recognize_structural_patterns(knowledge_items)
-                elif pattern_type == PatternType.BEHAVIORAL:
-                    patterns = await self._recognize_behavioral_patterns(knowledge_items)
-                elif pattern_type == PatternType.EMERGENT:
-                    patterns = await self._recognize_emergent_patterns(knowledge_items)
-                else:
-                    patterns = []
-                
-                patterns_found.extend(patterns)
+            # Generate insights and opportunities
+            summary_insights = await self._generate_pattern_insights(filtered_patterns, processed_data)
+            business_opportunities = await self._identify_business_opportunities(filtered_patterns)
+            risk_indicators = await self._identify_risk_indicators(filtered_patterns)
             
-            # Store patterns
-            for pattern in patterns_found:
-                self.patterns[pattern.id] = pattern
-            
-            # Calculate processing time
-            processing_time = (datetime.now() - start_time).total_seconds()
-            
-            # Generate recommendations
-            recommendations = await self._generate_pattern_recommendations(patterns_found)
-            
-            # Determine overall confidence
-            overall_confidence = self._calculate_overall_confidence(patterns_found)
+            execution_time = (datetime.utcnow() - start_time).total_seconds() * 1000
             
             result = PatternRecognitionResult(
-                patterns_found=patterns_found,
-                analysis_method="multi_pattern_recognition",
-                confidence=overall_confidence,
-                processing_time=processing_time,
-                recommendations=recommendations
+                request=request,
+                patterns=filtered_patterns,
+                summary_insights=summary_insights,
+                business_opportunities=business_opportunities,
+                risk_indicators=risk_indicators,
+                execution_time_ms=execution_time
             )
             
-            # Cache result
-            cache_key = f"pattern_recognition_{len(knowledge_items)}_{hash(tuple(item.id for item in knowledge_items))}"
-            self.pattern_cache[cache_key] = result
+            # Cache results
+            self.pattern_cache[result.analysis_id] = result
             
-            logger.info(f"Recognized {len(patterns_found)} patterns from {len(knowledge_items)} knowledge items")
+            logger.info(f"Pattern recognition completed: {len(filtered_patterns)} patterns found in {execution_time:.2f}ms")
+            
             return result
             
         except Exception as e:
-            logger.error(f"Error recognizing patterns: {str(e)}")
+            logger.error(f"Error in pattern recognition: {str(e)}")
             raise
     
-    async def analyze_pattern_significance(
-        self,
-        pattern: Pattern,
-        knowledge_items: List[KnowledgeItem]
-    ) -> Dict[str, Any]:
+    async def detect_emerging_opportunities(self, data_sources: List[str], 
+                                         lookback_days: int = 90) -> List[AnalyticsInsight]:
         """
-        Analyze the significance of a specific pattern
+        Detect emerging business opportunities through pattern analysis.
         
         Args:
-            pattern: Pattern to analyze
-            knowledge_items: Context knowledge items
+            data_sources: List of data sources to analyze
+            lookback_days: Number of days to look back for pattern analysis
             
         Returns:
-            Pattern significance analysis
+            List of identified emerging opportunities
         """
         try:
-            # Get evidence items
-            evidence_items = [
-                item for item in knowledge_items 
-                if item.id in pattern.evidence
+            opportunities = []
+            
+            for source in data_sources:
+                # Analyze recent patterns
+                recent_patterns = await self._analyze_recent_patterns(source, lookback_days)
+                
+                # Identify growth patterns
+                growth_opportunities = await self._identify_growth_patterns(recent_patterns)
+                opportunities.extend(growth_opportunities)
+                
+                # Identify market shift patterns
+                shift_opportunities = await self._identify_market_shifts(recent_patterns)
+                opportunities.extend(shift_opportunities)
+                
+                # Identify efficiency opportunities
+                efficiency_opportunities = await self._identify_efficiency_patterns(recent_patterns)
+                opportunities.extend(efficiency_opportunities)
+            
+            # Rank and filter opportunities
+            ranked_opportunities = self._rank_opportunities(opportunities)
+            
+            logger.info(f"Detected {len(ranked_opportunities)} emerging opportunities")
+            
+            return ranked_opportunities
+            
+        except Exception as e:
+            logger.error(f"Error detecting emerging opportunities: {str(e)}")
+            return []
+    
+    async def monitor_pattern_changes(self, baseline_patterns: List[RecognizedPattern], 
+                                   current_data_source: str) -> Dict[str, Any]:
+        """
+        Monitor changes in patterns compared to a baseline.
+        
+        Args:
+            baseline_patterns: Previously identified patterns as baseline
+            current_data_source: Current data source to analyze
+            
+        Returns:
+            Pattern change analysis results
+        """
+        try:
+            # Analyze current patterns
+            current_request = PatternRecognitionRequest(
+                data_source=current_data_source,
+                pattern_types=[PatternType.TREND, PatternType.ANOMALY, PatternType.CYCLE],
+                sensitivity=0.7
+            )
+            
+            current_result = await self.recognize_patterns(current_request)
+            current_patterns = current_result.patterns
+            
+            # Compare patterns
+            changes = {
+                "new_patterns": [],
+                "disappeared_patterns": [],
+                "strengthened_patterns": [],
+                "weakened_patterns": [],
+                "change_summary": []
+            }
+            
+            # Identify new patterns
+            baseline_signatures = {self._get_pattern_signature(p): p for p in baseline_patterns}
+            current_signatures = {self._get_pattern_signature(p): p for p in current_patterns}
+            
+            for signature, pattern in current_signatures.items():
+                if signature not in baseline_signatures:
+                    changes["new_patterns"].append(pattern)
+                else:
+                    # Compare strength changes
+                    baseline_pattern = baseline_signatures[signature]
+                    strength_change = pattern.strength - baseline_pattern.strength
+                    
+                    if strength_change > 0.1:
+                        changes["strengthened_patterns"].append({
+                            "pattern": pattern,
+                            "strength_change": strength_change
+                        })
+                    elif strength_change < -0.1:
+                        changes["weakened_patterns"].append({
+                            "pattern": pattern,
+                            "strength_change": strength_change
+                        })
+            
+            # Identify disappeared patterns
+            for signature, pattern in baseline_signatures.items():
+                if signature not in current_signatures:
+                    changes["disappeared_patterns"].append(pattern)
+            
+            # Generate change summary
+            changes["change_summary"] = [
+                f"Detected {len(changes['new_patterns'])} new patterns",
+                f"Lost {len(changes['disappeared_patterns'])} previous patterns",
+                f"{len(changes['strengthened_patterns'])} patterns strengthened",
+                f"{len(changes['weakened_patterns'])} patterns weakened"
             ]
             
-            if not evidence_items:
-                return {"significance": 0.0, "analysis": "No evidence items found"}
+            logger.info(f"Pattern monitoring completed: {len(changes['new_patterns'])} new patterns detected")
             
-            # Calculate various significance metrics
-            significance_metrics = {
-                "coverage": len(evidence_items) / len(knowledge_items),
-                "strength": pattern.strength,
-                "confidence": self._confidence_to_score(pattern.confidence),
-                "predictive_power": pattern.predictive_power,
-                "diversity": await self._calculate_evidence_diversity(evidence_items),
-                "consistency": await self._calculate_pattern_consistency(pattern, evidence_items)
-            }
-            
-            # Calculate overall significance
-            overall_significance = np.mean(list(significance_metrics.values()))
-            
-            # Generate analysis insights
-            analysis_insights = []
-            
-            if significance_metrics["coverage"] > 0.5:
-                analysis_insights.append("Pattern has broad coverage across knowledge base")
-            
-            if significance_metrics["strength"] > 0.7:
-                analysis_insights.append("Pattern shows strong evidence support")
-            
-            if significance_metrics["predictive_power"] > 0.6:
-                analysis_insights.append("Pattern has good predictive capabilities")
-            
-            if significance_metrics["diversity"] > 0.5:
-                analysis_insights.append("Pattern is supported by diverse evidence types")
-            
-            return {
-                "significance": overall_significance,
-                "metrics": significance_metrics,
-                "analysis": analysis_insights,
-                "evidence_count": len(evidence_items),
-                "pattern_type": pattern.pattern_type.value
-            }
+            return changes
             
         except Exception as e:
-            logger.error(f"Error analyzing pattern significance: {str(e)}")
-            raise
+            logger.error(f"Error monitoring pattern changes: {str(e)}")
+            return {}
     
-    async def interpret_patterns(
-        self,
-        patterns: List[Pattern],
-        context: Dict[str, Any] = None
-    ) -> Dict[str, Any]:
-        """
-        Interpret patterns to extract meaningful insights
+    async def _load_data_from_source(self, data_source: str) -> pd.DataFrame:
+        """Load data from the specified source."""
+        # Check cache first
+        if data_source in self.data_cache:
+            cache_time, data = self.data_cache[data_source]
+            if (datetime.utcnow() - cache_time).seconds < 300:  # 5 minute cache
+                return data
         
-        Args:
-            patterns: List of patterns to interpret
-            context: Optional context information
-            
-        Returns:
-            Pattern interpretation results
-        """
-        try:
-            if not patterns:
-                return {"interpretations": [], "insights": [], "recommendations": []}
-            
-            interpretations = []
-            insights = []
-            recommendations = []
-            
-            # Group patterns by type
-            patterns_by_type = defaultdict(list)
-            for pattern in patterns:
-                patterns_by_type[pattern.pattern_type].append(pattern)
-            
-            # Interpret each pattern type
-            for pattern_type, type_patterns in patterns_by_type.items():
-                type_interpretation = await self._interpret_pattern_type(pattern_type, type_patterns, context)
-                interpretations.append(type_interpretation)
-                
-                # Extract insights and recommendations
-                insights.extend(type_interpretation.get("insights", []))
-                recommendations.extend(type_interpretation.get("recommendations", []))
-            
-            # Find cross-pattern relationships
-            cross_pattern_insights = await self._find_cross_pattern_relationships(patterns)
-            insights.extend(cross_pattern_insights)
-            
-            # Generate meta-insights
-            meta_insights = await self._generate_meta_insights(patterns, interpretations)
-            insights.extend(meta_insights)
-            
-            return {
-                "interpretations": interpretations,
-                "insights": insights,
-                "recommendations": recommendations,
-                "pattern_count": len(patterns),
-                "pattern_types": list(patterns_by_type.keys()),
-                "interpretation_timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Error interpreting patterns: {str(e)}")
-            raise
-    
-    async def optimize_innovation_based_on_patterns(
-        self,
-        patterns: List[Pattern],
-        innovation_context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Optimize innovation based on recognized patterns
-        
-        Args:
-            patterns: List of patterns to use for optimization
-            innovation_context: Context about the innovation to optimize
-            
-        Returns:
-            Innovation optimization recommendations
-        """
-        try:
-            optimization_recommendations = []
-            enhancement_strategies = []
-            risk_mitigations = []
-            
-            # Analyze patterns for optimization opportunities
-            for pattern in patterns:
-                pattern_optimization = await self._analyze_pattern_for_optimization(
-                    pattern, innovation_context
-                )
-                
-                optimization_recommendations.extend(pattern_optimization.get("recommendations", []))
-                enhancement_strategies.extend(pattern_optimization.get("enhancements", []))
-                risk_mitigations.extend(pattern_optimization.get("risk_mitigations", []))
-            
-            # Prioritize recommendations
-            prioritized_recommendations = await self._prioritize_optimization_recommendations(
-                optimization_recommendations, patterns
-            )
-            
-            # Generate implementation plan
-            implementation_plan = await self._generate_optimization_implementation_plan(
-                prioritized_recommendations, innovation_context
-            )
-            
-            # Calculate expected impact
-            expected_impact = await self._calculate_optimization_impact(
-                patterns, prioritized_recommendations
-            )
-            
-            return {
-                "optimization_recommendations": prioritized_recommendations,
-                "enhancement_strategies": enhancement_strategies,
-                "risk_mitigations": risk_mitigations,
-                "implementation_plan": implementation_plan,
-                "expected_impact": expected_impact,
-                "patterns_used": len(patterns),
-                "optimization_timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Error optimizing innovation based on patterns: {str(e)}")
-            raise
-    
-    async def enhance_innovation_pipeline(
-        self,
-        patterns: List[Pattern],
-        pipeline_context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """
-        Enhance innovation pipeline based on pattern insights
-        
-        Args:
-            patterns: List of patterns to use for enhancement
-            pipeline_context: Context about the innovation pipeline
-            
-        Returns:
-            Pipeline enhancement recommendations
-        """
-        try:
-            pipeline_enhancements = []
-            process_improvements = []
-            bottleneck_solutions = []
-            
-            # Analyze patterns for pipeline insights
-            for pattern in patterns:
-                if pattern.pattern_type == PatternType.TEMPORAL:
-                    # Temporal patterns can reveal process bottlenecks
-                    temporal_insights = await self._analyze_temporal_pattern_for_pipeline(pattern)
-                    process_improvements.extend(temporal_insights.get("improvements", []))
-                    bottleneck_solutions.extend(temporal_insights.get("bottleneck_solutions", []))
-                
-                elif pattern.pattern_type == PatternType.STRUCTURAL:
-                    # Structural patterns can reveal organizational issues
-                    structural_insights = await self._analyze_structural_pattern_for_pipeline(pattern)
-                    pipeline_enhancements.extend(structural_insights.get("enhancements", []))
-                
-                elif pattern.pattern_type == PatternType.BEHAVIORAL:
-                    # Behavioral patterns can reveal team dynamics
-                    behavioral_insights = await self._analyze_behavioral_pattern_for_pipeline(pattern)
-                    process_improvements.extend(behavioral_insights.get("improvements", []))
-            
-            # Generate pipeline optimization strategy
-            optimization_strategy = await self._generate_pipeline_optimization_strategy(
-                pipeline_enhancements, process_improvements, bottleneck_solutions
-            )
-            
-            return {
-                "pipeline_enhancements": pipeline_enhancements,
-                "process_improvements": process_improvements,
-                "bottleneck_solutions": bottleneck_solutions,
-                "optimization_strategy": optimization_strategy,
-                "enhancement_timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            logger.error(f"Error enhancing innovation pipeline: {str(e)}")
-            raise
-    
-    # Private helper methods for pattern recognition
-    
-    async def _recognize_correlation_patterns(self, knowledge_items: List[KnowledgeItem]) -> List[Pattern]:
-        """Recognize correlation patterns between knowledge items"""
-        patterns = []
-        
-        # Create feature vectors for correlation analysis
-        if len(knowledge_items) < 2:
-            return patterns
-        
-        # Extract text features
-        texts = []
-        for item in knowledge_items:
-            text_content = ""
-            if 'title' in item.content:
-                text_content += item.content['title'] + " "
-            if 'description' in item.content:
-                text_content += item.content['description'] + " "
-            text_content += " ".join(item.tags)
-            texts.append(text_content)
-        
-        try:
-            # Calculate TF-IDF vectors
-            tfidf_matrix = self.vectorizer.fit_transform(texts)
-            
-            # Calculate cosine similarity
-            similarity_matrix = cosine_similarity(tfidf_matrix)
-            
-            # Find strong correlations
-            for i in range(len(knowledge_items)):
-                for j in range(i + 1, len(knowledge_items)):
-                    similarity = similarity_matrix[i][j]
-                    
-                    if similarity > 0.3:  # Threshold for correlation
-                        pattern = Pattern(
-                            id=f"correlation_{knowledge_items[i].id}_{knowledge_items[j].id}",
-                            pattern_type=PatternType.CORRELATION,
-                            description=f"Strong correlation between {knowledge_items[i].content.get('title', 'item')} and {knowledge_items[j].content.get('title', 'item')}",
-                            evidence=[knowledge_items[i].id, knowledge_items[j].id],
-                            strength=similarity,
-                            confidence=ConfidenceLevel.HIGH if similarity > 0.7 else ConfidenceLevel.MEDIUM,
-                            discovered_at=datetime.now(),
-                            predictive_power=similarity * 0.8  # Correlation implies some predictive power
-                        )
-                        patterns.append(pattern)
-        
-        except Exception as e:
-            logger.warning(f"Error in correlation pattern recognition: {str(e)}")
-        
-        return patterns
-    
-    async def _recognize_causal_patterns(self, knowledge_items: List[KnowledgeItem]) -> List[Pattern]:
-        """Recognize causal patterns in knowledge items"""
-        patterns = []
-        
-        # Look for causal indicators in content
-        causal_keywords = ['causes', 'leads to', 'results in', 'due to', 'because of', 'triggers']
-        
-        for item in knowledge_items:
-            content_text = str(item.content).lower()
-            
-            # Check for causal language
-            causal_indicators = [keyword for keyword in causal_keywords if keyword in content_text]
-            
-            if causal_indicators:
-                pattern = Pattern(
-                    id=f"causal_{item.id}_{datetime.now().timestamp()}",
-                    pattern_type=PatternType.CAUSAL,
-                    description=f"Causal relationship identified in {item.content.get('title', 'knowledge item')}",
-                    evidence=[item.id],
-                    strength=min(len(causal_indicators) / len(causal_keywords), 1.0),
-                    confidence=ConfidenceLevel.MEDIUM,
-                    discovered_at=datetime.now(),
-                    predictive_power=0.6  # Causal patterns have good predictive power
-                )
-                patterns.append(pattern)
-        
-        return patterns
-    
-    async def _recognize_temporal_patterns(self, knowledge_items: List[KnowledgeItem]) -> List[Pattern]:
-        """Recognize temporal patterns in knowledge items"""
-        patterns = []
-        
-        # Sort items by timestamp
-        sorted_items = sorted(knowledge_items, key=lambda x: x.timestamp)
-        
-        if len(sorted_items) < 3:
-            return patterns
-        
-        # Look for temporal trends
-        timestamps = [item.timestamp for item in sorted_items]
-        time_diffs = [(timestamps[i+1] - timestamps[i]).total_seconds() for i in range(len(timestamps)-1)]
-        
-        # Check for regular intervals
-        if len(set(time_diffs)) == 1:  # All intervals are the same
-            pattern = Pattern(
-                id=f"temporal_regular_{datetime.now().timestamp()}",
-                pattern_type=PatternType.TEMPORAL,
-                description="Regular temporal pattern detected in knowledge generation",
-                evidence=[item.id for item in sorted_items],
-                strength=0.8,
-                confidence=ConfidenceLevel.HIGH,
-                discovered_at=datetime.now(),
-                predictive_power=0.7
-            )
-            patterns.append(pattern)
-        
-        # Look for accelerating patterns
-        if len(time_diffs) > 1:
-            acceleration = all(time_diffs[i] < time_diffs[i-1] for i in range(1, len(time_diffs)))
-            if acceleration:
-                pattern = Pattern(
-                    id=f"temporal_acceleration_{datetime.now().timestamp()}",
-                    pattern_type=PatternType.TEMPORAL,
-                    description="Accelerating temporal pattern in knowledge generation",
-                    evidence=[item.id for item in sorted_items],
-                    strength=0.7,
-                    confidence=ConfidenceLevel.MEDIUM,
-                    discovered_at=datetime.now(),
-                    predictive_power=0.6
-                )
-                patterns.append(pattern)
-        
-        return patterns
-    
-    async def _recognize_structural_patterns(self, knowledge_items: List[KnowledgeItem]) -> List[Pattern]:
-        """Recognize structural patterns in knowledge items"""
-        patterns = []
-        
-        # Analyze knowledge type distribution
-        type_counts = Counter(item.knowledge_type for item in knowledge_items)
-        
-        # Look for dominant knowledge types
-        total_items = len(knowledge_items)
-        for knowledge_type, count in type_counts.items():
-            if count / total_items > 0.6:  # More than 60% of items are of this type
-                pattern = Pattern(
-                    id=f"structural_dominant_{knowledge_type.value}_{datetime.now().timestamp()}",
-                    pattern_type=PatternType.STRUCTURAL,
-                    description=f"Dominant structural pattern: {knowledge_type.value} represents {count}/{total_items} items",
-                    evidence=[item.id for item in knowledge_items if item.knowledge_type == knowledge_type],
-                    strength=count / total_items,
-                    confidence=ConfidenceLevel.HIGH,
-                    discovered_at=datetime.now(),
-                    predictive_power=0.5
-                )
-                patterns.append(pattern)
-        
-        # Analyze tag clustering
-        all_tags = []
-        for item in knowledge_items:
-            all_tags.extend(item.tags)
-        
-        if all_tags:
-            tag_counts = Counter(all_tags)
-            common_tags = [tag for tag, count in tag_counts.items() if count > len(knowledge_items) * 0.3]
-            
-            if common_tags:
-                pattern = Pattern(
-                    id=f"structural_tags_{datetime.now().timestamp()}",
-                    pattern_type=PatternType.STRUCTURAL,
-                    description=f"Common tag structure: {', '.join(common_tags[:3])}",
-                    evidence=[item.id for item in knowledge_items if any(tag in item.tags for tag in common_tags)],
-                    strength=len(common_tags) / len(set(all_tags)),
-                    confidence=ConfidenceLevel.MEDIUM,
-                    discovered_at=datetime.now(),
-                    predictive_power=0.4
-                )
-                patterns.append(pattern)
-        
-        return patterns
-    
-    async def _recognize_behavioral_patterns(self, knowledge_items: List[KnowledgeItem]) -> List[Pattern]:
-        """Recognize behavioral patterns in knowledge items"""
-        patterns = []
-        
-        if not knowledge_items:
-            return patterns
-        
-        # Analyze confidence level patterns
-        confidence_counts = Counter(item.confidence for item in knowledge_items)
-        
-        # Look for confidence trends
-        high_confidence_ratio = (
-            confidence_counts.get(ConfidenceLevel.HIGH, 0) + 
-            confidence_counts.get(ConfidenceLevel.VERY_HIGH, 0)
-        ) / len(knowledge_items)
-        
-        if high_confidence_ratio > 0.7:
-            pattern = Pattern(
-                id=f"behavioral_high_confidence_{datetime.now().timestamp()}",
-                pattern_type=PatternType.BEHAVIORAL,
-                description="Behavioral pattern: High confidence in knowledge generation",
-                evidence=[item.id for item in knowledge_items if item.confidence in [ConfidenceLevel.HIGH, ConfidenceLevel.VERY_HIGH]],
-                strength=high_confidence_ratio,
-                confidence=ConfidenceLevel.HIGH,
-                discovered_at=datetime.now(),
-                predictive_power=0.6
-            )
-            patterns.append(pattern)
-        
-        # Analyze source diversity
-        sources = [item.source for item in knowledge_items]
-        unique_sources = len(set(sources))
-        source_diversity = unique_sources / len(knowledge_items) if knowledge_items else 0.0
-        
-        if source_diversity > 0.5:
-            pattern = Pattern(
-                id=f"behavioral_diverse_sources_{datetime.now().timestamp()}",
-                pattern_type=PatternType.BEHAVIORAL,
-                description="Behavioral pattern: Diverse knowledge sources",
-                evidence=[item.id for item in knowledge_items],
-                strength=source_diversity,
-                confidence=ConfidenceLevel.MEDIUM,
-                discovered_at=datetime.now(),
-                predictive_power=0.5
-            )
-            patterns.append(pattern)
-        
-        return patterns
-    
-    async def _recognize_emergent_patterns(self, knowledge_items: List[KnowledgeItem]) -> List[Pattern]:
-        """Recognize emergent patterns in knowledge items"""
-        patterns = []
-        
-        # Look for emergent themes in content
-        if len(knowledge_items) < 3:
-            return patterns
-        
-        # Extract all content text
-        all_content = []
-        for item in knowledge_items:
-            content_text = ""
-            for key, value in item.content.items():
-                if isinstance(value, str):
-                    content_text += value + " "
-            all_content.append(content_text)
-        
-        try:
-            # Use clustering to find emergent themes
-            if all_content:
-                tfidf_matrix = self.vectorizer.fit_transform(all_content)
-                
-                # Use DBSCAN for emergent cluster detection
-                clustering = DBSCAN(eps=0.5, min_samples=2, metric='cosine')
-                cluster_labels = clustering.fit_predict(tfidf_matrix.toarray())
-                
-                # Find emergent clusters (not noise)
-                unique_clusters = set(cluster_labels)
-                if -1 in unique_clusters:  # Remove noise cluster
-                    unique_clusters.remove(-1)
-                
-                for cluster_id in unique_clusters:
-                    cluster_items = [knowledge_items[i] for i, label in enumerate(cluster_labels) if label == cluster_id]
-                    
-                    if len(cluster_items) >= 2:
-                        pattern = Pattern(
-                            id=f"emergent_cluster_{cluster_id}_{datetime.now().timestamp()}",
-                            pattern_type=PatternType.EMERGENT,
-                            description=f"Emergent thematic cluster with {len(cluster_items)} items",
-                            evidence=[item.id for item in cluster_items],
-                            strength=len(cluster_items) / len(knowledge_items),
-                            confidence=ConfidenceLevel.MEDIUM,
-                            discovered_at=datetime.now(),
-                            predictive_power=0.4
-                        )
-                        patterns.append(pattern)
-        
-        except Exception as e:
-            logger.warning(f"Error in emergent pattern recognition: {str(e)}")
-        
-        return patterns
-    
-    # Helper methods for pattern analysis and interpretation
-    
-    def _confidence_to_score(self, confidence: ConfidenceLevel) -> float:
-        """Convert confidence level to numerical score"""
-        confidence_scores = {
-            ConfidenceLevel.LOW: 0.25,
-            ConfidenceLevel.MEDIUM: 0.5,
-            ConfidenceLevel.HIGH: 0.75,
-            ConfidenceLevel.VERY_HIGH: 1.0
-        }
-        return confidence_scores.get(confidence, 0.5)
-    
-    async def _calculate_evidence_diversity(self, evidence_items: List[KnowledgeItem]) -> float:
-        """Calculate diversity of evidence items"""
-        if not evidence_items:
-            return 0.0
-        
-        # Calculate diversity based on knowledge types
-        types = set(item.knowledge_type for item in evidence_items)
-        type_diversity = len(types) / len(KnowledgeType)
-        
-        # Calculate diversity based on sources
-        sources = set(item.source for item in evidence_items)
-        source_diversity = min(len(sources) / len(evidence_items), 1.0)
-        
-        # Calculate diversity based on confidence levels
-        confidences = set(item.confidence for item in evidence_items)
-        confidence_diversity = len(confidences) / len(ConfidenceLevel)
-        
-        return (type_diversity + source_diversity + confidence_diversity) / 3
-    
-    async def _calculate_pattern_consistency(self, pattern: Pattern, evidence_items: List[KnowledgeItem]) -> float:
-        """Calculate consistency of pattern across evidence"""
-        if not evidence_items:
-            return 0.0
-        
-        # For correlation patterns, check if all evidence items are actually correlated
-        if pattern.pattern_type == PatternType.CORRELATION:
-            # Simple consistency check based on tag overlap
-            all_tags = []
-            for item in evidence_items:
-                all_tags.extend(item.tags)
-            
-            if not all_tags:
-                return 0.5
-            
-            tag_counts = Counter(all_tags)
-            common_tags = [tag for tag, count in tag_counts.items() if count > 1]
-            
-            return len(common_tags) / len(set(all_tags)) if all_tags else 0.0
-        
-        # For other pattern types, use a general consistency measure
-        return 0.7  # Default consistency score
-    
-    def _calculate_overall_confidence(self, patterns: List[Pattern]) -> ConfidenceLevel:
-        """Calculate overall confidence from multiple patterns"""
-        if not patterns:
-            return ConfidenceLevel.LOW
-        
-        confidence_scores = [self._confidence_to_score(pattern.confidence) for pattern in patterns]
-        avg_confidence = np.mean(confidence_scores)
-        
-        if avg_confidence >= 0.8:
-            return ConfidenceLevel.VERY_HIGH
-        elif avg_confidence >= 0.6:
-            return ConfidenceLevel.HIGH
-        elif avg_confidence >= 0.4:
-            return ConfidenceLevel.MEDIUM
+        # Generate sample data based on source type
+        if data_source == "sales_data":
+            data = self._generate_sales_data()
+        elif data_source == "customer_behavior":
+            data = self._generate_customer_behavior_data()
+        elif data_source == "operational_metrics":
+            data = self._generate_operational_data()
+        elif data_source == "financial_metrics":
+            data = self._generate_financial_data()
+        elif data_source == "market_data":
+            data = self._generate_market_data()
         else:
-            return ConfidenceLevel.LOW
+            data = self._generate_generic_time_series_data()
+        
+        # Cache the data
+        self.data_cache[data_source] = (datetime.utcnow(), data)
+        
+        return data
     
-    async def _generate_pattern_recommendations(self, patterns: List[Pattern]) -> List[str]:
-        """Generate recommendations based on recognized patterns"""
-        recommendations = []
+    def _generate_sales_data(self) -> pd.DataFrame:
+        """Generate sample sales data with various patterns."""
+        dates = pd.date_range(start='2023-01-01', end='2024-12-31', freq='D')
+        np.random.seed(42)
         
-        # Group patterns by type
-        patterns_by_type = defaultdict(list)
-        for pattern in patterns:
-            patterns_by_type[pattern.pattern_type].append(pattern)
+        # Base trend with seasonal patterns
+        base_trend = np.linspace(1000, 1500, len(dates))
+        seasonal = 200 * np.sin(2 * np.pi * np.arange(len(dates)) / 365.25)  # Yearly cycle
+        weekly = 50 * np.sin(2 * np.pi * np.arange(len(dates)) / 7)  # Weekly cycle
         
-        # Generate type-specific recommendations
-        if PatternType.CORRELATION in patterns_by_type:
-            recommendations.append("Leverage correlation patterns for predictive modeling")
+        # Add some anomalies
+        anomalies = np.zeros(len(dates))
+        anomaly_indices = np.random.choice(len(dates), size=20, replace=False)
+        anomalies[anomaly_indices] = np.random.normal(0, 300, 20)
         
-        if PatternType.CAUSAL in patterns_by_type:
-            recommendations.append("Investigate causal relationships for intervention strategies")
+        # Random noise
+        noise = np.random.normal(0, 50, len(dates))
         
-        if PatternType.TEMPORAL in patterns_by_type:
-            recommendations.append("Use temporal patterns for timing optimization")
+        sales = base_trend + seasonal + weekly + anomalies + noise
+        sales = np.maximum(sales, 0)  # Ensure non-negative
         
-        if PatternType.STRUCTURAL in patterns_by_type:
-            recommendations.append("Optimize organizational structure based on structural patterns")
-        
-        if PatternType.BEHAVIORAL in patterns_by_type:
-            recommendations.append("Adapt processes to align with behavioral patterns")
-        
-        if PatternType.EMERGENT in patterns_by_type:
-            recommendations.append("Monitor emergent patterns for early trend detection")
-        
-        # General recommendations
-        high_strength_patterns = [p for p in patterns if p.strength > 0.7]
-        if high_strength_patterns:
-            recommendations.append(f"Focus on {len(high_strength_patterns)} high-strength patterns for maximum impact")
-        
-        return recommendations
+        return pd.DataFrame({
+            'date': dates,
+            'sales_amount': sales,
+            'customer_count': np.random.poisson(50, len(dates)),
+            'avg_order_value': sales / np.maximum(np.random.poisson(50, len(dates)), 1),
+            'region': np.random.choice(['North', 'South', 'East', 'West'], len(dates)),
+            'product_category': np.random.choice(['A', 'B', 'C', 'D'], len(dates))
+        })
     
-    async def _interpret_pattern_type(
-        self, 
-        pattern_type: PatternType, 
-        patterns: List[Pattern], 
-        context: Dict[str, Any] = None
-    ) -> Dict[str, Any]:
-        """Interpret patterns of a specific type"""
-        interpretation = {
-            "pattern_type": pattern_type.value,
-            "pattern_count": len(patterns),
-            "insights": [],
-            "recommendations": []
-        }
+    def _generate_customer_behavior_data(self) -> pd.DataFrame:
+        """Generate sample customer behavior data."""
+        dates = pd.date_range(start='2023-01-01', end='2024-12-31', freq='D')
+        np.random.seed(123)
         
-        if pattern_type == PatternType.CORRELATION:
-            interpretation["insights"].append(f"Found {len(patterns)} correlation patterns indicating related knowledge areas")
-            interpretation["recommendations"].append("Use correlations for knowledge clustering and recommendation systems")
+        # Website visits with growth trend
+        base_visits = np.linspace(5000, 8000, len(dates))
+        visits = base_visits + np.random.normal(0, 500, len(dates))
         
-        elif pattern_type == PatternType.CAUSAL:
-            interpretation["insights"].append(f"Identified {len(patterns)} causal patterns showing cause-effect relationships")
-            interpretation["recommendations"].append("Develop intervention strategies based on causal patterns")
+        # Conversion rate with some patterns
+        base_conversion = 0.05 + 0.02 * np.sin(2 * np.pi * np.arange(len(dates)) / 365.25)
+        conversion_rate = np.maximum(0.01, base_conversion + np.random.normal(0, 0.005, len(dates)))
         
-        elif pattern_type == PatternType.TEMPORAL:
-            interpretation["insights"].append(f"Detected {len(patterns)} temporal patterns in knowledge evolution")
-            interpretation["recommendations"].append("Optimize timing and sequencing based on temporal patterns")
-        
-        elif pattern_type == PatternType.STRUCTURAL:
-            interpretation["insights"].append(f"Recognized {len(patterns)} structural patterns in knowledge organization")
-            interpretation["recommendations"].append("Restructure knowledge management based on structural insights")
-        
-        elif pattern_type == PatternType.BEHAVIORAL:
-            interpretation["insights"].append(f"Observed {len(patterns)} behavioral patterns in knowledge creation")
-            interpretation["recommendations"].append("Adapt workflows to support observed behavioral patterns")
-        
-        elif pattern_type == PatternType.EMERGENT:
-            interpretation["insights"].append(f"Discovered {len(patterns)} emergent patterns indicating new trends")
-            interpretation["recommendations"].append("Monitor emergent patterns for strategic opportunities")
-        
-        return interpretation
+        return pd.DataFrame({
+            'date': dates,
+            'website_visits': np.maximum(0, visits),
+            'page_views': visits * np.random.uniform(2, 5, len(dates)),
+            'conversion_rate': conversion_rate,
+            'bounce_rate': np.random.uniform(0.3, 0.7, len(dates)),
+            'session_duration': np.random.exponential(180, len(dates)),  # seconds
+            'channel': np.random.choice(['organic', 'paid', 'social', 'email'], len(dates))
+        })
     
-    async def _find_cross_pattern_relationships(self, patterns: List[Pattern]) -> List[str]:
-        """Find relationships between different patterns"""
+    def _generate_operational_data(self) -> pd.DataFrame:
+        """Generate sample operational metrics data."""
+        dates = pd.date_range(start='2023-01-01', end='2024-12-31', freq='H')  # Hourly data
+        np.random.seed(456)
+        
+        # System performance metrics
+        cpu_usage = 30 + 20 * np.sin(2 * np.pi * np.arange(len(dates)) / 24) + np.random.normal(0, 5, len(dates))
+        cpu_usage = np.clip(cpu_usage, 0, 100)
+        
+        memory_usage = 40 + 15 * np.sin(2 * np.pi * np.arange(len(dates)) / 24) + np.random.normal(0, 3, len(dates))
+        memory_usage = np.clip(memory_usage, 0, 100)
+        
+        return pd.DataFrame({
+            'timestamp': dates,
+            'cpu_usage_percent': cpu_usage,
+            'memory_usage_percent': memory_usage,
+            'response_time_ms': np.random.exponential(100, len(dates)),
+            'error_rate': np.random.exponential(0.01, len(dates)),
+            'throughput_rps': np.random.poisson(1000, len(dates)),
+            'system': np.random.choice(['web', 'api', 'database', 'cache'], len(dates))
+        })
+    
+    def _generate_financial_data(self) -> pd.DataFrame:
+        """Generate sample financial metrics data."""
+        dates = pd.date_range(start='2023-01-01', end='2024-12-31', freq='M')  # Monthly data
+        np.random.seed(789)
+        
+        # Revenue with growth trend
+        base_revenue = np.linspace(1000000, 1500000, len(dates))
+        revenue = base_revenue * (1 + np.random.normal(0, 0.1, len(dates)))
+        
+        # Costs with some efficiency improvements
+        base_costs = revenue * 0.7  # 70% cost ratio
+        costs = base_costs * (1 + np.random.normal(0, 0.05, len(dates)))
+        
+        return pd.DataFrame({
+            'date': dates,
+            'revenue': np.maximum(0, revenue),
+            'costs': np.maximum(0, costs),
+            'profit': revenue - costs,
+            'cash_flow': (revenue - costs) + np.random.normal(0, 50000, len(dates)),
+            'accounts_receivable': revenue * np.random.uniform(0.1, 0.3, len(dates)),
+            'department': np.random.choice(['sales', 'marketing', 'operations', 'r&d'], len(dates))
+        })
+    
+    def _generate_market_data(self) -> pd.DataFrame:
+        """Generate sample market data."""
+        dates = pd.date_range(start='2023-01-01', end='2024-12-31', freq='D')
+        np.random.seed(101)
+        
+        # Market indicators
+        market_index = 100 * np.cumprod(1 + np.random.normal(0.0005, 0.02, len(dates)))
+        
+        return pd.DataFrame({
+            'date': dates,
+            'market_index': market_index,
+            'competitor_price': 100 + 20 * np.sin(2 * np.pi * np.arange(len(dates)) / 365) + np.random.normal(0, 5, len(dates)),
+            'market_share': 0.15 + 0.05 * np.sin(2 * np.pi * np.arange(len(dates)) / 365) + np.random.normal(0, 0.01, len(dates)),
+            'customer_sentiment': np.random.uniform(0.3, 0.8, len(dates)),
+            'brand_mentions': np.random.poisson(100, len(dates)),
+            'industry': np.random.choice(['tech', 'finance', 'retail', 'healthcare'], len(dates))
+        })
+    
+    def _generate_generic_time_series_data(self) -> pd.DataFrame:
+        """Generate generic time series data."""
+        dates = pd.date_range(start='2023-01-01', end='2024-12-31', freq='D')
+        np.random.seed(202)
+        
+        # Generic metric with trend and seasonality
+        trend = np.linspace(100, 200, len(dates))
+        seasonal = 20 * np.sin(2 * np.pi * np.arange(len(dates)) / 365.25)
+        noise = np.random.normal(0, 10, len(dates))
+        
+        metric = trend + seasonal + noise
+        
+        return pd.DataFrame({
+            'date': dates,
+            'metric_value': metric,
+            'category': np.random.choice(['A', 'B', 'C'], len(dates)),
+            'region': np.random.choice(['North', 'South'], len(dates))
+        })
+    
+    async def _preprocess_data(self, data: pd.DataFrame, request: PatternRecognitionRequest) -> pd.DataFrame:
+        """Preprocess data for pattern recognition."""
+        processed_data = data.copy()
+        
+        # Apply time window filter if specified
+        if request.time_window:
+            start_date = request.time_window.get('start')
+            end_date = request.time_window.get('end')
+            
+            date_column = None
+            for col in ['date', 'timestamp', 'time']:
+                if col in processed_data.columns:
+                    date_column = col
+                    break
+            
+            if date_column and start_date and end_date:
+                processed_data = processed_data[
+                    (processed_data[date_column] >= start_date) & 
+                    (processed_data[date_column] <= end_date)
+                ]
+        
+        # Apply context filters
+        for filter_key, filter_value in request.context_filters.items():
+            if filter_key in processed_data.columns:
+                if isinstance(filter_value, list):
+                    processed_data = processed_data[processed_data[filter_key].isin(filter_value)]
+                else:
+                    processed_data = processed_data[processed_data[filter_key] == filter_value]
+        
+        # Sort by date/time if available
+        date_columns = ['date', 'timestamp', 'time']
+        for col in date_columns:
+            if col in processed_data.columns:
+                processed_data = processed_data.sort_values(col)
+                break
+        
+        return processed_data
+    
+    async def _detect_pattern_type(self, pattern_type: PatternType, data: pd.DataFrame, 
+                                 request: PatternRecognitionRequest) -> List[RecognizedPattern]:
+        """Detect patterns of a specific type."""
+        patterns = []
+        
+        if pattern_type == PatternType.TREND:
+            patterns = await self._detect_trends(data, request)
+        elif pattern_type == PatternType.ANOMALY:
+            patterns = await self._detect_anomalies(data, request)
+        elif pattern_type == PatternType.CYCLE:
+            patterns = await self._detect_cycles(data, request)
+        elif pattern_type == PatternType.CLUSTER:
+            patterns = await self._detect_clusters(data, request)
+        elif pattern_type == PatternType.OUTLIER:
+            patterns = await self._detect_outliers(data, request)
+        elif pattern_type == PatternType.CORRELATION:
+            patterns = await self._detect_correlations(data, request)
+        
+        return patterns
+    
+    async def _detect_trends(self, data: pd.DataFrame, request: PatternRecognitionRequest) -> List[RecognizedPattern]:
+        """Detect trend patterns in the data."""
+        patterns = []
+        
+        # Find numeric columns for trend analysis
+        numeric_columns = data.select_dtypes(include=[np.number]).columns
+        
+        for column in numeric_columns:
+            if len(data[column].dropna()) < 10:  # Need minimum data points
+                continue
+            
+            values = data[column].dropna().values
+            x = np.arange(len(values))
+            
+            # Calculate linear trend
+            slope, intercept, r_value, p_value, std_err = stats.linregress(x, values)
+            
+            # Determine trend significance
+            if abs(r_value) > 0.3 and p_value < 0.05:  # Significant trend
+                trend_direction = "increasing" if slope > 0 else "decreasing"
+                trend_strength = abs(r_value)
+                
+                # Calculate business impact
+                if len(values) > 1:
+                    total_change = (values[-1] - values[0]) / values[0] * 100
+                    business_impact = f"{trend_direction.title()} trend with {total_change:.1f}% total change"
+                else:
+                    business_impact = f"{trend_direction.title()} trend detected"
+                
+                pattern = RecognizedPattern(
+                    pattern_type=PatternType.TREND,
+                    description=f"{trend_direction.title()} trend in {column}",
+                    strength=trend_strength,
+                    confidence=1 - p_value,
+                    data_points=[{"column": column, "slope": slope, "r_squared": r_value**2}],
+                    business_impact=business_impact,
+                    recommended_actions=[
+                        f"Monitor {column} trend continuation",
+                        f"Investigate factors driving {trend_direction} trend",
+                        f"Develop strategies to {'sustain' if slope > 0 else 'reverse'} the trend"
+                    ],
+                    metadata={
+                        "slope": slope,
+                        "r_value": r_value,
+                        "p_value": p_value,
+                        "trend_direction": trend_direction
+                    }
+                )
+                patterns.append(pattern)
+        
+        return patterns
+    
+    async def _detect_anomalies(self, data: pd.DataFrame, request: PatternRecognitionRequest) -> List[RecognizedPattern]:
+        """Detect anomaly patterns in the data."""
+        patterns = []
+        
+        numeric_columns = data.select_dtypes(include=[np.number]).columns
+        
+        for column in numeric_columns:
+            if len(data[column].dropna()) < 10:
+                continue
+            
+            values = data[column].dropna().values
+            
+            # Statistical anomaly detection (Z-score method)
+            z_scores = np.abs(stats.zscore(values))
+            anomaly_threshold = 2.5
+            anomaly_indices = np.where(z_scores > anomaly_threshold)[0]
+            
+            if len(anomaly_indices) > 0:
+                anomaly_values = values[anomaly_indices]
+                anomaly_strength = np.mean(z_scores[anomaly_indices]) / 3.0  # Normalize to 0-1
+                
+                pattern = RecognizedPattern(
+                    pattern_type=PatternType.ANOMALY,
+                    description=f"Statistical anomalies detected in {column}",
+                    strength=min(1.0, anomaly_strength),
+                    confidence=0.8,
+                    data_points=[{
+                        "column": column,
+                        "anomaly_count": len(anomaly_indices),
+                        "anomaly_values": anomaly_values.tolist()[:10]  # Limit to first 10
+                    }],
+                    business_impact=f"Found {len(anomaly_indices)} anomalous values that may indicate unusual business events",
+                    recommended_actions=[
+                        f"Investigate causes of anomalies in {column}",
+                        "Review data quality and collection processes",
+                        "Determine if anomalies represent opportunities or risks"
+                    ],
+                    metadata={
+                        "anomaly_count": len(anomaly_indices),
+                        "threshold": anomaly_threshold,
+                        "max_z_score": np.max(z_scores)
+                    }
+                )
+                patterns.append(pattern)
+        
+        # Machine learning-based anomaly detection
+        if len(numeric_columns) > 1:
+            try:
+                # Prepare data for ML anomaly detection
+                ml_data = data[numeric_columns].dropna()
+                if len(ml_data) > 20:  # Need sufficient data
+                    scaled_data = self.scaler.fit_transform(ml_data)
+                    
+                    # Fit isolation forest
+                    anomaly_labels = self.anomaly_detector.fit_predict(scaled_data)
+                    anomaly_indices = np.where(anomaly_labels == -1)[0]
+                    
+                    if len(anomaly_indices) > 0:
+                        anomaly_ratio = len(anomaly_indices) / len(ml_data)
+                        
+                        pattern = RecognizedPattern(
+                            pattern_type=PatternType.ANOMALY,
+                            description="Multivariate anomalies detected using machine learning",
+                            strength=min(1.0, anomaly_ratio * 10),  # Scale anomaly ratio
+                            confidence=0.85,
+                            data_points=[{
+                                "method": "isolation_forest",
+                                "anomaly_count": len(anomaly_indices),
+                                "anomaly_ratio": anomaly_ratio
+                            }],
+                            business_impact=f"ML analysis identified {len(anomaly_indices)} complex anomalous patterns across multiple metrics",
+                            recommended_actions=[
+                                "Investigate multivariate anomalies for root causes",
+                                "Review business processes during anomalous periods",
+                                "Consider implementing real-time anomaly monitoring"
+                            ],
+                            metadata={
+                                "method": "isolation_forest",
+                                "contamination": 0.1,
+                                "features_used": list(numeric_columns)
+                            }
+                        )
+                        patterns.append(pattern)
+                        
+            except Exception as e:
+                logger.warning(f"ML anomaly detection failed: {str(e)}")
+        
+        return patterns
+    
+    async def _detect_cycles(self, data: pd.DataFrame, request: PatternRecognitionRequest) -> List[RecognizedPattern]:
+        """Detect cyclical patterns in the data."""
+        patterns = []
+        
+        numeric_columns = data.select_dtypes(include=[np.number]).columns
+        
+        for column in numeric_columns:
+            if len(data[column].dropna()) < 50:  # Need sufficient data for cycle detection
+                continue
+            
+            values = data[column].dropna().values
+            
+            # Simple cycle detection using autocorrelation
+            autocorr = np.correlate(values, values, mode='full')
+            autocorr = autocorr[autocorr.size // 2:]
+            
+            # Find peaks in autocorrelation (potential cycle periods)
+            from scipy.signal import find_peaks
+            peaks, _ = find_peaks(autocorr[1:], height=np.max(autocorr) * 0.3)
+            
+            if len(peaks) > 0:
+                # Most prominent cycle
+                main_peak = peaks[np.argmax(autocorr[peaks + 1])]
+                cycle_period = main_peak + 1
+                cycle_strength = autocorr[main_peak + 1] / autocorr[0]
+                
+                if cycle_strength > 0.3:  # Significant cycle
+                    pattern = RecognizedPattern(
+                        pattern_type=PatternType.CYCLE,
+                        description=f"Cyclical pattern detected in {column} with period {cycle_period}",
+                        strength=cycle_strength,
+                        confidence=0.75,
+                        data_points=[{
+                            "column": column,
+                            "cycle_period": cycle_period,
+                            "autocorrelation": cycle_strength
+                        }],
+                        business_impact=f"Regular {cycle_period}-period cycle suggests predictable business patterns",
+                        recommended_actions=[
+                            f"Plan business activities around {cycle_period}-period cycles",
+                            "Develop forecasting models incorporating cyclical patterns",
+                            "Optimize resource allocation based on cycle timing"
+                        ],
+                        metadata={
+                            "cycle_period": cycle_period,
+                            "autocorrelation_strength": cycle_strength,
+                            "peaks_found": len(peaks)
+                        }
+                    )
+                    patterns.append(pattern)
+        
+        return patterns
+    
+    async def _detect_clusters(self, data: pd.DataFrame, request: PatternRecognitionRequest) -> List[RecognizedPattern]:
+        """Detect cluster patterns in the data."""
+        patterns = []
+        
+        numeric_columns = data.select_dtypes(include=[np.number]).columns
+        
+        if len(numeric_columns) >= 2:  # Need at least 2 dimensions for clustering
+            try:
+                # Prepare data for clustering
+                cluster_data = data[numeric_columns].dropna()
+                
+                if len(cluster_data) > 10:
+                    scaled_data = self.scaler.fit_transform(cluster_data)
+                    
+                    # Try different clustering algorithms
+                    # K-means clustering
+                    for n_clusters in [2, 3, 4, 5]:
+                        if len(cluster_data) > n_clusters * 3:  # Ensure sufficient data per cluster
+                            kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init=10)
+                            cluster_labels = kmeans.fit_predict(scaled_data)
+                            
+                            # Calculate cluster quality (silhouette-like measure)
+                            cluster_centers = kmeans.cluster_centers_
+                            inertia = kmeans.inertia_
+                            
+                            # Simple cluster quality measure
+                            cluster_quality = 1 / (1 + inertia / len(scaled_data))
+                            
+                            if cluster_quality > 0.3:  # Reasonable clustering
+                                cluster_sizes = np.bincount(cluster_labels)
+                                
+                                pattern = RecognizedPattern(
+                                    pattern_type=PatternType.CLUSTER,
+                                    description=f"Data clusters into {n_clusters} distinct groups",
+                                    strength=cluster_quality,
+                                    confidence=0.7,
+                                    data_points=[{
+                                        "n_clusters": n_clusters,
+                                        "cluster_sizes": cluster_sizes.tolist(),
+                                        "inertia": inertia
+                                    }],
+                                    business_impact=f"Data naturally segments into {n_clusters} groups, suggesting distinct business categories",
+                                    recommended_actions=[
+                                        f"Develop targeted strategies for each of the {n_clusters} segments",
+                                        "Analyze characteristics of each cluster",
+                                        "Customize products/services for different segments"
+                                    ],
+                                    metadata={
+                                        "algorithm": "kmeans",
+                                        "n_clusters": n_clusters,
+                                        "cluster_quality": cluster_quality,
+                                        "features_used": list(numeric_columns)
+                                    }
+                                )
+                                patterns.append(pattern)
+                                break  # Use the first good clustering result
+                    
+                    # DBSCAN clustering for density-based clusters
+                    dbscan = DBSCAN(eps=0.5, min_samples=5)
+                    dbscan_labels = dbscan.fit_predict(scaled_data)
+                    
+                    n_clusters_dbscan = len(set(dbscan_labels)) - (1 if -1 in dbscan_labels else 0)
+                    n_noise = list(dbscan_labels).count(-1)
+                    
+                    if n_clusters_dbscan > 1 and n_noise < len(scaled_data) * 0.5:  # Good clustering
+                        cluster_quality = (len(scaled_data) - n_noise) / len(scaled_data)
+                        
+                        pattern = RecognizedPattern(
+                            pattern_type=PatternType.CLUSTER,
+                            description=f"Density-based clustering reveals {n_clusters_dbscan} natural groups",
+                            strength=cluster_quality,
+                            confidence=0.75,
+                            data_points=[{
+                                "n_clusters": n_clusters_dbscan,
+                                "n_noise_points": n_noise,
+                                "algorithm": "dbscan"
+                            }],
+                            business_impact=f"Natural density clusters suggest {n_clusters_dbscan} distinct business segments with clear boundaries",
+                            recommended_actions=[
+                                "Focus on core clusters while investigating outlier patterns",
+                                "Develop cluster-specific business strategies",
+                                "Monitor cluster evolution over time"
+                            ],
+                            metadata={
+                                "algorithm": "dbscan",
+                                "n_clusters": n_clusters_dbscan,
+                                "noise_ratio": n_noise / len(scaled_data),
+                                "features_used": list(numeric_columns)
+                            }
+                        )
+                        patterns.append(pattern)
+                        
+            except Exception as e:
+                logger.warning(f"Clustering analysis failed: {str(e)}")
+        
+        return patterns
+    
+    async def _detect_outliers(self, data: pd.DataFrame, request: PatternRecognitionRequest) -> List[RecognizedPattern]:
+        """Detect outlier patterns in the data."""
+        patterns = []
+        
+        numeric_columns = data.select_dtypes(include=[np.number]).columns
+        
+        for column in numeric_columns:
+            if len(data[column].dropna()) < 10:
+                continue
+            
+            values = data[column].dropna().values
+            
+            # IQR method for outlier detection
+            Q1 = np.percentile(values, 25)
+            Q3 = np.percentile(values, 75)
+            IQR = Q3 - Q1
+            
+            lower_bound = Q1 - 1.5 * IQR
+            upper_bound = Q3 + 1.5 * IQR
+            
+            outliers = values[(values < lower_bound) | (values > upper_bound)]
+            
+            if len(outliers) > 0:
+                outlier_ratio = len(outliers) / len(values)
+                
+                if outlier_ratio > 0.01:  # At least 1% outliers
+                    pattern = RecognizedPattern(
+                        pattern_type=PatternType.OUTLIER,
+                        description=f"Outliers detected in {column} using IQR method",
+                        strength=min(1.0, outlier_ratio * 10),  # Scale outlier ratio
+                        confidence=0.8,
+                        data_points=[{
+                            "column": column,
+                            "outlier_count": len(outliers),
+                            "outlier_ratio": outlier_ratio,
+                            "outlier_values": outliers.tolist()[:10]  # First 10 outliers
+                        }],
+                        business_impact=f"Found {len(outliers)} outlier values ({outlier_ratio:.1%}) that may represent exceptional cases",
+                        recommended_actions=[
+                            f"Investigate outlier cases in {column}",
+                            "Determine if outliers represent errors or genuine exceptions",
+                            "Consider separate handling for outlier cases"
+                        ],
+                        metadata={
+                            "method": "iqr",
+                            "lower_bound": lower_bound,
+                            "upper_bound": upper_bound,
+                            "outlier_count": len(outliers)
+                        }
+                    )
+                    patterns.append(pattern)
+        
+        return patterns
+    
+    async def _detect_correlations(self, data: pd.DataFrame, request: PatternRecognitionRequest) -> List[RecognizedPattern]:
+        """Detect correlation patterns between variables."""
+        patterns = []
+        
+        numeric_columns = data.select_dtypes(include=[np.number]).columns
+        
+        if len(numeric_columns) >= 2:
+            # Calculate correlation matrix
+            corr_matrix = data[numeric_columns].corr()
+            
+            # Find strong correlations (excluding diagonal)
+            strong_correlations = []
+            
+            for i in range(len(numeric_columns)):
+                for j in range(i + 1, len(numeric_columns)):
+                    corr_value = corr_matrix.iloc[i, j]
+                    
+                    if abs(corr_value) > 0.5:  # Strong correlation threshold
+                        strong_correlations.append({
+                            'var1': numeric_columns[i],
+                            'var2': numeric_columns[j],
+                            'correlation': corr_value
+                        })
+            
+            if strong_correlations:
+                # Group correlations by strength
+                very_strong = [c for c in strong_correlations if abs(c['correlation']) > 0.8]
+                strong = [c for c in strong_correlations if 0.5 < abs(c['correlation']) <= 0.8]
+                
+                if very_strong:
+                    pattern = RecognizedPattern(
+                        pattern_type=PatternType.CORRELATION,
+                        description=f"Very strong correlations found between {len(very_strong)} variable pairs",
+                        strength=np.mean([abs(c['correlation']) for c in very_strong]),
+                        confidence=0.9,
+                        data_points=very_strong,
+                        business_impact="Strong correlations indicate predictable relationships that can be leveraged for forecasting and optimization",
+                        recommended_actions=[
+                            "Leverage strong correlations for predictive modeling",
+                            "Investigate causal relationships behind correlations",
+                            "Use correlated variables for cross-validation and quality checks"
+                        ],
+                        metadata={
+                            "correlation_type": "very_strong",
+                            "threshold": 0.8,
+                            "correlation_count": len(very_strong)
+                        }
+                    )
+                    patterns.append(pattern)
+                
+                if strong:
+                    pattern = RecognizedPattern(
+                        pattern_type=PatternType.CORRELATION,
+                        description=f"Strong correlations found between {len(strong)} variable pairs",
+                        strength=np.mean([abs(c['correlation']) for c in strong]),
+                        confidence=0.8,
+                        data_points=strong,
+                        business_impact="Moderate correlations suggest relationships that could be strengthened or leveraged",
+                        recommended_actions=[
+                            "Explore ways to strengthen moderate correlations",
+                            "Monitor correlation stability over time",
+                            "Consider correlation patterns in business planning"
+                        ],
+                        metadata={
+                            "correlation_type": "strong",
+                            "threshold": 0.5,
+                            "correlation_count": len(strong)
+                        }
+                    )
+                    patterns.append(pattern)
+        
+        return patterns
+    
+    async def _generate_pattern_insights(self, patterns: List[RecognizedPattern], 
+                                       data: pd.DataFrame) -> List[str]:
+        """Generate summary insights from recognized patterns."""
         insights = []
         
-        # Group patterns by type
-        patterns_by_type = defaultdict(list)
+        if not patterns:
+            insights.append("No significant patterns detected in the current dataset")
+            return insights
+        
+        # Pattern type distribution
+        pattern_counts = defaultdict(int)
         for pattern in patterns:
-            patterns_by_type[pattern.pattern_type].append(pattern)
+            pattern_counts[pattern.pattern_type] += 1
         
-        # Look for cross-type relationships
-        if PatternType.CORRELATION in patterns_by_type and PatternType.CAUSAL in patterns_by_type:
-            insights.append("Correlation and causal patterns together suggest strong predictive models")
+        insights.append(f"Detected {len(patterns)} patterns across {len(pattern_counts)} different types")
         
-        if PatternType.TEMPORAL in patterns_by_type and PatternType.EMERGENT in patterns_by_type:
-            insights.append("Temporal and emergent patterns indicate evolving innovation landscape")
+        # Strongest patterns
+        strongest_patterns = sorted(patterns, key=lambda p: p.strength, reverse=True)[:3]
+        if strongest_patterns:
+            insights.append(f"Strongest pattern: {strongest_patterns[0].description} (strength: {strongest_patterns[0].strength:.2f})")
         
-        if PatternType.STRUCTURAL in patterns_by_type and PatternType.BEHAVIORAL in patterns_by_type:
-            insights.append("Structural and behavioral patterns suggest organizational optimization opportunities")
+        # Pattern confidence analysis
+        avg_confidence = np.mean([p.confidence for p in patterns])
+        insights.append(f"Average pattern confidence: {avg_confidence:.2f}")
+        
+        # Business impact summary
+        high_impact_patterns = [p for p in patterns if p.strength > 0.7]
+        if high_impact_patterns:
+            insights.append(f"{len(high_impact_patterns)} high-impact patterns identified requiring immediate attention")
         
         return insights
     
-    async def _generate_meta_insights(self, patterns: List[Pattern], interpretations: List[Dict[str, Any]]) -> List[str]:
-        """Generate meta-insights from pattern analysis"""
-        meta_insights = []
+    async def _identify_business_opportunities(self, patterns: List[RecognizedPattern]) -> List[str]:
+        """Identify business opportunities from recognized patterns."""
+        opportunities = []
         
-        # Analyze pattern strength distribution
-        strengths = [pattern.strength for pattern in patterns]
-        if strengths:
-            avg_strength = np.mean(strengths)
-            if avg_strength > 0.7:
-                meta_insights.append("Overall pattern strength is high, indicating robust knowledge relationships")
-            elif avg_strength < 0.4:
-                meta_insights.append("Pattern strength is low, suggesting need for more diverse knowledge sources")
-        
-        # Analyze pattern diversity
-        pattern_types = set(pattern.pattern_type for pattern in patterns)
-        if len(pattern_types) >= 4:
-            meta_insights.append("High pattern diversity indicates comprehensive knowledge coverage")
-        
-        # Analyze predictive power
-        predictive_powers = [pattern.predictive_power for pattern in patterns if pattern.predictive_power > 0]
-        if predictive_powers:
-            avg_predictive_power = np.mean(predictive_powers)
-            if avg_predictive_power > 0.6:
-                meta_insights.append("Strong predictive patterns enable reliable forecasting capabilities")
-        
-        return meta_insights
-    
-    async def _analyze_pattern_for_optimization(
-        self, 
-        pattern: Pattern, 
-        innovation_context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Analyze a pattern for optimization opportunities"""
-        optimization = {
-            "recommendations": [],
-            "enhancements": [],
-            "risk_mitigations": []
-        }
-        
-        if pattern.strength > 0.7:
-            optimization["recommendations"].append(f"Leverage high-strength {pattern.pattern_type.value} pattern")
-        
-        if pattern.predictive_power > 0.6:
-            optimization["enhancements"].append(f"Use {pattern.pattern_type.value} pattern for predictive optimization")
-        
-        if pattern.confidence == ConfidenceLevel.LOW:
-            optimization["risk_mitigations"].append(f"Validate {pattern.pattern_type.value} pattern before implementation")
-        
-        return optimization
-    
-    async def _prioritize_optimization_recommendations(
-        self, 
-        recommendations: List[str], 
-        patterns: List[Pattern]
-    ) -> List[Dict[str, Any]]:
-        """Prioritize optimization recommendations"""
-        prioritized = []
-        
-        for i, recommendation in enumerate(recommendations):
-            # Simple priority based on pattern strength and confidence
-            related_patterns = [p for p in patterns if p.pattern_type.value in recommendation.lower()]
-            
-            if related_patterns:
-                avg_strength = np.mean([p.strength for p in related_patterns])
-                avg_confidence = np.mean([self._confidence_to_score(p.confidence) for p in related_patterns])
-                priority_score = (avg_strength + avg_confidence) / 2
-            else:
-                priority_score = 0.5
-            
-            prioritized.append({
-                "recommendation": recommendation,
-                "priority_score": priority_score,
-                "priority_level": "high" if priority_score > 0.7 else "medium" if priority_score > 0.4 else "low"
-            })
-        
-        # Sort by priority score
-        prioritized.sort(key=lambda x: x["priority_score"], reverse=True)
-        
-        return prioritized
-    
-    async def _generate_optimization_implementation_plan(
-        self, 
-        recommendations: List[Dict[str, Any]], 
-        innovation_context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Generate implementation plan for optimization"""
-        plan = {
-            "phases": [],
-            "timeline": "3-6 months",
-            "resources_needed": [],
-            "success_metrics": []
-        }
-        
-        # Create phases based on priority
-        high_priority = [r for r in recommendations if r["priority_level"] == "high"]
-        medium_priority = [r for r in recommendations if r["priority_level"] == "medium"]
-        low_priority = [r for r in recommendations if r["priority_level"] == "low"]
-        
-        if high_priority:
-            plan["phases"].append({
-                "phase": "Phase 1: High Priority Optimizations",
-                "duration": "1-2 months",
-                "recommendations": high_priority
-            })
-        
-        if medium_priority:
-            plan["phases"].append({
-                "phase": "Phase 2: Medium Priority Enhancements",
-                "duration": "2-3 months",
-                "recommendations": medium_priority
-            })
-        
-        if low_priority:
-            plan["phases"].append({
-                "phase": "Phase 3: Low Priority Improvements",
-                "duration": "1-2 months",
-                "recommendations": low_priority
-            })
-        
-        return plan
-    
-    async def _calculate_optimization_impact(
-        self, 
-        patterns: List[Pattern], 
-        recommendations: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """Calculate expected impact of optimization"""
-        impact = {
-            "innovation_speed_improvement": 0.0,
-            "quality_improvement": 0.0,
-            "risk_reduction": 0.0,
-            "overall_impact_score": 0.0
-        }
-        
-        # Calculate impact based on pattern strengths and types
         for pattern in patterns:
-            if pattern.pattern_type == PatternType.TEMPORAL:
-                impact["innovation_speed_improvement"] += pattern.strength * 0.2
-            elif pattern.pattern_type == PatternType.CORRELATION:
-                impact["quality_improvement"] += pattern.strength * 0.15
-            elif pattern.pattern_type == PatternType.CAUSAL:
-                impact["risk_reduction"] += pattern.strength * 0.1
+            if pattern.pattern_type == PatternType.TREND and pattern.strength > 0.6:
+                if "increasing" in pattern.description.lower():
+                    opportunities.append(f"Capitalize on positive trend in {pattern.description}")
+                else:
+                    opportunities.append(f"Address declining trend in {pattern.description}")
+            
+            elif pattern.pattern_type == PatternType.CLUSTER and pattern.strength > 0.5:
+                opportunities.append("Develop targeted strategies for identified customer/market segments")
+            
+            elif pattern.pattern_type == PatternType.CORRELATION and pattern.strength > 0.7:
+                opportunities.append("Leverage strong correlations for predictive analytics and optimization")
+            
+            elif pattern.pattern_type == PatternType.CYCLE and pattern.strength > 0.6:
+                opportunities.append("Optimize resource allocation and planning based on cyclical patterns")
         
-        # Normalize impacts
-        impact["innovation_speed_improvement"] = min(impact["innovation_speed_improvement"], 1.0)
-        impact["quality_improvement"] = min(impact["quality_improvement"], 1.0)
-        impact["risk_reduction"] = min(impact["risk_reduction"], 1.0)
+        # Remove duplicates
+        opportunities = list(set(opportunities))
         
-        # Calculate overall impact
-        impact["overall_impact_score"] = (
-            impact["innovation_speed_improvement"] + 
-            impact["quality_improvement"] + 
-            impact["risk_reduction"]
-        ) / 3
+        return opportunities[:10]  # Top 10 opportunities
+    
+    async def _identify_risk_indicators(self, patterns: List[RecognizedPattern]) -> List[str]:
+        """Identify risk indicators from recognized patterns."""
+        risks = []
         
-        return impact
+        for pattern in patterns:
+            if pattern.pattern_type == PatternType.ANOMALY and pattern.strength > 0.7:
+                risks.append(f"High anomaly activity detected: {pattern.description}")
+            
+            elif pattern.pattern_type == PatternType.TREND and pattern.strength > 0.6:
+                if "decreasing" in pattern.description.lower():
+                    risks.append(f"Negative trend risk: {pattern.description}")
+            
+            elif pattern.pattern_type == PatternType.OUTLIER and pattern.strength > 0.8:
+                risks.append(f"Significant outliers detected that may indicate data quality or process issues")
+        
+        # Remove duplicates
+        risks = list(set(risks))
+        
+        return risks[:10]  # Top 10 risks
     
-    # Pipeline enhancement helper methods
+    def _get_pattern_signature(self, pattern: RecognizedPattern) -> str:
+        """Generate a signature for pattern comparison."""
+        # Create a signature based on pattern type and key characteristics
+        signature_parts = [
+            pattern.pattern_type.value,
+            pattern.description[:50],  # First 50 chars of description
+            str(round(pattern.strength, 1))
+        ]
+        
+        return "|".join(signature_parts)
     
-    async def _analyze_temporal_pattern_for_pipeline(self, pattern: Pattern) -> Dict[str, Any]:
-        """Analyze temporal pattern for pipeline insights"""
-        return {
-            "improvements": [f"Optimize timing based on {pattern.description}"],
-            "bottleneck_solutions": ["Implement temporal pattern-based scheduling"]
-        }
+    async def _analyze_recent_patterns(self, data_source: str, lookback_days: int) -> List[RecognizedPattern]:
+        """Analyze patterns in recent data."""
+        # Load recent data
+        data = await self._load_data_from_source(data_source)
+        
+        # Filter to recent data
+        cutoff_date = datetime.utcnow() - timedelta(days=lookback_days)
+        
+        date_column = None
+        for col in ['date', 'timestamp', 'time']:
+            if col in data.columns:
+                date_column = col
+                break
+        
+        if date_column:
+            data = data[data[date_column] >= cutoff_date]
+        
+        # Analyze patterns
+        request = PatternRecognitionRequest(
+            data_source=data_source,
+            pattern_types=[PatternType.TREND, PatternType.ANOMALY, PatternType.CORRELATION],
+            sensitivity=0.6
+        )
+        
+        result = await self.recognize_patterns(request)
+        return result.patterns
     
-    async def _analyze_structural_pattern_for_pipeline(self, pattern: Pattern) -> Dict[str, Any]:
-        """Analyze structural pattern for pipeline insights"""
-        return {
-            "enhancements": [f"Restructure pipeline based on {pattern.description}"]
-        }
+    async def _identify_growth_patterns(self, patterns: List[RecognizedPattern]) -> List[AnalyticsInsight]:
+        """Identify growth opportunities from patterns."""
+        opportunities = []
+        
+        growth_trends = [p for p in patterns 
+                        if p.pattern_type == PatternType.TREND and 
+                        "increasing" in p.description.lower() and 
+                        p.strength > 0.6]
+        
+        if growth_trends:
+            opportunity = AnalyticsInsight(
+                title="Growth Opportunity Detected",
+                description=f"Identified {len(growth_trends)} positive growth trends in recent data",
+                insight_type="growth_opportunity",
+                confidence=0.8,
+                business_impact="Positive trends indicate areas with growth potential that should be prioritized",
+                supporting_data={"growth_trends": len(growth_trends)},
+                recommended_actions=[
+                    "Increase investment in areas showing positive trends",
+                    "Analyze factors driving growth for replication",
+                    "Develop strategies to accelerate positive trends"
+                ],
+                priority=8
+            )
+            opportunities.append(opportunity)
+        
+        return opportunities
     
-    async def _analyze_behavioral_pattern_for_pipeline(self, pattern: Pattern) -> Dict[str, Any]:
-        """Analyze behavioral pattern for pipeline insights"""
-        return {
-            "improvements": [f"Adapt processes to support {pattern.description}"]
-        }
+    async def _identify_market_shifts(self, patterns: List[RecognizedPattern]) -> List[AnalyticsInsight]:
+        """Identify market shift opportunities from patterns."""
+        opportunities = []
+        
+        # Look for anomalies that might indicate market shifts
+        anomaly_patterns = [p for p in patterns 
+                          if p.pattern_type == PatternType.ANOMALY and 
+                          p.strength > 0.7]
+        
+        if len(anomaly_patterns) > 2:  # Multiple anomalies suggest shifts
+            opportunity = AnalyticsInsight(
+                title="Potential Market Shift Detected",
+                description=f"Multiple anomaly patterns ({len(anomaly_patterns)}) suggest possible market or operational shifts",
+                insight_type="market_shift",
+                confidence=0.7,
+                business_impact="Market shifts can represent both opportunities and threats requiring strategic response",
+                supporting_data={"anomaly_count": len(anomaly_patterns)},
+                recommended_actions=[
+                    "Investigate root causes of anomalous patterns",
+                    "Assess competitive landscape for market changes",
+                    "Develop adaptive strategies for market shifts"
+                ],
+                priority=7
+            )
+            opportunities.append(opportunity)
+        
+        return opportunities
     
-    async def _generate_pipeline_optimization_strategy(
-        self, 
-        enhancements: List[str], 
-        improvements: List[str], 
-        solutions: List[str]
-    ) -> Dict[str, Any]:
-        """Generate comprehensive pipeline optimization strategy"""
-        return {
-            "strategy_overview": "Pattern-based pipeline optimization",
-            "key_enhancements": enhancements[:3],  # Top 3
-            "process_improvements": improvements[:3],  # Top 3
-            "bottleneck_solutions": solutions[:3],  # Top 3
-            "implementation_approach": "Phased rollout with continuous monitoring"
-        }
+    async def _identify_efficiency_patterns(self, patterns: List[RecognizedPattern]) -> List[AnalyticsInsight]:
+        """Identify efficiency opportunities from patterns."""
+        opportunities = []
+        
+        # Look for correlation patterns that suggest optimization opportunities
+        correlation_patterns = [p for p in patterns 
+                              if p.pattern_type == PatternType.CORRELATION and 
+                              p.strength > 0.6]
+        
+        if correlation_patterns:
+            opportunity = AnalyticsInsight(
+                title="Process Optimization Opportunity",
+                description=f"Strong correlations ({len(correlation_patterns)}) identified that could be leveraged for efficiency improvements",
+                insight_type="efficiency_opportunity",
+                confidence=0.75,
+                business_impact="Correlation patterns can be used to optimize processes and improve operational efficiency",
+                supporting_data={"correlation_patterns": len(correlation_patterns)},
+                recommended_actions=[
+                    "Develop optimization models based on identified correlations",
+                    "Implement process improvements leveraging correlation insights",
+                    "Monitor correlation stability for sustained optimization"
+                ],
+                priority=6
+            )
+            opportunities.append(opportunity)
+        
+        return opportunities
+    
+    def _rank_opportunities(self, opportunities: List[AnalyticsInsight]) -> List[AnalyticsInsight]:
+        """Rank opportunities by priority and confidence."""
+        return sorted(opportunities, key=lambda x: (x.priority, x.confidence), reverse=True)[:10]

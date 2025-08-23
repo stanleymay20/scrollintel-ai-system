@@ -28,8 +28,12 @@ export function ChatInterface({
   const inputRef = useRef<HTMLInputElement>(null)
 
   const scrollToBottom = () => {
-    if (messagesEndRef.current?.scrollIntoView) {
-      messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+    try {
+      if (messagesEndRef.current?.scrollIntoView) {
+        messagesEndRef.current.scrollIntoView({ behavior: 'smooth' })
+      }
+    } catch (error) {
+      console.warn('Scroll to bottom failed:', error)
     }
   }
 
@@ -38,11 +42,15 @@ export function ChatInterface({
   }, [messages])
 
   const handleSendMessage = () => {
-    if (!inputMessage.trim()) return
+    if (!inputMessage?.trim()) return
     
-    onSendMessage?.(inputMessage, selectedAgent?.id)
-    setInputMessage('')
-    inputRef.current?.focus()
+    try {
+      onSendMessage?.(inputMessage, selectedAgent?.id)
+      setInputMessage('')
+      inputRef.current?.focus()
+    } catch (error) {
+      console.error('Failed to send message:', error)
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -123,7 +131,7 @@ export function ChatInterface({
                     
                     <div className="flex items-center gap-2 text-xs opacity-70">
                       <Clock className="h-3 w-3" />
-                      {formatDate(message.timestamp)}
+                      {message.timestamp ? formatDate(message.timestamp) : 'Just now'}
                       {message.metadata?.processing_time && (
                         <>
                           <Zap className="h-3 w-3" />

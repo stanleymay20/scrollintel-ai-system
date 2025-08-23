@@ -1,3 +1,4 @@
+import os
 """
 Data Product API Middleware
 
@@ -29,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Configuration
 JWT_SECRET = "your-secret-key"  # In production, use environment variable
 JWT_ALGORITHM = "HS256"
-REDIS_URL = "redis://localhost:6379"  # In production, use environment variable
+REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")  # In production, use environment variable
 
 # Redis client for distributed rate limiting
 try:

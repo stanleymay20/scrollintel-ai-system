@@ -19,11 +19,12 @@ from .middleware.audit_middleware import AuditMiddleware, ComplianceAuditMiddlew
 from ..core.bulletproof_middleware import BulletproofMiddleware, HealthCheckMiddleware
 from .routes import (
     health_routes, auth_routes, agent_routes, file_routes,
-    dashboard_routes, monitoring_routes, audit_routes
+    dashboard_routes, monitoring_routes, audit_routes, enterprise_ui_routes
 )
 from .routes.performance_routes import router as performance_router
 from .routes.visualization_routes import router as visualization_router
 from .routes.legal_routes import router as legal_router
+from .routes.simple_routes import router as simple_router
 from ..core.performance_monitor import initialize_performance_monitoring
 from ..core.logging_config import get_logger
 from ..core.config import get_settings
@@ -127,6 +128,7 @@ async def global_exception_handler(request: Request, exc: Exception):
     )
 
 # Include routers
+app.include_router(simple_router)  # Add simple routes first (no auth required)
 app.include_router(health_routes.router)
 app.include_router(auth_routes.router)
 app.include_router(agent_routes.router)
@@ -134,6 +136,7 @@ app.include_router(file_routes.router)
 app.include_router(dashboard_routes.router)
 app.include_router(monitoring_routes.router)
 app.include_router(audit_routes.router)
+app.include_router(enterprise_ui_routes.router)
 app.include_router(performance_router)
 app.include_router(visualization_router)
 app.include_router(legal_router)

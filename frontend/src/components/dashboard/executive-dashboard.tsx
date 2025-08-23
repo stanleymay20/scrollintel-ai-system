@@ -87,46 +87,50 @@ export default function ExecutiveDashboard({ dashboardId, role, userId }: Dashbo
   // WebSocket connection for real-time updates
   const {
     isConnected: wsConnected,
-    isConnecting: wsConnecting,
-    error: wsError,
-    requestUpdate
-  } = useWebSocket({
-    url: process.env.NEXT_PUBLIC_WS_URL || 'ws://localhost:8000/ws',
-    connectionId: `${userId}_${dashboardId}_${Date.now()}`,
-    userId,
-    dashboardId,
-    onMessage: (message) => {
-      console.log('Received WebSocket message:', message);
-      
-      switch (message.type) {
-        case 'dashboard_update':
-          setDashboardData(message.data);
-          setLastRefresh(new Date());
-          break;
-        case 'metrics_update':
-          if (dashboardData) {
-            setDashboardData(prev => prev ? {
-              ...prev,
-              metrics: [...prev.metrics, ...message.data]
-            } : null);
-          }
-          break;
-        case 'alert':
-          setAlerts(prev => [message.data, ...prev.slice(0, 4)]); // Keep last 5 alerts
-          break;
+    connectionStatus,
+    socket
+  } = useWebSocket()
+  
+  const wsConnecting = connectionStatus.reconnecting
+  const wsError = connectionStatus.error
+  
+  useEffect(() => {
+    if (socket) {
+      const handleMessage = (message: any) => {
+        console.log('Received WebSocket message:', message);
+        
+        switch (message.type) {
+          case 'dashboard_update':
+            setDashboardData(message.data);
+            setLastRefresh(new Date());
+            break;
+          case 'metrics_update':
+            if (dashboardData) {
+              setDashboardData(prev => prev ? {
+                ...prev,
+                metrics: [...prev.metrics, ...message.data]
+              } : null);
+            }
+            break;
+          case 'alert':
+            setAlerts(prev => [message.data, ...prev.slice(0, 4)]); // Keep last 5 alerts
+            break;
+        }
       }
-    },
-    onConnect: () => {
-      console.log('WebSocket connected');
-      setError(null);
-    },
-    onDisconnect: () => {
-      console.log('WebSocket disconnected');
-    },
-    onError: (error) => {
-      console.error('WebSocket error:', error);
+      
+      socket.on('dashboard_message', handleMessage)
+      
+      return () => {
+        socket.off('dashboard_message', handleMessage)
+      }
     }
-  });
+  }, [socket, dashboardData])
+  
+  const requestUpdate = () => {
+    if (socket) {
+      socket.emit('request_dashboard_update', { dashboardId, userId })
+    }
+  }
 
   useEffect(() => {
     fetchDashboardData();

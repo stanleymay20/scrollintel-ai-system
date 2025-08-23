@@ -31,6 +31,7 @@ export interface ChatMessage {
     personality_applied?: boolean
     streaming_chunks?: number
     user_feedback?: 'positive' | 'negative'
+    error?: boolean
   }
 }
 
@@ -94,6 +95,11 @@ export interface SystemMetrics {
   active_connections: number
   response_time: number
   uptime: number
+  // Optional fields for backward compatibility
+  active_agents?: number
+  total_requests?: number
+  avg_response_time?: number
+  error_rate?: number
 }
 
 // File upload types

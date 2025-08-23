@@ -1,24 +1,17 @@
 """
-Data connectors package for various enterprise systems.
+Data connectors for various data sources.
 """
 
-from .erp_connectors import SAPConnector, OracleERPConnector, MicrosoftDynamicsConnector
-from .crm_connectors import SalesforceConnector, HubSpotConnector, MicrosoftCRMConnector
-from .bi_connectors import TableauConnector, PowerBIConnector, LookerConnector, QlikConnector
-from .cloud_connectors import AWSConnector, AzureConnector, GCPConnector
+# BI Integration connectors
+from .bi_connector_base import BaseBIConnector, bi_connector_registry
+from .tableau_connector import TableauConnector
+from .power_bi_connector import PowerBIConnector
+from .looker_connector import LookerConnector
 
 __all__ = [
-    'SAPConnector',
-    'OracleERPConnector', 
-    'MicrosoftDynamicsConnector',
-    'SalesforceConnector',
-    'HubSpotConnector',
-    'MicrosoftCRMConnector',
+    'BaseBIConnector',
+    'bi_connector_registry',
     'TableauConnector',
     'PowerBIConnector',
-    'LookerConnector',
-    'QlikConnector',
-    'AWSConnector',
-    'AzureConnector',
-    'GCPConnector'
+    'LookerConnector'
 ]

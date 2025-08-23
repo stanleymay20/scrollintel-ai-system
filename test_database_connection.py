@@ -113,7 +113,7 @@ def main():
     logger.info("Starting database connection test...")
     
     # Set environment variables for testing
-    os.environ.setdefault("DATABASE_URL", "postgresql://postgres:password@localhost:5432/scrollintel")
+    os.environ.setdefault("DATABASE_URL", os.getenv("DATABASE_URL", os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/scrollintel")))
     os.environ.setdefault("SQLITE_URL", "sqlite:///./data/scrollintel_test.db")
     os.environ.setdefault("ENVIRONMENT", "development")
     

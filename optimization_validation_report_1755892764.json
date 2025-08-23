@@ -1,0 +1,90 @@
+{
+  "timestamp": 1755892764.413513,
+  "overall_score": 89.09,
+  "status": "WELL OPTIMIZED",
+  "status_emoji": "\ud83d\udfe1",
+  "optimization_level": "HIGH",
+  "categories": {
+    "environment": {
+      "score": 50.0,
+      "issues": [
+        "Missing/placeholder environment variables: ['DATABASE_URL', 'JWT_SECRET_KEY', 'OPENAI_API_KEY', 'ENCRYPTION_KEY']",
+        "Optimization flag ENABLE_LAZY_LOADING not enabled",
+        "Optimization flag ENABLE_MEMORY_OPTIMIZATION not enabled"
+      ],
+      "status": "needs_improvement"
+    },
+    "performance": {
+      "score": 90.0,
+      "issues": [
+        "High memory usage: 91.5%"
+      ],
+      "status": "optimized",
+      "metrics": {
+        "cpu_percent": 38.0,
+        "memory_percent": 91.5
+      }
+    },
+    "security": {
+      "score": 100.0,
+      "issues": [],
+      "status": "optimized"
+    },
+    "database": {
+      "score": 100.0,
+      "issues": [],
+      "status": "optimized"
+    },
+    "system_resources": {
+      "score": 80.0,
+      "issues": [
+        "Very high memory usage: 90.9%"
+      ],
+      "status": "optimized",
+      "metrics": {
+        "cpu_count": 12,
+        "cpu_percent": 27.6,
+        "memory_gb": 7.717826843261719,
+        "memory_percent": 90.9,
+        "disk_percent": 55.7
+      }
+    },
+    "core_components": {
+      "score": 100.0,
+      "issues": [],
+      "status": "optimized"
+    },
+    "monitoring": {
+      "score": 100.0,
+      "issues": [],
+      "status": "optimized"
+    },
+    "production_readiness": {
+      "score": 100.0,
+      "issues": [],
+      "status": "ready"
+    }
+  },
+  "critical_issues": [
+    "environment: Missing/placeholder environment variables: ['DATABASE_URL', 'JWT_SECRET_KEY', 'OPENAI_API_KEY', 'ENCRYPTION_KEY']"
+  ],
+  "warnings": [
+    "environment: Optimization flag ENABLE_LAZY_LOADING not enabled",
+    "environment: Optimization flag ENABLE_MEMORY_OPTIMIZATION not enabled",
+    "performance: High memory usage: 91.5%",
+    "system_resources: Very high memory usage: 90.9%"
+  ],
+  "recommendations": [
+    "Run 'python start_100_percent_optimized.py' for maximum optimization",
+    "Ensure all environment variables are properly configured",
+    "Monitor system resources and optimize as needed",
+    "Keep security framework updated and active"
+  ],
+  "system_info": {
+    "cpu_count": 12,
+    "memory_gb": 7.72,
+    "platform": "win32",
+    "python_version": "3.13.5"
+  },
+  "ready_for_production": false
+}

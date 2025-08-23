@@ -1,3 +1,4 @@
+import os
 #!/usr/bin/env python3
 """
 Verify ScrollIntel Deployment Status
@@ -37,7 +38,7 @@ def test_api_endpoints():
         "/openapi.json"
     ]
     
-    base_url = "http://localhost:8000"
+    base_url = f"http://{os.getenv(\'API_HOST\', \'localhost\')}:8000"
     passed = 0
     
     for endpoint in endpoints:

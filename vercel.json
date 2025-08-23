@@ -1,29 +1,24 @@
 {
-  "name": "scrollintel",
   "version": 2,
+  "name": "scrollintel",
   "builds": [
     {
       "src": "frontend/package.json",
       "use": "@vercel/next"
-    },
-    {
-      "src": "scrollintel/api/main.py",
-      "use": "@vercel/python"
     }
   ],
   "routes": [
     {
       "src": "/api/(.*)",
-      "dest": "/scrollintel/api/main.py"
+      "dest": "https://api.scrollintel.com/api/$1"
     },
     {
       "src": "/(.*)",
-      "dest": "/frontend/$1"
+      "dest": "frontend/$1"
     }
   ],
   "env": {
-    "OPENAI_API_KEY": "@openai_api_key",
-    "JWT_SECRET_KEY": "@jwt_secret_key",
-    "DATABASE_URL": "@database_url"
+    "NEXT_PUBLIC_API_URL": "https://api.scrollintel.com",
+    "NEXT_PUBLIC_DOMAIN": "scrollintel.com"
   }
 }

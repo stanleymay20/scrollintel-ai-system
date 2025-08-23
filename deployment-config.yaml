@@ -1,0 +1,320 @@
+# ScrollIntel Agent Steering System - Production Deployment Configuration
+
+deployment:
+  environment: production
+  strategy: gradual  # Options: gradual, blue_green, canary
+  enable_monitoring: true
+  enable_uat: true
+  enable_rollback: true
+  notification_webhook: ${DEPLOYMENT_WEBHOOK_URL}
+  timeout_minutes: 180
+  
+  # Infrastructure settings
+  infrastructure:
+    platform: kubernetes  # Options: kubernetes, docker-compose, cloud-native
+    auto_scaling: true
+    load_balancing: true
+    ssl_enabled: true
+    backup_enabled: true
+    
+  # Security settings
+  security:
+    enable_mfa: true
+    enable_audit_logging: true
+    enable_encryption: true
+    security_scanning: true
+
+# Deployment phases configuration
+phases:
+  pre_deployment:
+    enabled: true
+    timeout_minutes: 30
+    retry_count: 2
+    critical: true
+    description: "Pre-deployment validation, backups, and environment checks"
+    
+  monitoring_setup:
+    enabled: true
+    timeout_minutes: 20
+    retry_count: 2
+    critical: true
+    description: "Deploy monitoring infrastructure (Prometheus, Grafana, AlertManager)"
+    
+  application_deployment:
+    enabled: true
+    timeout_minutes: 45
+    retry_count: 3
+    critical: true
+    description: "Deploy application using configured strategy"
+    
+  user_acceptance_testing:
+    enabled: true
+    timeout_minutes: 60
+    retry_count: 1
+    critical: true
+    description: "Comprehensive UAT with real business scenarios"
+    
+  gradual_rollout:
+    enabled: true
+    timeout_minutes: 90
+    retry_count: 1
+    critical: true
+    description: "Feature flag-based gradual rollout with monitoring"
+    
+  go_live_procedures:
+    enabled: true
+    timeout_minutes: 30
+    retry_count: 2
+    critical: false
+    description: "Final go-live procedures and documentation"
+
+# Rollback configuration
+rollback:
+  auto_rollback: true
+  rollback_on_uat_failure: true
+  rollback_on_health_failure: true
+  rollback_timeout_minutes: 30
+  backup_retention_days: 30
+
+# Gradual rollout configuration
+gradual_rollout:
+  stages:
+    - percentage: 10
+      duration_minutes: 15
+      success_criteria:
+        min_success_rate: 95.0
+        max_error_rate: 2.0
+        max_response_time: 1500
+    - percentage: 25
+      duration_minutes: 15
+      success_criteria:
+        min_success_rate: 95.0
+        max_error_rate: 2.0
+        max_response_time: 1500
+    - percentage: 50
+      duration_minutes: 20
+      success_criteria:
+        min_success_rate: 95.0
+        max_error_rate: 2.0
+        max_response_time: 1500
+    - percentage: 75
+      duration_minutes: 20
+      success_criteria:
+        min_success_rate: 95.0
+        max_error_rate: 2.0
+        max_response_time: 1500
+    - percentage: 100
+      duration_minutes: 30
+      success_criteria:
+        min_success_rate: 95.0
+        max_error_rate: 2.0
+        max_response_time: 1500
+  
+  rollback_criteria:
+    max_error_rate: 5.0
+    max_response_time: 2000
+    min_success_rate: 90.0
+  
+  feature_flags:
+    new_agent_steering_system: true
+    enhanced_monitoring: true
+    improved_ui: true
+    advanced_analytics: true
+
+# User Acceptance Testing configuration
+uat:
+  timeout_minutes: 60
+  test_suites:
+    - authentication
+    - agent_interactions
+    - data_processing
+    - dashboard_functionality
+    - api_endpoints
+    - security_compliance
+    - performance_load
+    - integration_points
+  
+  success_criteria:
+    min_success_rate: 95.0
+    max_critical_failures: 0
+    max_high_priority_failures: 2
+  
+  test_environment:
+    base_url: ${UAT_BASE_URL:-http://localhost:8000}
+    frontend_url: ${UAT_FRONTEND_URL:-http://localhost:3000}
+    test_data_enabled: true
+
+# Monitoring configuration
+monitoring:
+  prometheus:
+    enabled: true
+    retention_days: 30
+    scrape_interval: 15s
+  
+  grafana:
+    enabled: true
+    admin_password: ${GRAFANA_ADMIN_PASSWORD}
+    dashboards:
+      - system_overview
+      - agent_performance
+      - business_metrics
+      - security_dashboard
+  
+  alertmanager:
+    enabled: true
+    webhook_url: ${ALERT_WEBHOOK_URL}
+    email_notifications: true
+    slack_notifications: true
+  
+  alerts:
+    - name: high_error_rate
+      condition: error_rate > 5%
+      severity: critical
+    - name: slow_response_time
+      condition: response_time_p95 > 2000ms
+      severity: warning
+    - name: agent_failure
+      condition: agent_availability < 95%
+      severity: critical
+    - name: database_issues
+      condition: db_connection_errors > 0
+      severity: critical
+
+# Notification configuration
+notifications:
+  send_start_notification: true
+  send_phase_notifications: true
+  send_completion_notification: true
+  send_failure_notification: true
+  
+  channels:
+    webhook:
+      enabled: true
+      url: ${DEPLOYMENT_WEBHOOK_URL}
+    
+    email:
+      enabled: true
+      smtp_server: ${SMTP_SERVER}
+      smtp_port: ${SMTP_PORT:-587}
+      username: ${SMTP_USERNAME}
+      password: ${SMTP_PASSWORD}
+      recipients:
+        - devops@scrollintel.com
+        - engineering@scrollintel.com
+    
+    slack:
+      enabled: true
+      webhook_url: ${SLACK_WEBHOOK_URL}
+      channel: "#deployments"
+
+# Environment-specific overrides
+environments:
+  production:
+    deployment:
+      timeout_minutes: 240
+    monitoring:
+      prometheus:
+        retention_days: 90
+    rollback:
+      auto_rollback: true
+  
+  staging:
+    deployment:
+      timeout_minutes: 120
+    uat:
+      timeout_minutes: 30
+    rollback:
+      auto_rollback: false
+  
+  development:
+    deployment:
+      timeout_minutes: 60
+    phases:
+      user_acceptance_testing:
+        enabled: false
+    rollback:
+      auto_rollback: false
+
+# Resource requirements
+resources:
+  api:
+    cpu_request: "1000m"
+    cpu_limit: "2000m"
+    memory_request: "2Gi"
+    memory_limit: "4Gi"
+    replicas: 3
+  
+  database:
+    cpu_request: "2000m"
+    cpu_limit: "4000m"
+    memory_request: "4Gi"
+    memory_limit: "8Gi"
+    storage: "100Gi"
+  
+  redis:
+    cpu_request: "500m"
+    cpu_limit: "1000m"
+    memory_request: "1Gi"
+    memory_limit: "2Gi"
+
+# Health check configuration
+health_checks:
+  startup_probe:
+    initial_delay_seconds: 30
+    period_seconds: 10
+    timeout_seconds: 5
+    failure_threshold: 30
+  
+  readiness_probe:
+    initial_delay_seconds: 5
+    period_seconds: 5
+    timeout_seconds: 3
+    failure_threshold: 3
+  
+  liveness_probe:
+    initial_delay_seconds: 30
+    period_seconds: 10
+    timeout_seconds: 5
+    failure_threshold: 3
+
+# Security configuration
+security:
+  network_policies:
+    enabled: true
+    default_deny: true
+  
+  pod_security:
+    enabled: true
+    run_as_non_root: true
+    read_only_root_filesystem: true
+  
+  secrets_management:
+    external_secrets: true
+    rotation_enabled: true
+    encryption_at_rest: true
+  
+  image_security:
+    vulnerability_scanning: true
+    image_signing: true
+    trusted_registries_only: true
+
+# Compliance and auditing
+compliance:
+  audit_logging:
+    enabled: true
+    retention_days: 365
+  
+  data_protection:
+    encryption_in_transit: true
+    encryption_at_rest: true
+    data_classification: true
+  
+  access_control:
+    rbac_enabled: true
+    mfa_required: true
+    session_timeout: 3600
+  
+  regulatory:
+    gdpr_compliance: true
+    soc2_compliance: true
+    hipaa_compliance: false

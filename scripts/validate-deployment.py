@@ -1,422 +1,596 @@
 #!/usr/bin/env python3
 """
-ScrollIntel Deployment Validation Script
-Validates that all services are running correctly after deployment
+Deployment Validation Script for Agent Steering System
+Comprehensive validation of deployment status and configuration
 """
 
-import os
+import asyncio
+import subprocess
+import json
+import logging
 import sys
 import time
-import json
-import requests
-import argparse
-from typing import Dict, List, Tuple
-from urllib.parse import urljoin
+from typing import Dict, List, Optional, Any, Tuple
+from dataclasses import dataclass
+from enum import Enum
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+class ValidationStatus(Enum):
+    PASS = "PASS"
+    FAIL = "FAIL"
+    WARNING = "WARNING"
+
+@dataclass
+class ValidationResult:
+    check_name: str
+    status: ValidationStatus
+    message: str
+    details: Dict[str, Any]
 
 class DeploymentValidator:
-    """Validates ScrollIntel deployment health and functionality"""
+    def __init__(self, namespace: str = "agent-steering-system"):
+        self.namespace = namespace
+        self.results: List[ValidationResult] = []
     
-    def __init__(self, base_url: str = "http://localhost", frontend_url: str = "http://localhost:3000"):
-        self.base_url = base_url.rstrip('/')
-        self.frontend_url = frontend_url.rstrip('/')
-        self.health_check_url = f"{base_url}:8080"
-        self.monitoring_url = f"{base_url}:3001"
-        self.session = requests.Session()
-        self.session.timeout = 30
+    def run_kubectl_command(self, args: List[str]) -> Tuple[str, str, int]:
+        """Run kubectl command and return stdout, stderr, and return code"""
+        try:
+            cmd = ["kubectl"] + args
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30
+            )
+            return result.stdout, result.stderr, result.returncode
+        except subprocess.TimeoutExpired:
+            return "", "Command timed out", 1
+        except Exception as e:
+            return "", str(e), 1
+    
+    def add_result(self, check_name: str, status: ValidationStatus, message: str, details: Dict[str, Any] = None):
+        """Add a validation result"""
+        self.results.append(ValidationResult(
+            check_name=check_name,
+            status=status,
+            message=message,
+            details=details or {}
+        ))
+    
+    def validate_namespace(self) -> bool:
+        """Validate that the namespace exists and is active"""
+        stdout, stderr, returncode = self.run_kubectl_command([
+            "get", "namespace", self.namespace, "-o", "json"
+        ])
         
-    def validate_all(self) -> bool:
-        """Run all validation checks"""
-        print("🔍 Starting ScrollIntel Deployment Validation...")
-        print(f"Backend URL: {self.base_url}")
-        print(f"Frontend URL: {self.frontend_url}")
-        print("-" * 60)
+        if returncode != 0:
+            self.add_result(
+                "Namespace Existence",
+                ValidationStatus.FAIL,
+                f"Namespace {self.namespace} does not exist",
+                {"error": stderr}
+            )
+            return False
         
-        checks = [
-            ("Basic Health Check", self.check_basic_health),
-            ("Load Balancer Health", self.check_load_balancer),
-            ("Database Connectivity", self.check_database),
-            ("Redis Connectivity", self.check_redis),
-            ("Agent Registry", self.check_agents),
-            ("API Endpoints", self.check_api_endpoints),
-            ("Frontend Health", self.check_frontend),
-            ("Authentication", self.check_authentication),
-            ("File Upload", self.check_file_upload),
-            ("Performance", self.check_performance),
-            ("Auto-scaling Status", self.check_auto_scaling),
-            ("Docker Containers", self.check_docker_containers),
-            ("SSL Configuration", self.check_ssl_configuration),
-            ("Database Replication", self.check_database_replication),
-            ("Monitoring System", self.check_monitoring),
-        ]
+        try:
+            namespace_data = json.loads(stdout)
+            phase = namespace_data.get("status", {}).get("phase", "Unknown")
+            
+            if phase == "Active":
+                self.add_result(
+                    "Namespace Existence",
+                    ValidationStatus.PASS,
+                    f"Namespace {self.namespace} is active",
+                    {"phase": phase}
+                )
+                return True
+            else:
+                self.add_result(
+                    "Namespace Existence",
+                    ValidationStatus.FAIL,
+                    f"Namespace {self.namespace} is not active (phase: {phase})",
+                    {"phase": phase}
+                )
+                return False
         
-        results = []
-        for check_name, check_func in checks:
-            print(f"Running {check_name}...")
-            try:
-                success, message = check_func()
-                status = "✅ PASS" if success else "❌ FAIL"
-                print(f"  {status}: {message}")
-                results.append((check_name, success, message))
-            except Exception as e:
-                print(f"  ❌ ERROR: {str(e)}")
-                results.append((check_name, False, str(e)))
-            print()
-        
-        # Summary
-        passed = sum(1 for _, success, _ in results if success)
-        total = len(results)
-        
-        print("=" * 60)
-        print(f"VALIDATION SUMMARY: {passed}/{total} checks passed")
-        print("=" * 60)
-        
-        if passed == total:
-            print("🎉 All checks passed! Deployment is healthy.")
-            return True
-        else:
-            print("⚠️ Some checks failed. Please review the issues above.")
-            for check_name, success, message in results:
-                if not success:
-                    print(f"  ❌ {check_name}: {message}")
+        except json.JSONDecodeError:
+            self.add_result(
+                "Namespace Existence",
+                ValidationStatus.FAIL,
+                "Failed to parse namespace information",
+                {"stdout": stdout}
+            )
             return False
     
-    def check_basic_health(self) -> Tuple[bool, str]:
-        """Check basic health endpoint through load balancer"""
-        try:
-            response = self.session.get(f"{self.base_url}/health")
-            response.raise_for_status()
-            
-            if response.status_code == 200:
-                return True, f"Application healthy (response time: {response.elapsed.total_seconds():.2f}s)"
-            else:
-                return False, f"Application health check failed: HTTP {response.status_code}"
-                
-        except requests.exceptions.RequestException as e:
-            return False, f"Health check failed: {str(e)}"
-    
-    def check_load_balancer(self) -> Tuple[bool, str]:
-        """Check load balancer status"""
-        try:
-            # Check nginx status
-            response = self.session.get(f"{self.health_check_url}/nginx_status")
-            if response.status_code == 200:
-                # Check upstream status
-                upstream_response = self.session.get(f"{self.health_check_url}/upstream_check")
-                if upstream_response.status_code == 200:
-                    return True, "Load balancer and upstream backends healthy"
-                else:
-                    return False, f"Upstream backends unhealthy: HTTP {upstream_response.status_code}"
-            else:
-                return False, f"Load balancer unhealthy: HTTP {response.status_code}"
-        except requests.exceptions.RequestException as e:
-            return False, f"Load balancer check failed: {str(e)}"
-    
-    def check_detailed_health(self) -> Tuple[bool, str]:
-        """Check detailed health endpoint"""
-        try:
-            response = self.session.get(f"{self.base_url}/health/detailed")
-            response.raise_for_status()
-            
-            data = response.json()
-            status = data.get("status")
-            
-            if status == "healthy":
-                components = data.get("components", {})
-                healthy_components = sum(1 for comp in components.values() if comp.get("healthy", False))
-                total_components = len(components)
-                return True, f"All components healthy ({healthy_components}/{total_components})"
-            else:
-                return False, f"System status: {status}"
-                
-        except requests.exceptions.RequestException as e:
-            return False, f"Detailed health check failed: {str(e)}"
-    
-    def check_database(self) -> Tuple[bool, str]:
-        """Check database connectivity"""
-        try:
-            response = self.session.get(f"{self.base_url}/health/dependencies")
-            response.raise_for_status()
-            
-            data = response.json()
-            db_health = data.get("dependencies", {}).get("database", {})
-            
-            if db_health.get("healthy"):
-                response_time = db_health.get("response_time_ms", 0)
-                return True, f"Database healthy (response time: {response_time:.2f}ms)"
-            else:
-                error = db_health.get("error", "Unknown error")
-                return False, f"Database unhealthy: {error}"
-                
-        except requests.exceptions.RequestException as e:
-            return False, f"Database check failed: {str(e)}"
-    
-    def check_redis(self) -> Tuple[bool, str]:
-        """Check Redis connectivity"""
-        try:
-            response = self.session.get(f"{self.base_url}/health/dependencies")
-            response.raise_for_status()
-            
-            data = response.json()
-            redis_health = data.get("dependencies", {}).get("redis", {})
-            
-            if redis_health.get("healthy"):
-                response_time = redis_health.get("response_time_ms", 0)
-                memory = redis_health.get("memory_usage", "unknown")
-                return True, f"Redis healthy (response time: {response_time:.2f}ms, memory: {memory})"
-            else:
-                error = redis_health.get("error", "Unknown error")
-                return False, f"Redis unhealthy: {error}"
-                
-        except requests.exceptions.RequestException as e:
-            return False, f"Redis check failed: {str(e)}"
-    
-    def check_agents(self) -> Tuple[bool, str]:
-        """Check agent registry and health"""
-        try:
-            response = self.session.get(f"{self.base_url}/health/agents")
-            response.raise_for_status()
-            
-            data = response.json()
-            if data.get("status") == "healthy":
-                total_agents = data.get("total_agents", 0)
-                healthy_agents = data.get("healthy_agents", 0)
-                return True, f"Agent registry healthy ({healthy_agents}/{total_agents} agents)"
-            else:
-                unhealthy = data.get("unhealthy_agents", 0)
-                return False, f"Some agents unhealthy ({unhealthy} unhealthy agents)"
-                
-        except requests.exceptions.RequestException as e:
-            return False, f"Agent check failed: {str(e)}"
-    
-    def check_api_endpoints(self) -> Tuple[bool, str]:
-        """Check critical API endpoints"""
-        endpoints = [
-            "/api/agents",
-            "/api/auth/status",
-            "/docs",
+    def validate_deployments(self) -> bool:
+        """Validate that all required deployments are running"""
+        required_deployments = [
+            "orchestration-engine",
+            "intelligence-engine",
+            "prometheus",
+            "grafana"
         ]
         
-        failed_endpoints = []
-        for endpoint in endpoints:
+        stdout, stderr, returncode = self.run_kubectl_command([
+            "get", "deployments", "-n", self.namespace, "-o", "json"
+        ])
+        
+        if returncode != 0:
+            self.add_result(
+                "Deployments Status",
+                ValidationStatus.FAIL,
+                "Failed to get deployment information",
+                {"error": stderr}
+            )
+            return False
+        
+        try:
+            deployments_data = json.loads(stdout)
+            deployments = deployments_data.get("items", [])
+            
+            deployment_status = {}
+            for deployment in deployments:
+                name = deployment.get("metadata", {}).get("name")
+                status = deployment.get("status", {})
+                
+                ready_replicas = status.get("readyReplicas", 0)
+                desired_replicas = status.get("replicas", 0)
+                
+                deployment_status[name] = {
+                    "ready": ready_replicas,
+                    "desired": desired_replicas,
+                    "healthy": ready_replicas == desired_replicas and desired_replicas > 0
+                }
+            
+            all_healthy = True
+            missing_deployments = []
+            
+            for required_deployment in required_deployments:
+                if required_deployment not in deployment_status:
+                    missing_deployments.append(required_deployment)
+                    all_healthy = False
+                elif not deployment_status[required_deployment]["healthy"]:
+                    all_healthy = False
+            
+            if missing_deployments:
+                self.add_result(
+                    "Deployments Status",
+                    ValidationStatus.FAIL,
+                    f"Missing deployments: {', '.join(missing_deployments)}",
+                    {"missing": missing_deployments, "status": deployment_status}
+                )
+                return False
+            
+            if all_healthy:
+                self.add_result(
+                    "Deployments Status",
+                    ValidationStatus.PASS,
+                    "All required deployments are healthy",
+                    {"status": deployment_status}
+                )
+                return True
+            else:
+                unhealthy = [name for name, status in deployment_status.items() 
+                           if not status["healthy"]]
+                self.add_result(
+                    "Deployments Status",
+                    ValidationStatus.FAIL,
+                    f"Unhealthy deployments: {', '.join(unhealthy)}",
+                    {"status": deployment_status}
+                )
+                return False
+        
+        except json.JSONDecodeError:
+            self.add_result(
+                "Deployments Status",
+                ValidationStatus.FAIL,
+                "Failed to parse deployment information",
+                {"stdout": stdout}
+            )
+            return False
+    
+    def validate_services(self) -> bool:
+        """Validate that all required services are available"""
+        required_services = [
+            "orchestration-service",
+            "intelligence-service",
+            "prometheus-service",
+            "grafana-service",
+            "postgresql-service",
+            "redis-service"
+        ]
+        
+        stdout, stderr, returncode = self.run_kubectl_command([
+            "get", "services", "-n", self.namespace, "-o", "json"
+        ])
+        
+        if returncode != 0:
+            self.add_result(
+                "Services Status",
+                ValidationStatus.FAIL,
+                "Failed to get service information",
+                {"error": stderr}
+            )
+            return False
+        
+        try:
+            services_data = json.loads(stdout)
+            services = services_data.get("items", [])
+            
+            service_names = [service.get("metadata", {}).get("name") for service in services]
+            missing_services = [svc for svc in required_services if svc not in service_names]
+            
+            if missing_services:
+                self.add_result(
+                    "Services Status",
+                    ValidationStatus.FAIL,
+                    f"Missing services: {', '.join(missing_services)}",
+                    {"missing": missing_services, "available": service_names}
+                )
+                return False
+            else:
+                self.add_result(
+                    "Services Status",
+                    ValidationStatus.PASS,
+                    "All required services are available",
+                    {"services": service_names}
+                )
+                return True
+        
+        except json.JSONDecodeError:
+            self.add_result(
+                "Services Status",
+                ValidationStatus.FAIL,
+                "Failed to parse service information",
+                {"stdout": stdout}
+            )
+            return False
+    
+    def validate_pods(self) -> bool:
+        """Validate that all pods are running and ready"""
+        stdout, stderr, returncode = self.run_kubectl_command([
+            "get", "pods", "-n", self.namespace, "-o", "json"
+        ])
+        
+        if returncode != 0:
+            self.add_result(
+                "Pods Status",
+                ValidationStatus.FAIL,
+                "Failed to get pod information",
+                {"error": stderr}
+            )
+            return False
+        
+        try:
+            pods_data = json.loads(stdout)
+            pods = pods_data.get("items", [])
+            
+            pod_status = {}
+            unhealthy_pods = []
+            
+            for pod in pods:
+                name = pod.get("metadata", {}).get("name")
+                status = pod.get("status", {})
+                phase = status.get("phase", "Unknown")
+                
+                conditions = status.get("conditions", [])
+                ready_condition = next((c for c in conditions if c.get("type") == "Ready"), {})
+                is_ready = ready_condition.get("status") == "True"
+                
+                pod_status[name] = {
+                    "phase": phase,
+                    "ready": is_ready
+                }
+                
+                if phase != "Running" or not is_ready:
+                    unhealthy_pods.append(name)
+            
+            if unhealthy_pods:
+                self.add_result(
+                    "Pods Status",
+                    ValidationStatus.WARNING if len(unhealthy_pods) < len(pods) / 2 else ValidationStatus.FAIL,
+                    f"Unhealthy pods: {', '.join(unhealthy_pods)}",
+                    {"unhealthy": unhealthy_pods, "status": pod_status}
+                )
+                return len(unhealthy_pods) < len(pods) / 2
+            else:
+                self.add_result(
+                    "Pods Status",
+                    ValidationStatus.PASS,
+                    f"All {len(pods)} pods are running and ready",
+                    {"status": pod_status}
+                )
+                return True
+        
+        except json.JSONDecodeError:
+            self.add_result(
+                "Pods Status",
+                ValidationStatus.FAIL,
+                "Failed to parse pod information",
+                {"stdout": stdout}
+            )
+            return False
+    
+    def validate_persistent_volumes(self) -> bool:
+        """Validate that persistent volumes are bound"""
+        stdout, stderr, returncode = self.run_kubectl_command([
+            "get", "pvc", "-n", self.namespace, "-o", "json"
+        ])
+        
+        if returncode != 0:
+            self.add_result(
+                "Persistent Volumes",
+                ValidationStatus.WARNING,
+                "No persistent volume claims found or failed to retrieve",
+                {"error": stderr}
+            )
+            return True  # Not critical for basic functionality
+        
+        try:
+            pvc_data = json.loads(stdout)
+            pvcs = pvc_data.get("items", [])
+            
+            if not pvcs:
+                self.add_result(
+                    "Persistent Volumes",
+                    ValidationStatus.WARNING,
+                    "No persistent volume claims found",
+                    {}
+                )
+                return True
+            
+            unbound_pvcs = []
+            for pvc in pvcs:
+                name = pvc.get("metadata", {}).get("name")
+                status = pvc.get("status", {}).get("phase", "Unknown")
+                
+                if status != "Bound":
+                    unbound_pvcs.append(f"{name} ({status})")
+            
+            if unbound_pvcs:
+                self.add_result(
+                    "Persistent Volumes",
+                    ValidationStatus.WARNING,
+                    f"Unbound PVCs: {', '.join(unbound_pvcs)}",
+                    {"unbound": unbound_pvcs}
+                )
+                return True  # Warning, not failure
+            else:
+                self.add_result(
+                    "Persistent Volumes",
+                    ValidationStatus.PASS,
+                    f"All {len(pvcs)} persistent volume claims are bound",
+                    {"count": len(pvcs)}
+                )
+                return True
+        
+        except json.JSONDecodeError:
+            self.add_result(
+                "Persistent Volumes",
+                ValidationStatus.WARNING,
+                "Failed to parse PVC information",
+                {"stdout": stdout}
+            )
+            return True
+    
+    def validate_ingress(self) -> bool:
+        """Validate that ingress is configured"""
+        stdout, stderr, returncode = self.run_kubectl_command([
+            "get", "ingress", "-n", self.namespace, "-o", "json"
+        ])
+        
+        if returncode != 0:
+            self.add_result(
+                "Ingress Configuration",
+                ValidationStatus.WARNING,
+                "No ingress found or failed to retrieve",
+                {"error": stderr}
+            )
+            return True  # Not critical for internal testing
+        
+        try:
+            ingress_data = json.loads(stdout)
+            ingresses = ingress_data.get("items", [])
+            
+            if not ingresses:
+                self.add_result(
+                    "Ingress Configuration",
+                    ValidationStatus.WARNING,
+                    "No ingress resources found",
+                    {}
+                )
+                return True
+            
+            ingress_info = []
+            for ingress in ingresses:
+                name = ingress.get("metadata", {}).get("name")
+                rules = ingress.get("spec", {}).get("rules", [])
+                hosts = [rule.get("host") for rule in rules if rule.get("host")]
+                
+                ingress_info.append({
+                    "name": name,
+                    "hosts": hosts
+                })
+            
+            self.add_result(
+                "Ingress Configuration",
+                ValidationStatus.PASS,
+                f"Found {len(ingresses)} ingress resource(s)",
+                {"ingresses": ingress_info}
+            )
+            return True
+        
+        except json.JSONDecodeError:
+            self.add_result(
+                "Ingress Configuration",
+                ValidationStatus.WARNING,
+                "Failed to parse ingress information",
+                {"stdout": stdout}
+            )
+            return True
+    
+    def validate_resource_quotas(self) -> bool:
+        """Validate resource usage and quotas"""
+        # Check node resources
+        stdout, stderr, returncode = self.run_kubectl_command([
+            "top", "nodes"
+        ])
+        
+        if returncode != 0:
+            self.add_result(
+                "Resource Usage",
+                ValidationStatus.WARNING,
+                "Failed to get node resource usage (metrics-server may not be available)",
+                {"error": stderr}
+            )
+            return True  # Not critical
+        
+        # Check pod resources
+        stdout, stderr, returncode = self.run_kubectl_command([
+            "top", "pods", "-n", self.namespace
+        ])
+        
+        if returncode != 0:
+            self.add_result(
+                "Resource Usage",
+                ValidationStatus.WARNING,
+                "Failed to get pod resource usage",
+                {"error": stderr}
+            )
+            return True
+        
+        self.add_result(
+            "Resource Usage",
+            ValidationStatus.PASS,
+            "Resource usage information available",
+            {"metrics_available": True}
+        )
+        return True
+    
+    def run_all_validations(self) -> bool:
+        """Run all validation checks"""
+        logger.info(f"Starting deployment validation for namespace: {self.namespace}")
+        
+        validations = [
+            ("Namespace", self.validate_namespace),
+            ("Deployments", self.validate_deployments),
+            ("Services", self.validate_services),
+            ("Pods", self.validate_pods),
+            ("Persistent Volumes", self.validate_persistent_volumes),
+            ("Ingress", self.validate_ingress),
+            ("Resources", self.validate_resource_quotas)
+        ]
+        
+        overall_success = True
+        
+        for validation_name, validation_func in validations:
+            logger.info(f"Running {validation_name} validation...")
             try:
-                response = self.session.get(f"{self.base_url}{endpoint}")
-                if response.status_code >= 400:
-                    failed_endpoints.append(f"{endpoint} ({response.status_code})")
-            except requests.exceptions.RequestException:
-                failed_endpoints.append(f"{endpoint} (connection error)")
+                success = validation_func()
+                if not success:
+                    overall_success = False
+            except Exception as e:
+                logger.error(f"Validation {validation_name} failed with exception: {e}")
+                self.add_result(
+                    validation_name,
+                    ValidationStatus.FAIL,
+                    f"Validation failed with exception: {str(e)}",
+                    {"exception": str(e)}
+                )
+                overall_success = False
         
-        if not failed_endpoints:
-            return True, f"All {len(endpoints)} API endpoints accessible"
+        return overall_success
+    
+    def print_results(self) -> bool:
+        """Print validation results and return overall success"""
+        print(f"\n{'='*80}")
+        print(f"Agent Steering System Deployment Validation Results")
+        print(f"Namespace: {self.namespace}")
+        print(f"{'='*80}")
+        
+        passed = sum(1 for r in self.results if r.status == ValidationStatus.PASS)
+        failed = sum(1 for r in self.results if r.status == ValidationStatus.FAIL)
+        warnings = sum(1 for r in self.results if r.status == ValidationStatus.WARNING)
+        
+        for result in self.results:
+            status_color = {
+                ValidationStatus.PASS: "\033[92m",     # Green
+                ValidationStatus.FAIL: "\033[91m",     # Red
+                ValidationStatus.WARNING: "\033[93m"   # Yellow
+            }.get(result.status, "\033[0m")
+            
+            reset_color = "\033[0m"
+            
+            print(f"{result.check_name:<25} {status_color}{result.status.value:<8}{reset_color} {result.message}")
+        
+        print(f"\n{'='*80}")
+        
+        overall_success = failed == 0
+        
+        if overall_success:
+            if warnings == 0:
+                print(f"\033[92m✓ DEPLOYMENT VALIDATION PASSED\033[0m")
+            else:
+                print(f"\033[93m⚠ DEPLOYMENT VALIDATION PASSED WITH WARNINGS\033[0m")
         else:
-            return False, f"Failed endpoints: {', '.join(failed_endpoints)}"
-    
-    def check_frontend(self) -> Tuple[bool, str]:
-        """Check frontend health"""
-        try:
-            # Check main page
-            response = self.session.get(self.frontend_url)
-            response.raise_for_status()
-            
-            # Check health endpoint
-            health_response = self.session.get(f"{self.frontend_url}/api/health")
-            health_response.raise_for_status()
-            
-            health_data = health_response.json()
-            if health_data.get("status") == "healthy":
-                return True, "Frontend healthy and accessible"
-            else:
-                return False, f"Frontend reports unhealthy: {health_data.get('status')}"
-                
-        except requests.exceptions.RequestException as e:
-            return False, f"Frontend check failed: {str(e)}"
-    
-    def check_authentication(self) -> Tuple[bool, str]:
-        """Check authentication system"""
-        try:
-            # Test auth status endpoint
-            response = self.session.get(f"{self.base_url}/api/auth/status")
-            
-            if response.status_code in [200, 401]:  # Both are valid responses
-                return True, "Authentication system responding"
-            else:
-                return False, f"Auth system error: HTTP {response.status_code}"
-                
-        except requests.exceptions.RequestException as e:
-            return False, f"Authentication check failed: {str(e)}"
-    
-    def check_file_upload(self) -> Tuple[bool, str]:
-        """Check file upload capability"""
-        try:
-            # Test file upload endpoint (without actually uploading)
-            response = self.session.options(f"{self.base_url}/api/files/upload")
-            
-            if response.status_code in [200, 405]:  # OPTIONS or Method Not Allowed is fine
-                return True, "File upload endpoint accessible"
-            else:
-                return False, f"File upload endpoint error: HTTP {response.status_code}"
-                
-        except requests.exceptions.RequestException as e:
-            return False, f"File upload check failed: {str(e)}"
-    
-    def check_performance(self) -> Tuple[bool, str]:
-        """Check basic performance metrics"""
-        try:
-            # Test multiple requests to get average response time
-            response_times = []
-            for _ in range(5):
-                start_time = time.time()
-                response = self.session.get(f"{self.base_url}/health")
-                response_time = time.time() - start_time
-                response_times.append(response_time)
-                
-                if response.status_code != 200:
-                    return False, f"Performance test failed: HTTP {response.status_code}"
-            
-            avg_response_time = sum(response_times) / len(response_times)
-            max_response_time = max(response_times)
-            
-            if avg_response_time < 2.0 and max_response_time < 5.0:
-                return True, f"Good performance (avg: {avg_response_time:.2f}s, max: {max_response_time:.2f}s)"
-            elif avg_response_time < 5.0:
-                return True, f"Acceptable performance (avg: {avg_response_time:.2f}s, max: {max_response_time:.2f}s)"
-            else:
-                return False, f"Poor performance (avg: {avg_response_time:.2f}s, max: {max_response_time:.2f}s)"
-                
-        except requests.exceptions.RequestException as e:
-            return False, f"Performance check failed: {str(e)}"
-    
-    def check_auto_scaling(self) -> Tuple[bool, str]:
-        """Check auto-scaling status"""
-        try:
-            import subprocess
-            
-            # Check if auto-scaling manager is running
-            if os.path.exists('logs/auto-scaling.pid'):
-                with open('logs/auto-scaling.pid', 'r') as f:
-                    pid = f.read().strip()
-                
-                # Check if process is running
-                result = subprocess.run(['ps', '-p', pid], capture_output=True)
-                if result.returncode == 0:
-                    return True, f"Auto-scaling manager running (PID: {pid})"
-                else:
-                    return False, "Auto-scaling manager not running"
-            else:
-                return True, "Auto-scaling not enabled (optional)"
-                
-        except Exception as e:
-            return False, f"Auto-scaling check failed: {str(e)}"
-    
-    def check_docker_containers(self) -> Tuple[bool, str]:
-        """Check Docker containers status"""
-        try:
-            import subprocess
-            
-            result = subprocess.run([
-                'docker', 'ps', '--filter', 'name=scrollintel',
-                '--format', '{{.Names}}\t{{.Status}}'
-            ], capture_output=True, text=True, check=True)
-            
-            containers = result.stdout.strip().split('\n')
-            running_containers = len([c for c in containers if 'Up' in c and c.strip()])
-            
-            if running_containers >= 3:  # At least backend, frontend, nginx
-                return True, f"{running_containers} containers running"
-            else:
-                return False, f"Only {running_containers} containers running (expected at least 3)"
-                
-        except subprocess.CalledProcessError as e:
-            return False, f"Docker container check failed: {str(e)}"
-        except Exception as e:
-            return False, f"Container check error: {str(e)}"
-    
-    def check_ssl_configuration(self) -> Tuple[bool, str]:
-        """Check SSL configuration"""
-        if not os.path.exists('./nginx/ssl/scrollintel.crt'):
-            return True, "SSL certificates not configured (optional)"
+            print(f"\033[91m✗ DEPLOYMENT VALIDATION FAILED\033[0m")
         
-        try:
-            # Test HTTPS endpoint
-            https_url = self.base_url.replace('http://', 'https://')
-            response = self.session.get(f"{https_url}/health", timeout=10, verify=False)
-            
-            if response.status_code == 200:
-                return True, "SSL configuration working"
-            else:
-                return False, f"SSL endpoint failed: HTTP {response.status_code}"
-                
-        except requests.exceptions.RequestException as e:
-            return False, f"SSL check failed: {str(e)}"
-    
-    def check_database_replication(self) -> Tuple[bool, str]:
-        """Check database replication status"""
-        try:
-            import subprocess
-            
-            # Check if replication containers are running
-            result = subprocess.run([
-                'docker', 'ps', '--filter', 'name=postgres',
-                '--format', '{{.Names}}'
-            ], capture_output=True, text=True, check=True)
-            
-            containers = result.stdout.strip().split('\n')
-            postgres_containers = [c for c in containers if 'postgres' in c and c.strip()]
-            
-            if len(postgres_containers) >= 2:
-                return True, f"Database replication active ({len(postgres_containers)} instances)"
-            else:
-                return True, "Single database instance (replication optional)"
-                
-        except subprocess.CalledProcessError as e:
-            return False, f"Database replication check failed: {str(e)}"
-        except Exception as e:
-            return False, f"Replication check error: {str(e)}"
-    
-    def check_monitoring(self) -> Tuple[bool, str]:
-        """Check monitoring system"""
-        try:
-            # Check Grafana
-            response = self.session.get(f"{self.monitoring_url}/api/health", timeout=10)
-            if response.status_code == 200:
-                return True, "Monitoring system (Grafana) accessible"
-            else:
-                return True, "Monitoring system not configured (optional)"
-                
-        except requests.exceptions.RequestException:
-            return True, "Monitoring system not configured (optional)"
-
+        print(f"Results: {passed} passed, {failed} failed, {warnings} warnings")
+        print(f"{'='*80}\n")
+        
+        return overall_success
 
 def main():
-    parser = argparse.ArgumentParser(description="ScrollIntel Deployment Validator")
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Agent Steering System Deployment Validator")
     parser.add_argument(
-        "--backend-url",
-        default="http://localhost:8000",
-        help="Backend API URL (default: http://localhost:8000)"
+        "--namespace", "-n",
+        default="agent-steering-system",
+        help="Kubernetes namespace to validate"
     )
     parser.add_argument(
-        "--frontend-url",
-        default="http://localhost:3000",
-        help="Frontend URL (default: http://localhost:3000)"
-    )
-    parser.add_argument(
-        "--wait",
-        type=int,
-        default=0,
-        help="Wait time in seconds before starting validation"
+        "--json", "-j",
+        action="store_true",
+        help="Output results in JSON format"
     )
     
     args = parser.parse_args()
     
-    if args.wait > 0:
-        print(f"⏳ Waiting {args.wait} seconds for services to start...")
-        time.sleep(args.wait)
+    validator = DeploymentValidator(args.namespace)
+    overall_success = validator.run_all_validations()
     
-    validator = DeploymentValidator(args.backend_url, args.frontend_url)
-    success = validator.validate_all()
+    if args.json:
+        output = {
+            "timestamp": time.time(),
+            "namespace": args.namespace,
+            "overall_success": overall_success,
+            "summary": {
+                "passed": sum(1 for r in validator.results if r.status == ValidationStatus.PASS),
+                "failed": sum(1 for r in validator.results if r.status == ValidationStatus.FAIL),
+                "warnings": sum(1 for r in validator.results if r.status == ValidationStatus.WARNING)
+            },
+            "results": [
+                {
+                    "check_name": r.check_name,
+                    "status": r.status.value,
+                    "message": r.message,
+                    "details": r.details
+                }
+                for r in validator.results
+            ]
+        }
+        print(json.dumps(output, indent=2))
+    else:
+        overall_success = validator.print_results()
     
-    sys.exit(0 if success else 1)
-
+    sys.exit(0 if overall_success else 1)
 
 if __name__ == "__main__":
     main()

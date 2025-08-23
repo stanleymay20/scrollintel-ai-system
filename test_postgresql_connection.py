@@ -30,7 +30,7 @@ async def test_postgresql_connection():
         from scrollintel.core.database_connection_manager import DatabaseConnectionManager
         
         # Set PostgreSQL as primary
-        os.environ["DATABASE_URL"] = "postgresql://postgres:password@localhost:5432/scrollintel"
+        os.environ["DATABASE_URL"] = os.getenv("DATABASE_URL", os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/scrollintel"))
         
         # Create database manager
         db_manager = DatabaseConnectionManager()
@@ -38,7 +38,7 @@ async def test_postgresql_connection():
         # Test sync connection first
         logger.info("Testing sync PostgreSQL connection...")
         sync_result = db_manager._test_postgresql_connection_sync(
-            "postgresql://postgres:password@localhost:5432/scrollintel"
+            os.getenv("DATABASE_URL", os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/scrollintel"))
         )
         
         if sync_result:

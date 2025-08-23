@@ -81,6 +81,38 @@
   animation: pulse-glow 2s ease-in-out infinite;
 }
 
+/* Better error handling styles */
+.error-boundary {
+  @apply min-h-screen flex items-center justify-center p-4;
+}
+
+.loading-spinner {
+  @apply animate-spin rounded-full border-2 border-gray-300 border-t-blue-600;
+}
+
+/* Improved responsive design */
+@media (max-width: 768px) {
+  .dashboard-grid {
+    @apply grid-cols-1 gap-4;
+  }
+  
+  .metrics-grid {
+    @apply grid-cols-2;
+  }
+}
+
+/* Better focus states for accessibility */
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible {
+  @apply outline-2 outline-offset-2 outline-blue-600;
+}
+
+/* Smooth transitions */
+* {
+  transition: all 0.2s ease-in-out;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;

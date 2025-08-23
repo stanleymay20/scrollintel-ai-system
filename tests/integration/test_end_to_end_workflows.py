@@ -1,492 +1,655 @@
 """
-End-to-End Workflow Tests
-Tests complete user workflows from data upload to insights
+End-to-End Workflow Integration Tests
+Tests complete business scenarios from data ingestion to decision making
 """
 import pytest
 import asyncio
 import json
-import io
-from pathlib import Path
-from unittest.mock import patch, Mock
-from fastapi import UploadFile
+import time
+from datetime import datetime, timedelta
+from unittest.mock import Mock, patch, AsyncMock
+import pandas as pd
+import numpy as np
 
-from scrollintel.api.gateway import app
-from scrollintel.engines.file_processor import FileProcessor
-from scrollintel.engines.automodel_engine import AutoModelEngine
-from scrollintel.engines.scroll_viz_engine import ScrollVizEngine
-from scrollintel.engines.scroll_qa_engine import ScrollQAEngine
+from scrollintel.core.realtime_orchestration_engine import RealtimeOrchestrationEngine
+from scrollintel.engines.intelligence_engine import IntelligenceEngine
+from scrollintel.core.agent_registry import AgentRegistry
+from scrollintel.agents.scroll_cto_agent import ScrollCTOAgent
+from scrollintel.agents.scroll_bi_agent import ScrollBIAgent
+from scrollintel.agents.scroll_ml_engineer import ScrollMLEngineer
+from scrollintel.core.data_pipeline import DataPipeline
+from scrollintel.models.agent_steering_models import BusinessTask, TaskPriority, BusinessContext
 
 
 class TestEndToEndWorkflows:
-    """Test complete user workflows"""
+    """Test complete business workflows from start to finish"""
+    
+    @pytest.fixture
+    def orchestration_engine(self):
+        """Create orchestration engine with mock dependencies"""
+        engine = RealtimeOrchestrationEngine()
+        engine.agent_registry = Mock()
+        engine.intelligence_engine = Mock()
+        engine.data_pipeline = Mock()
+        return engine
+    
+    @pytest.fixture
+    def business_scenarios(self):
+        """Real-world business scenarios for testing"""
+        return {
+            'customer_churn_prediction': {
+                'description': 'Predict and prevent customer churn using ML analysis',
+                'data_sources': ['crm', 'support_tickets', 'usage_analytics'],
+                'expected_agents': ['data_scientist', 'ml_engineer', 'bi_analyst'],
+                'success_criteria': {
+                    'prediction_accuracy': 0.85,
+                    'response_time': 300,  # 5 minutes
+                    'actionable_insights': 5
+                }
+            },
+            'financial_fraud_detection': {
+                'description': 'Real-time fraud detection and response',
+                'data_sources': ['transactions', 'user_behavior', 'external_feeds'],
+                'expected_agents': ['security_analyst', 'ml_engineer', 'compliance_officer'],
+                'success_criteria': {
+                    'detection_accuracy': 0.95,
+                    'response_time': 30,  # 30 seconds
+                    'false_positive_rate': 0.02
+                }
+            },
+            'supply_chain_optimization': {
+                'description': 'Optimize supply chain operations and inventory',
+                'data_sources': ['erp', 'suppliers', 'logistics', 'market_data'],
+                'expected_agents': ['operations_analyst', 'forecast_agent', 'cto_agent'],
+                'success_criteria': {
+                    'cost_reduction': 0.15,
+                    'inventory_optimization': 0.20,
+                    'delivery_improvement': 0.10
+                }
+            },
+            'market_intelligence_analysis': {
+                'description': 'Comprehensive market analysis and competitive intelligence',
+                'data_sources': ['market_data', 'competitor_analysis', 'social_media', 'news'],
+                'expected_agents': ['market_analyst', 'competitive_intelligence', 'strategy_advisor'],
+                'success_criteria': {
+                    'insight_quality': 0.90,
+                    'market_coverage': 0.95,
+                    'strategic_recommendations': 10
+                }
+            }
+        }
+    
+    @pytest.fixture
+    def mock_enterprise_data(self):
+        """Mock enterprise data for workflows"""
+        return {
+            'customers': pd.DataFrame({
+                'customer_id': range(1, 10001),
+                'signup_date': pd.date_range('2020-01-01', periods=10000),
+                'last_activity': pd.date_range('2024-01-01', periods=10000),
+                'total_spent': np.random.uniform(100, 50000, 10000),
+                'support_tickets': np.random.poisson(2, 10000),
+                'churn_risk': np.random.uniform(0, 1, 10000)
+            }),
+            'transactions': pd.DataFrame({
+                'transaction_id': range(1, 100001),
+                'customer_id': np.random.randint(1, 10001, 100000),
+                'amount': np.random.uniform(10, 5000, 100000),
+                'timestamp': pd.date_range('2024-01-01', periods=100000, freq='5min'),
+                'merchant': np.random.choice(['Amazon', 'Walmart', 'Target'], 100000),
+                'fraud_score': np.random.uniform(0, 1, 100000)
+            }),
+            'inventory': pd.DataFrame({
+                'product_id': range(1, 5001),
+                'current_stock': np.random.randint(0, 1000, 5000),
+                'reorder_point': np.random.randint(50, 200, 5000),
+                'lead_time_days': np.random.randint(1, 30, 5000),
+                'demand_forecast': np.random.randint(10, 500, 5000),
+                'supplier_reliability': np.random.uniform(0.7, 1.0, 5000)
+            })
+        }
     
     @pytest.mark.asyncio
-    async def test_complete_data_analysis_workflow(self, test_client, test_user_token, temp_files, mock_ai_services):
-        """Test complete workflow: Upload -> Analysis -> Visualization -> Insights"""
+    async def test_customer_churn_prediction_workflow(self, orchestration_engine, business_scenarios, mock_enterprise_data):
+        """Test complete customer churn prediction workflow"""
+        scenario = business_scenarios['customer_churn_prediction']
         
-        # Step 1: Upload data file
-        with open(temp_files['csv_data_csv'], 'rb') as f:
-            files = {"file": ("test_data.csv", f, "text/csv")}
-            response = test_client.post(
-                "/api/v1/files/upload",
-                files=files,
-                headers=test_user_token
-            )
-        
-        assert response.status_code == 200
-        upload_result = response.json()
-        dataset_id = upload_result['dataset_id']
-        
-        # Step 2: Request data analysis
-        analysis_request = {
-            "prompt": "Analyze the uploaded dataset and provide insights",
-            "dataset_id": dataset_id,
-            "agent_type": "data_scientist"
-        }
-        
-        with patch('scrollintel.agents.scroll_data_scientist.anthropic') as mock_claude:
-            mock_claude.messages.create.return_value = Mock(
-                content=[Mock(text="Dataset contains 100 records with 5 features. Key insights: Strong correlation between value and category.")]
-            )
+        # Mock agent responses
+        with patch.multiple(
+            'scrollintel.agents',
+            ScrollDataScientist=Mock(),
+            ScrollMLEngineer=Mock(),
+            ScrollBIAgent=Mock()
+        ) as mock_agents:
             
-            response = test_client.post(
-                "/api/v1/agents/process",
-                json=analysis_request,
-                headers=test_user_token
-            )
-        
-        assert response.status_code == 200
-        analysis_result = response.json()
-        assert analysis_result['status'] == 'success'
-        
-        # Step 3: Generate visualizations
-        viz_request = {
-            "dataset_id": dataset_id,
-            "chart_type": "auto",
-            "prompt": "Create visualizations for the analyzed data"
-        }
-        
-        response = test_client.post(
-            "/api/v1/viz/generate",
-            json=viz_request,
-            headers=test_user_token
-        )
-        
-        assert response.status_code == 200
-        viz_result = response.json()
-        assert 'charts' in viz_result
-        
-        # Step 4: Query insights with natural language
-        qa_request = {
-            "question": "What are the main patterns in the data?",
-            "dataset_id": dataset_id
-        }
-        
-        with patch('scrollintel.engines.scroll_qa_engine.openai') as mock_openai:
-            mock_openai.chat.completions.create.return_value = Mock(
-                choices=[Mock(message=Mock(content="The main patterns show strong correlation between categories and values."))]
-            )
+            # Configure mock agents
+            for agent_name, agent_mock in mock_agents.items():
+                agent_instance = Mock()
+                agent_instance.process_task = AsyncMock()
+                agent_instance.get_capabilities.return_value = ['data_analysis', 'ml_modeling']
+                agent_mock.return_value = agent_instance
             
-            response = test_client.post(
-                "/api/v1/qa/query",
-                json=qa_request,
-                headers=test_user_token
-            )
-        
-        assert response.status_code == 200
-        qa_result = response.json()
-        assert qa_result['status'] == 'success'
-        assert 'answer' in qa_result
-    
-    @pytest.mark.asyncio
-    async def test_ml_model_training_workflow(self, test_client, test_user_token, temp_files, mock_ai_services):
-        """Test ML model training workflow: Upload -> Train -> Evaluate -> Deploy"""
-        
-        # Step 1: Upload ML dataset
-        with open(temp_files['ml_data_csv'], 'rb') as f:
-            files = {"file": ("ml_data.csv", f, "text/csv")}
-            response = test_client.post(
-                "/api/v1/files/upload",
-                files=files,
-                headers=test_user_token
-            )
-        
-        assert response.status_code == 200
-        dataset_id = response.json()['dataset_id']
-        
-        # Step 2: Train ML model
-        training_request = {
-            "dataset_id": dataset_id,
-            "target_column": "target",
-            "model_type": "classification",
-            "algorithms": ["random_forest", "xgboost"]
-        }
-        
-        response = test_client.post(
-            "/api/v1/automodel/train",
-            json=training_request,
-            headers=test_user_token
-        )
-        
-        assert response.status_code == 200
-        training_result = response.json()
-        assert training_result['status'] == 'success'
-        model_id = training_result['model_id']
-        
-        # Step 3: Evaluate model
-        response = test_client.get(
-            f"/api/v1/automodel/models/{model_id}/metrics",
-            headers=test_user_token
-        )
-        
-        assert response.status_code == 200
-        metrics = response.json()
-        assert 'accuracy' in metrics
-        assert 'precision' in metrics
-        assert 'recall' in metrics
-        
-        # Step 4: Make predictions
-        prediction_request = {
-            "model_id": model_id,
-            "data": [
-                {"feature_1": 0.5, "feature_2": -0.3, "feature_3": 1.2}
-            ]
-        }
-        
-        response = test_client.post(
-            "/api/v1/automodel/predict",
-            json=prediction_request,
-            headers=test_user_token
-        )
-        
-        assert response.status_code == 200
-        predictions = response.json()
-        assert 'predictions' in predictions
-        assert len(predictions['predictions']) == 1
-    
-    @pytest.mark.asyncio
-    async def test_dashboard_creation_workflow(self, test_client, test_user_token, temp_files, mock_ai_services):
-        """Test dashboard creation workflow: Upload -> Analyze -> Create Dashboard -> Share"""
-        
-        # Step 1: Upload data
-        with open(temp_files['time_series_csv'], 'rb') as f:
-            files = {"file": ("time_series.csv", f, "text/csv")}
-            response = test_client.post(
-                "/api/v1/files/upload",
-                files=files,
-                headers=test_user_token
-            )
-        
-        dataset_id = response.json()['dataset_id']
-        
-        # Step 2: Request BI dashboard creation
-        dashboard_request = {
-            "dataset_id": dataset_id,
-            "dashboard_type": "executive",
-            "prompt": "Create executive dashboard with key metrics and trends"
-        }
-        
-        with patch('scrollintel.agents.scroll_bi_agent.openai') as mock_openai:
-            mock_openai.chat.completions.create.return_value = Mock(
-                choices=[Mock(message=Mock(content="Dashboard created with sales trends and temperature correlation"))]
-            )
-            
-            response = test_client.post(
-                "/api/v1/bi/create_dashboard",
-                json=dashboard_request,
-                headers=test_user_token
-            )
-        
-        assert response.status_code == 200
-        dashboard_result = response.json()
-        dashboard_id = dashboard_result['dashboard_id']
-        
-        # Step 3: Get dashboard configuration
-        response = test_client.get(
-            f"/api/v1/bi/dashboards/{dashboard_id}",
-            headers=test_user_token
-        )
-        
-        assert response.status_code == 200
-        dashboard_config = response.json()
-        assert 'charts' in dashboard_config
-        assert 'layout' in dashboard_config
-        
-        # Step 4: Update dashboard in real-time
-        update_request = {
-            "dashboard_id": dashboard_id,
-            "refresh_data": True
-        }
-        
-        response = test_client.post(
-            "/api/v1/bi/dashboards/refresh",
-            json=update_request,
-            headers=test_user_token
-        )
-        
-        assert response.status_code == 200
-    
-    @pytest.mark.asyncio
-    async def test_multi_format_file_processing_workflow(self, test_client, test_user_token, temp_files):
-        """Test processing multiple file formats in sequence"""
-        
-        file_formats = [
-            ('csv_data_csv', 'text/csv'),
-            ('csv_data_xlsx', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'),
-            ('json', 'application/json')
-        ]
-        
-        uploaded_datasets = []
-        
-        # Upload different file formats
-        for file_key, content_type in file_formats:
-            with open(temp_files[file_key], 'rb') as f:
-                files = {"file": (f"test_{file_key}", f, content_type)}
-                response = test_client.post(
-                    "/api/v1/files/upload",
-                    files=files,
-                    headers=test_user_token
+            # Create business task
+            task = BusinessTask(
+                id='churn_prediction_001',
+                title='Customer Churn Prediction Analysis',
+                description=scenario['description'],
+                priority=TaskPriority.HIGH,
+                business_context=BusinessContext(
+                    objective='Reduce customer churn by 25%',
+                    timeline='2 weeks',
+                    budget=50000,
+                    stakeholders=['CMO', 'Head of Customer Success']
                 )
-            
-            assert response.status_code == 200
-            result = response.json()
-            uploaded_datasets.append(result['dataset_id'])
-        
-        # Verify all datasets are accessible
-        for dataset_id in uploaded_datasets:
-            response = test_client.get(
-                f"/api/v1/datasets/{dataset_id}",
-                headers=test_user_token
             )
-            assert response.status_code == 200
             
-            dataset_info = response.json()
-            assert 'schema' in dataset_info
-            assert 'row_count' in dataset_info
+            # Mock data pipeline
+            orchestration_engine.data_pipeline.extract_data = AsyncMock(
+                return_value=mock_enterprise_data['customers']
+            )
+            
+            # Mock intelligence engine
+            orchestration_engine.intelligence_engine.analyze_churn_patterns = AsyncMock(
+                return_value={
+                    'high_risk_customers': 1250,
+                    'churn_probability_model': {'accuracy': 0.87, 'precision': 0.82},
+                    'key_factors': ['support_tickets', 'last_activity', 'total_spent'],
+                    'recommended_actions': [
+                        'Proactive customer outreach for high-risk segments',
+                        'Improve support response times',
+                        'Implement loyalty program for high-value customers'
+                    ]
+                }
+            )
+            
+            # Execute workflow
+            start_time = time.time()
+            result = await orchestration_engine.execute_business_workflow(task)
+            execution_time = time.time() - start_time
+            
+            # Validate results
+            assert result['status'] == 'completed'
+            assert result['churn_analysis']['accuracy'] >= scenario['success_criteria']['prediction_accuracy']
+            assert execution_time <= scenario['success_criteria']['response_time']
+            assert len(result['actionable_insights']) >= scenario['success_criteria']['actionable_insights']
+            
+            # Validate agent coordination
+            assert result['agents_involved'] >= len(scenario['expected_agents'])
+            assert 'data_processing_time' in result['performance_metrics']
+            assert 'model_training_time' in result['performance_metrics']
     
     @pytest.mark.asyncio
-    async def test_ai_engineer_rag_workflow(self, test_client, test_user_token, mock_ai_services):
-        """Test AI Engineer RAG workflow: Index -> Query -> Generate"""
+    async def test_fraud_detection_workflow(self, orchestration_engine, business_scenarios, mock_enterprise_data):
+        """Test real-time fraud detection workflow"""
+        scenario = business_scenarios['financial_fraud_detection']
         
-        # Step 1: Index documents for RAG
-        documents = [
-            {"id": "doc1", "content": "Machine learning best practices include data validation and model monitoring."},
-            {"id": "doc2", "content": "Deep learning requires large datasets and GPU acceleration for training."},
-            {"id": "doc3", "content": "MLOps involves continuous integration and deployment of ML models."}
-        ]
+        # Mock real-time transaction stream
+        async def mock_transaction_stream():
+            for i in range(100):
+                yield {
+                    'transaction_id': f'txn_{i}',
+                    'amount': np.random.uniform(10, 5000),
+                    'timestamp': datetime.now(),
+                    'merchant': np.random.choice(['Amazon', 'Walmart', 'Target']),
+                    'customer_id': np.random.randint(1, 10000)
+                }
+                await asyncio.sleep(0.01)  # Simulate real-time stream
         
-        index_request = {
-            "documents": documents,
-            "index_name": "ml_knowledge"
-        }
-        
-        with patch('scrollintel.agents.scroll_ai_engineer.pinecone') as mock_pinecone:
-            mock_pinecone.upsert.return_value = {"upserted_count": 3}
-            
-            response = test_client.post(
-                "/api/v1/ai_engineer/index",
-                json=index_request,
-                headers=test_user_token
+        with patch('scrollintel.core.data_pipeline.get_transaction_stream', mock_transaction_stream):
+            # Mock fraud detection models
+            orchestration_engine.intelligence_engine.detect_fraud = AsyncMock(
+                return_value={
+                    'fraud_probability': 0.95,
+                    'risk_factors': ['unusual_amount', 'new_merchant', 'time_pattern'],
+                    'recommended_action': 'block_transaction',
+                    'confidence_score': 0.92
+                }
             )
+            
+            # Create real-time fraud detection task
+            task = BusinessTask(
+                id='fraud_detection_001',
+                title='Real-time Fraud Detection',
+                description=scenario['description'],
+                priority=TaskPriority.CRITICAL,
+                business_context=BusinessContext(
+                    objective='Prevent fraudulent transactions in real-time',
+                    timeline='immediate',
+                    compliance_requirements=['PCI-DSS', 'SOX']
+                )
+            )
+            
+            # Execute real-time workflow
+            fraud_alerts = []
+            start_time = time.time()
+            
+            async for transaction in mock_transaction_stream():
+                result = await orchestration_engine.process_realtime_transaction(transaction)
+                
+                if result['fraud_detected']:
+                    fraud_alerts.append(result)
+                    response_time = time.time() - start_time
+                    
+                    # Validate real-time requirements
+                    assert response_time <= scenario['success_criteria']['response_time']
+                    assert result['fraud_probability'] >= scenario['success_criteria']['detection_accuracy']
+                
+                if len(fraud_alerts) >= 5:  # Test with 5 fraud cases
+                    break
+            
+            # Validate fraud detection performance
+            assert len(fraud_alerts) > 0
+            false_positive_rate = sum(1 for alert in fraud_alerts if alert['false_positive']) / len(fraud_alerts)
+            assert false_positive_rate <= scenario['success_criteria']['false_positive_rate']
+    
+    @pytest.mark.asyncio
+    async def test_supply_chain_optimization_workflow(self, orchestration_engine, business_scenarios, mock_enterprise_data):
+        """Test supply chain optimization workflow"""
+        scenario = business_scenarios['supply_chain_optimization']
         
-        assert response.status_code == 200
+        with patch.multiple(
+            'scrollintel.agents',
+            OperationsAnalyst=Mock(),
+            ForecastAgent=Mock(),
+            ScrollCTOAgent=Mock()
+        ) as mock_agents:
+            
+            # Configure supply chain analysis
+            orchestration_engine.intelligence_engine.optimize_supply_chain = AsyncMock(
+                return_value={
+                    'inventory_optimization': {
+                        'cost_reduction': 0.18,
+                        'stock_optimization': 0.22,
+                        'reorder_recommendations': 150
+                    },
+                    'supplier_analysis': {
+                        'reliability_scores': {'supplier_a': 0.95, 'supplier_b': 0.87},
+                        'cost_analysis': {'potential_savings': 125000},
+                        'risk_assessment': {'high_risk_suppliers': 3}
+                    },
+                    'logistics_optimization': {
+                        'delivery_improvement': 0.12,
+                        'route_optimization': {'fuel_savings': 0.15},
+                        'warehouse_efficiency': 0.20
+                    }
+                }
+            )
+            
+            # Create supply chain task
+            task = BusinessTask(
+                id='supply_chain_opt_001',
+                title='Supply Chain Optimization Analysis',
+                description=scenario['description'],
+                priority=TaskPriority.HIGH,
+                business_context=BusinessContext(
+                    objective='Reduce supply chain costs by 15% while improving delivery times',
+                    timeline='1 month',
+                    budget=200000
+                )
+            )
+            
+            # Mock data from multiple sources
+            orchestration_engine.data_pipeline.extract_multi_source_data = AsyncMock(
+                return_value={
+                    'inventory': mock_enterprise_data['inventory'],
+                    'suppliers': pd.DataFrame({
+                        'supplier_id': range(1, 51),
+                        'reliability_score': np.random.uniform(0.7, 1.0, 50),
+                        'cost_per_unit': np.random.uniform(10, 100, 50),
+                        'lead_time': np.random.randint(1, 30, 50)
+                    }),
+                    'logistics': pd.DataFrame({
+                        'route_id': range(1, 101),
+                        'distance': np.random.uniform(50, 500, 100),
+                        'cost': np.random.uniform(100, 1000, 100),
+                        'delivery_time': np.random.uniform(1, 10, 100)
+                    })
+                }
+            )
+            
+            # Execute workflow
+            result = await orchestration_engine.execute_business_workflow(task)
+            
+            # Validate optimization results
+            assert result['status'] == 'completed'
+            assert result['cost_reduction'] >= scenario['success_criteria']['cost_reduction']
+            assert result['inventory_optimization'] >= scenario['success_criteria']['inventory_optimization']
+            assert result['delivery_improvement'] >= scenario['success_criteria']['delivery_improvement']
+            
+            # Validate business impact
+            assert 'roi_projection' in result
+            assert 'implementation_plan' in result
+            assert len(result['optimization_recommendations']) > 0
+    
+    @pytest.mark.asyncio
+    async def test_market_intelligence_workflow(self, orchestration_engine, business_scenarios):
+        """Test comprehensive market intelligence analysis workflow"""
+        scenario = business_scenarios['market_intelligence_analysis']
         
-        # Step 2: Query with RAG
-        rag_request = {
-            "question": "What are machine learning best practices?",
-            "index_name": "ml_knowledge",
-            "use_rag": True
+        # Mock market data sources
+        market_data = {
+            'competitor_analysis': pd.DataFrame({
+                'competitor': ['CompanyA', 'CompanyB', 'CompanyC'],
+                'market_share': [0.25, 0.20, 0.15],
+                'revenue_growth': [0.12, 0.08, 0.15],
+                'product_launches': [3, 2, 4],
+                'customer_satisfaction': [4.2, 3.8, 4.5]
+            }),
+            'market_trends': pd.DataFrame({
+                'trend': ['AI_adoption', 'Cloud_migration', 'Sustainability'],
+                'growth_rate': [0.35, 0.28, 0.22],
+                'market_size': [50000000, 75000000, 30000000],
+                'adoption_stage': ['growth', 'maturity', 'early']
+            }),
+            'social_sentiment': pd.DataFrame({
+                'platform': ['Twitter', 'LinkedIn', 'Reddit'],
+                'mention_volume': [15000, 8000, 5000],
+                'sentiment_score': [0.65, 0.72, 0.58],
+                'engagement_rate': [0.08, 0.12, 0.15]
+            })
         }
         
-        with patch('scrollintel.agents.scroll_ai_engineer.pinecone') as mock_pinecone, \
-             patch('scrollintel.agents.scroll_ai_engineer.openai') as mock_openai:
-            
-            mock_pinecone.query.return_value = {
-                'matches': [
-                    {'id': 'doc1', 'score': 0.9, 'metadata': {'text': documents[0]['content']}}
+        orchestration_engine.data_pipeline.extract_market_data = AsyncMock(
+            return_value=market_data
+        )
+        
+        # Mock intelligence analysis
+        orchestration_engine.intelligence_engine.analyze_market_intelligence = AsyncMock(
+            return_value={
+                'competitive_positioning': {
+                    'market_position': 'strong',
+                    'competitive_advantages': ['technology', 'customer_service'],
+                    'threats': ['new_entrants', 'price_competition'],
+                    'opportunities': ['emerging_markets', 'product_expansion']
+                },
+                'market_insights': {
+                    'growth_opportunities': [
+                        {'market': 'AI_services', 'potential': 0.40, 'timeline': '6_months'},
+                        {'market': 'Enterprise_cloud', 'potential': 0.25, 'timeline': '12_months'}
+                    ],
+                    'risk_factors': [
+                        {'risk': 'Economic_downturn', 'probability': 0.30, 'impact': 'high'},
+                        {'risk': 'Regulatory_changes', 'probability': 0.20, 'impact': 'medium'}
+                    ]
+                },
+                'strategic_recommendations': [
+                    'Invest in AI capabilities to capture 40% growth opportunity',
+                    'Strengthen customer retention programs',
+                    'Expand into emerging markets within 12 months',
+                    'Develop strategic partnerships to mitigate competitive threats'
                 ]
             }
-            
-            mock_openai.chat.completions.create.return_value = Mock(
-                choices=[Mock(message=Mock(content="Based on the knowledge base, ML best practices include data validation and model monitoring."))]
-            )
-            
-            response = test_client.post(
-                "/api/v1/ai_engineer/rag_query",
-                json=rag_request,
-                headers=test_user_token
-            )
+        )
         
-        assert response.status_code == 200
-        rag_result = response.json()
-        assert rag_result['status'] == 'success'
-        assert 'answer' in rag_result
-        assert 'sources' in rag_result
+        # Create market intelligence task
+        task = BusinessTask(
+            id='market_intel_001',
+            title='Comprehensive Market Intelligence Analysis',
+            description=scenario['description'],
+            priority=TaskPriority.HIGH,
+            business_context=BusinessContext(
+                objective='Identify growth opportunities and competitive threats',
+                timeline='2 weeks',
+                stakeholders=['CEO', 'CMO', 'Head of Strategy']
+            )
+        )
+        
+        # Execute workflow
+        result = await orchestration_engine.execute_business_workflow(task)
+        
+        # Validate market intelligence results
+        assert result['status'] == 'completed'
+        assert result['insight_quality'] >= scenario['success_criteria']['insight_quality']
+        assert result['market_coverage'] >= scenario['success_criteria']['market_coverage']
+        assert len(result['strategic_recommendations']) >= scenario['success_criteria']['strategic_recommendations']
+        
+        # Validate strategic insights
+        assert 'competitive_analysis' in result
+        assert 'growth_opportunities' in result
+        assert 'risk_assessment' in result
+        assert 'actionable_recommendations' in result
+        
+        # Validate business value
+        assert 'revenue_impact_projection' in result
+        assert 'implementation_roadmap' in result
     
     @pytest.mark.asyncio
-    async def test_forecasting_workflow(self, test_client, test_user_token, temp_files, mock_ai_services):
-        """Test time series forecasting workflow"""
+    async def test_multi_agent_coordination(self, orchestration_engine):
+        """Test coordination between multiple agents in complex workflows"""
         
-        # Step 1: Upload time series data
-        with open(temp_files['time_series_csv'], 'rb') as f:
-            files = {"file": ("time_series.csv", f, "text/csv")}
-            response = test_client.post(
-                "/api/v1/files/upload",
-                files=files,
-                headers=test_user_token
+        # Create complex multi-step task
+        task = BusinessTask(
+            id='complex_analysis_001',
+            title='Multi-Domain Business Analysis',
+            description='Comprehensive analysis requiring multiple specialized agents',
+            priority=TaskPriority.HIGH,
+            business_context=BusinessContext(
+                objective='Complete business transformation analysis',
+                timeline='1 week',
+                budget=100000
             )
+        )
         
-        dataset_id = response.json()['dataset_id']
-        
-        # Step 2: Create forecast
-        forecast_request = {
-            "dataset_id": dataset_id,
-            "target_column": "sales",
-            "date_column": "timestamp",
-            "forecast_periods": 30,
-            "model_type": "prophet"
+        # Mock multiple agents
+        agents = {
+            'cto_agent': Mock(),
+            'bi_agent': Mock(),
+            'ml_engineer': Mock(),
+            'data_scientist': Mock(),
+            'compliance_officer': Mock()
         }
         
-        response = test_client.post(
-            "/api/v1/forecast/create",
-            json=forecast_request,
-            headers=test_user_token
-        )
+        for agent_name, agent_mock in agents.items():
+            agent_mock.process_task = AsyncMock(return_value={
+                'status': 'completed',
+                'results': f'{agent_name}_analysis_results',
+                'confidence': 0.9,
+                'execution_time': 30
+            })
+            agent_mock.get_capabilities.return_value = [f'{agent_name}_capability']
         
-        assert response.status_code == 200
-        forecast_result = response.json()
-        assert forecast_result['status'] == 'success'
-        forecast_id = forecast_result['forecast_id']
+        orchestration_engine.agent_registry.get_available_agents.return_value = list(agents.values())
         
-        # Step 3: Get forecast results
-        response = test_client.get(
-            f"/api/v1/forecast/{forecast_id}/results",
-            headers=test_user_token
-        )
+        # Test agent selection and coordination
+        selected_agents = await orchestration_engine.select_agents_for_task(task)
+        assert len(selected_agents) >= 3  # Should select multiple agents
         
-        assert response.status_code == 200
-        results = response.json()
-        assert 'predictions' in results
-        assert 'confidence_intervals' in results
+        # Test parallel execution
+        start_time = time.time()
+        results = await orchestration_engine.coordinate_parallel_execution(task, selected_agents)
+        execution_time = time.time() - start_time
         
-        # Step 4: Visualize forecast
-        viz_request = {
-            "forecast_id": forecast_id,
-            "include_history": True,
-            "chart_type": "line"
-        }
+        # Validate coordination
+        assert len(results) == len(selected_agents)
+        assert all(result['status'] == 'completed' for result in results)
+        assert execution_time < 60  # Should complete in parallel efficiently
         
-        response = test_client.post(
-            "/api/v1/forecast/visualize",
-            json=viz_request,
-            headers=test_user_token
-        )
-        
-        assert response.status_code == 200
-        viz_result = response.json()
-        assert 'chart_config' in viz_result
+        # Test result synthesis
+        synthesized_result = await orchestration_engine.synthesize_agent_results(results)
+        assert 'combined_insights' in synthesized_result
+        assert 'confidence_score' in synthesized_result
+        assert 'business_recommendations' in synthesized_result
     
     @pytest.mark.asyncio
-    async def test_error_recovery_workflow(self, test_client, test_user_token, temp_files):
-        """Test error handling and recovery in workflows"""
+    async def test_workflow_error_recovery(self, orchestration_engine):
+        """Test error handling and recovery in complex workflows"""
         
-        # Step 1: Upload invalid file
-        invalid_content = b"This is not a valid CSV file content"
-        files = {"file": ("invalid.csv", io.BytesIO(invalid_content), "text/csv")}
-        
-        response = test_client.post(
-            "/api/v1/files/upload",
-            files=files,
-            headers=test_user_token
+        # Create task that will encounter errors
+        task = BusinessTask(
+            id='error_recovery_001',
+            title='Error Recovery Test',
+            description='Test workflow error handling',
+            priority=TaskPriority.MEDIUM
         )
         
-        # Should handle gracefully
-        assert response.status_code in [400, 422]  # Bad request or validation error
-        error_result = response.json()
-        assert 'error' in error_result or 'detail' in error_result
+        # Mock agents with different failure scenarios
+        failing_agent = Mock()
+        failing_agent.process_task = AsyncMock(side_effect=Exception("Agent processing failed"))
         
-        # Step 2: Try with valid file after error
-        with open(temp_files['csv_data_csv'], 'rb') as f:
-            files = {"file": ("valid.csv", f, "text/csv")}
-            response = test_client.post(
-                "/api/v1/files/upload",
-                files=files,
-                headers=test_user_token
-            )
+        recovering_agent = Mock()
+        call_count = 0
         
-        # Should succeed after previous error
-        assert response.status_code == 200
+        async def mock_process_with_recovery(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 2:
+                raise Exception("Temporary failure")
+            return {'status': 'completed', 'results': 'recovered_results'}
         
-        # Step 3: Test agent error recovery
-        analysis_request = {
-            "prompt": "Analyze non-existent dataset",
-            "dataset_id": "invalid-id",
-            "agent_type": "data_scientist"
-        }
+        recovering_agent.process_task = mock_process_with_recovery
         
-        response = test_client.post(
-            "/api/v1/agents/process",
-            json=analysis_request,
-            headers=test_user_token
-        )
+        successful_agent = Mock()
+        successful_agent.process_task = AsyncMock(return_value={
+            'status': 'completed',
+            'results': 'successful_results'
+        })
         
-        # Should handle missing dataset gracefully
-        assert response.status_code in [400, 404]
+        agents = [failing_agent, recovering_agent, successful_agent]
+        orchestration_engine.agent_registry.get_available_agents.return_value = agents
+        
+        # Test error recovery
+        result = await orchestration_engine.execute_with_error_recovery(task)
+        
+        # Validate recovery behavior
+        assert result['status'] == 'completed'
+        assert result['failed_agents'] == 1  # One agent failed permanently
+        assert result['recovered_agents'] == 1  # One agent recovered after retries
+        assert result['successful_agents'] == 1  # One agent succeeded immediately
+        
+        # Validate that workflow continued despite failures
+        assert 'partial_results' in result
+        assert len(result['completed_tasks']) >= 1
     
     @pytest.mark.asyncio
-    async def test_concurrent_user_workflow(self, test_client, test_user_token, temp_files, mock_ai_services):
-        """Test concurrent workflows from multiple users"""
+    async def test_performance_under_load(self, orchestration_engine):
+        """Test workflow performance under high load"""
         
-        # Simulate multiple concurrent uploads and analyses
-        async def user_workflow(user_suffix: str):
-            # Upload data
-            with open(temp_files['csv_data_csv'], 'rb') as f:
-                files = {"file": (f"data_{user_suffix}.csv", f, "text/csv")}
-                upload_response = test_client.post(
-                    "/api/v1/files/upload",
-                    files=files,
-                    headers=test_user_token
-                )
-            
-            if upload_response.status_code != 200:
-                return {"error": "Upload failed"}
-            
-            dataset_id = upload_response.json()['dataset_id']
-            
-            # Request analysis
-            analysis_request = {
-                "prompt": f"Analyze dataset for user {user_suffix}",
-                "dataset_id": dataset_id,
-                "agent_type": "data_scientist"
+        # Create multiple concurrent tasks
+        tasks = []
+        for i in range(20):
+            task = BusinessTask(
+                id=f'load_test_{i}',
+                title=f'Load Test Task {i}',
+                description='Performance testing task',
+                priority=TaskPriority.MEDIUM
+            )
+            tasks.append(task)
+        
+        # Mock fast-responding agents
+        mock_agent = Mock()
+        mock_agent.process_task = AsyncMock(return_value={
+            'status': 'completed',
+            'results': 'load_test_results',
+            'execution_time': 1
+        })
+        
+        orchestration_engine.agent_registry.get_available_agents.return_value = [mock_agent] * 10
+        
+        # Execute concurrent workflows
+        start_time = time.time()
+        results = await asyncio.gather(*[
+            orchestration_engine.execute_business_workflow(task) for task in tasks
+        ])
+        total_time = time.time() - start_time
+        
+        # Validate performance
+        assert len(results) == 20
+        assert all(result['status'] == 'completed' for result in results)
+        assert total_time < 30  # Should complete within 30 seconds with parallelization
+        
+        # Validate resource utilization
+        performance_metrics = await orchestration_engine.get_performance_metrics()
+        assert performance_metrics['concurrent_tasks'] == 20
+        assert performance_metrics['average_response_time'] < 5
+        assert performance_metrics['throughput'] > 0.5  # Tasks per second
+
+
+class TestWorkflowValidation:
+    """Test workflow validation and quality assurance"""
+    
+    @pytest.mark.asyncio
+    async def test_business_rule_validation(self, orchestration_engine):
+        """Test validation of business rules in workflows"""
+        
+        # Define business rules
+        business_rules = {
+            'budget_limits': {'max_budget': 1000000, 'approval_required_above': 500000},
+            'compliance_requirements': ['SOX', 'GDPR', 'PCI-DSS'],
+            'data_retention': {'max_days': 2555, 'archive_after_days': 365},
+            'security_levels': {'min_encryption': 'AES-256', 'access_control': 'RBAC'}
+        }
+        
+        # Test rule validation
+        task = BusinessTask(
+            id='rule_validation_001',
+            title='Business Rule Validation Test',
+            description='Test business rule compliance',
+            priority=TaskPriority.HIGH,
+            business_context=BusinessContext(
+                budget=750000,  # Above approval threshold
+                compliance_requirements=['SOX', 'GDPR'],
+                security_level='high'
+            )
+        )
+        
+        validation_result = await orchestration_engine.validate_business_rules(task, business_rules)
+        
+        # Validate rule checking
+        assert validation_result['budget_approval_required'] is True
+        assert validation_result['compliance_satisfied'] is True
+        assert validation_result['security_adequate'] is True
+        assert validation_result['overall_valid'] is True
+    
+    @pytest.mark.asyncio
+    async def test_data_quality_validation(self, orchestration_engine, mock_enterprise_data):
+        """Test data quality validation in workflows"""
+        
+        # Introduce data quality issues
+        poor_quality_data = mock_enterprise_data['customers'].copy()
+        poor_quality_data.loc[0:100, 'total_spent'] = None  # Missing values
+        poor_quality_data.loc[200:300, 'customer_id'] = -1  # Invalid IDs
+        
+        # Test data quality validation
+        quality_report = await orchestration_engine.validate_data_quality(
+            poor_quality_data,
+            quality_rules={
+                'completeness': {'threshold': 0.95},
+                'validity': {'customer_id': {'min': 1}},
+                'consistency': {'total_spent': {'type': 'numeric', 'min': 0}}
             }
-            
-            with patch('scrollintel.agents.scroll_data_scientist.anthropic') as mock_claude:
-                mock_claude.messages.create.return_value = Mock(
-                    content=[Mock(text=f"Analysis complete for user {user_suffix}")]
-                )
-                
-                analysis_response = test_client.post(
-                    "/api/v1/agents/process",
-                    json=analysis_request,
-                    headers=test_user_token
-                )
-            
-            return {
-                "user": user_suffix,
-                "upload_status": upload_response.status_code,
-                "analysis_status": analysis_response.status_code,
-                "dataset_id": dataset_id
+        )
+        
+        # Validate quality assessment
+        assert quality_report['completeness_score'] < 0.95
+        assert quality_report['validity_issues'] > 0
+        assert quality_report['overall_quality'] == 'poor'
+        assert len(quality_report['recommendations']) > 0
+    
+    @pytest.mark.asyncio
+    async def test_result_accuracy_validation(self, orchestration_engine):
+        """Test validation of workflow result accuracy"""
+        
+        # Mock workflow results
+        workflow_results = {
+            'predictions': [0.8, 0.6, 0.9, 0.3, 0.7],
+            'actual_outcomes': [1, 0, 1, 0, 1],
+            'confidence_scores': [0.9, 0.8, 0.95, 0.7, 0.85],
+            'business_metrics': {
+                'revenue_impact': 150000,
+                'cost_savings': 75000,
+                'efficiency_gain': 0.20
             }
+        }
         
-        # Run concurrent workflows
-        tasks = [user_workflow(f"user_{i}") for i in range(3)]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Test accuracy validation
+        accuracy_report = await orchestration_engine.validate_result_accuracy(workflow_results)
         
-        # Verify all workflows completed
-        for result in results:
-            if isinstance(result, Exception):
-                pytest.fail(f"Concurrent workflow failed: {result}")
-            
-            assert result['upload_status'] == 200
-            assert result['analysis_status'] == 200
-            assert 'dataset_id' in result
+        # Validate accuracy metrics
+        assert 'prediction_accuracy' in accuracy_report
+        assert 'confidence_calibration' in accuracy_report
+        assert 'business_impact_validation' in accuracy_report
+        assert accuracy_report['overall_accuracy'] >= 0.7
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

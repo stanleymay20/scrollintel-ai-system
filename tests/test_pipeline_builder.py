@@ -1,375 +1,446 @@
 """
-Unit tests for the PipelineBuilder class
+Unit tests for Pipeline Builder functionality
+Tests CRUD operations, validation, and pipeline management.
 """
+
 import pytest
-from unittest.mock import Mock, MagicMock
-from sqlalchemy.orm import Session
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from unittest.mock import Mock, patch
 import uuid
 
-from scrollintel.core.pipeline_builder import PipelineBuilder, ValidationError
 from scrollintel.models.pipeline_models import (
-    Pipeline, PipelineNode, PipelineConnection, 
-    PipelineStatus, NodeType
+    Base, Pipeline, PipelineNode, PipelineConnection, ComponentTemplate,
+    NodeType, PipelineStatus, ValidationStatus
+)
+from scrollintel.core.pipeline_builder import (
+    PipelineBuilder, DataSourceConfig, TransformConfig, ValidationResult
 )
 
+
+@pytest.fixture
+def db_session():
+    """Create in-memory SQLite database for testing"""
+    engine = create_engine("sqlite:///:memory:")
+    Base.metadata.create_all(engine)
+    SessionLocal = sessionmaker(bind=engine)
+    session = SessionLocal()
+    
+    yield session
+    
+    session.close()
+
+
+@pytest.fixture
+def pipeline_builder(db_session):
+    """Create PipelineBuilder instance with test database"""
+    return PipelineBuilder(db_session)
+
+
+@pytest.fixture
+def sample_pipeline(pipeline_builder):
+    """Create a sample pipeline for testing"""
+    return pipeline_builder.create_pipeline(
+        name="Test Pipeline",
+        description="A test pipeline",
+        created_by="test_user"
+    )
+
+
 class TestPipelineBuilder:
+    """Test PipelineBuilder CRUD operations"""
     
-    @pytest.fixture
-    def mock_db_session(self):
-        """Mock database session"""
-        session = Mock(spec=Session)
-        session.add = Mock()
-        session.commit = Mock()
-        session.refresh = Mock()
-        session.delete = Mock()
-        session.query = Mock()
-        return session
-    
-    @pytest.fixture
-    def pipeline_builder(self, mock_db_session):
-        """Create PipelineBuilder instance with mock session"""
-        return PipelineBuilder(mock_db_session)
-    
-    def test_create_pipeline(self, pipeline_builder, mock_db_session):
-        """Test creating a new pipeline"""
-        # Act
-        result = pipeline_builder.create_pipeline(
+    def test_create_pipeline(self, pipeline_builder):
+        """Test pipeline creation"""
+        pipeline = pipeline_builder.create_pipeline(
             name="Test Pipeline",
             description="Test Description",
             created_by="test_user"
         )
         
-        # Assert
-        assert result.name == "Test Pipeline"
-        assert result.description == "Test Description"
-        assert result.created_by == "test_user"
-        assert result.status == PipelineStatus.DRAFT
-        assert result.id is not None
-        
-        mock_db_session.add.assert_called_once()
-        mock_db_session.commit.assert_called_once()
-        mock_db_session.refresh.assert_called_once()
+        assert pipeline.id is not None
+        assert pipeline.name == "Test Pipeline"
+        assert pipeline.description == "Test Description"
+        assert pipeline.created_by == "test_user"
+        assert pipeline.status == PipelineStatus.DRAFT
+        assert pipeline.validation_status == ValidationStatus.PENDING
+        assert pipeline.created_at is not None
     
-    def test_get_pipeline(self, pipeline_builder, mock_db_session):
-        """Test getting a pipeline by ID"""
-        # Arrange
-        mock_pipeline = Mock(spec=Pipeline)
-        mock_db_session.query.return_value.filter.return_value.first.return_value = mock_pipeline
+    def test_get_pipeline(self, pipeline_builder, sample_pipeline):
+        """Test pipeline retrieval"""
+        retrieved = pipeline_builder.get_pipeline(sample_pipeline.id)
         
-        # Act
-        result = pipeline_builder.get_pipeline("test-id")
-        
-        # Assert
-        assert result == mock_pipeline
-        mock_db_session.query.assert_called_with(Pipeline)
+        assert retrieved is not None
+        assert retrieved.id == sample_pipeline.id
+        assert retrieved.name == sample_pipeline.name
     
-    def test_get_pipeline_not_found(self, pipeline_builder, mock_db_session):
-        """Test getting a non-existent pipeline"""
-        # Arrange
-        mock_db_session.query.return_value.filter.return_value.first.return_value = None
-        
-        # Act
-        result = pipeline_builder.get_pipeline("non-existent-id")
-        
-        # Assert
+    def test_get_nonexistent_pipeline(self, pipeline_builder):
+        """Test retrieving non-existent pipeline"""
+        result = pipeline_builder.get_pipeline("nonexistent-id")
         assert result is None
     
-    def test_list_pipelines(self, pipeline_builder, mock_db_session):
-        """Test listing all pipelines"""
-        # Arrange
-        mock_pipelines = [Mock(spec=Pipeline), Mock(spec=Pipeline)]
-        mock_db_session.query.return_value.all.return_value = mock_pipelines
+    def test_list_pipelines(self, pipeline_builder):
+        """Test pipeline listing"""
+        # Create multiple pipelines
+        p1 = pipeline_builder.create_pipeline("Pipeline 1", created_by="user1")
+        p2 = pipeline_builder.create_pipeline("Pipeline 2", created_by="user2")
         
-        # Act
-        result = pipeline_builder.list_pipelines()
+        # List all pipelines
+        all_pipelines = pipeline_builder.list_pipelines()
+        assert len(all_pipelines) == 2
         
-        # Assert
-        assert result == mock_pipelines
-        mock_db_session.query.assert_called_with(Pipeline)
+        # Filter by user
+        user1_pipelines = pipeline_builder.list_pipelines(created_by="user1")
+        assert len(user1_pipelines) == 1
+        assert user1_pipelines[0].id == p1.id
     
-    def test_list_pipelines_filtered_by_creator(self, pipeline_builder, mock_db_session):
-        """Test listing pipelines filtered by creator"""
-        # Arrange
-        mock_pipelines = [Mock(spec=Pipeline)]
-        mock_query = mock_db_session.query.return_value
-        mock_query.filter.return_value.all.return_value = mock_pipelines
+    def test_update_pipeline(self, pipeline_builder, sample_pipeline):
+        """Test pipeline updates"""
+        updated = pipeline_builder.update_pipeline(
+            sample_pipeline.id,
+            name="Updated Name",
+            description="Updated Description"
+        )
         
-        # Act
-        result = pipeline_builder.list_pipelines(created_by="test_user")
-        
-        # Assert
-        assert result == mock_pipelines
-        mock_query.filter.assert_called_once()
+        assert updated is not None
+        assert updated.name == "Updated Name"
+        assert updated.description == "Updated Description"
+        assert updated.updated_at is not None
     
-    def test_update_pipeline(self, pipeline_builder, mock_db_session):
-        """Test updating a pipeline"""
-        # Arrange
-        mock_pipeline = Mock(spec=Pipeline)
-        mock_pipeline.name = "Old Name"
-        mock_db_session.query.return_value.filter.return_value.first.return_value = mock_pipeline
+    def test_delete_pipeline(self, pipeline_builder, sample_pipeline):
+        """Test pipeline deletion"""
+        success = pipeline_builder.delete_pipeline(sample_pipeline.id)
+        assert success is True
         
-        # Act
-        result = pipeline_builder.update_pipeline("test-id", name="New Name", description="New Description")
-        
-        # Assert
-        assert mock_pipeline.name == "New Name"
-        assert mock_pipeline.description == "New Description"
-        mock_db_session.commit.assert_called_once()
-        mock_db_session.refresh.assert_called_once()
+        # Verify deletion
+        retrieved = pipeline_builder.get_pipeline(sample_pipeline.id)
+        assert retrieved is None
+
+
+class TestDataSourceNodes:
+    """Test data source node operations"""
     
-    def test_update_pipeline_not_found(self, pipeline_builder, mock_db_session):
-        """Test updating a non-existent pipeline"""
-        # Arrange
-        mock_db_session.query.return_value.filter.return_value.first.return_value = None
+    def test_add_postgresql_source(self, pipeline_builder, sample_pipeline):
+        """Test adding PostgreSQL data source"""
+        config = DataSourceConfig(
+            source_type="postgresql",
+            connection_params={
+                "host": "localhost",
+                "port": 5432,
+                "database": "testdb",
+                "username": "user",
+                "password": "pass"
+            },
+            schema={"columns": ["id", "name", "email"]}
+        )
         
-        # Act & Assert
-        with pytest.raises(ValueError, match="Pipeline test-id not found"):
-            pipeline_builder.update_pipeline("test-id", name="New Name")
+        node = pipeline_builder.add_data_source(
+            pipeline_id=sample_pipeline.id,
+            source_config=config,
+            name="PostgreSQL Source",
+            position=(100, 100)
+        )
+        
+        assert node is not None
+        assert node.name == "PostgreSQL Source"
+        assert node.node_type == NodeType.DATA_SOURCE
+        assert node.component_type == "postgresql"
+        assert node.position_x == 100
+        assert node.position_y == 100
+        assert node.config["source_type"] == "postgresql"
+        assert "connection_params" in node.config
     
-    def test_delete_pipeline(self, pipeline_builder, mock_db_session):
-        """Test deleting a pipeline"""
-        # Arrange
-        mock_pipeline = Mock(spec=Pipeline)
-        mock_db_session.query.return_value.filter.return_value.first.return_value = mock_pipeline
+    def test_add_csv_source(self, pipeline_builder, sample_pipeline):
+        """Test adding CSV data source"""
+        config = DataSourceConfig(
+            source_type="csv",
+            connection_params={
+                "file_path": "/path/to/data.csv",
+                "delimiter": ",",
+                "header": True
+            }
+        )
         
-        # Act
-        result = pipeline_builder.delete_pipeline("test-id")
+        node = pipeline_builder.add_data_source(
+            pipeline_id=sample_pipeline.id,
+            source_config=config,
+            name="CSV Source"
+        )
         
-        # Assert
-        assert result is True
-        mock_db_session.delete.assert_called_once_with(mock_pipeline)
-        mock_db_session.commit.assert_called_once()
+        assert node is not None
+        assert node.component_type == "csv"
+        assert node.config["connection_params"]["file_path"] == "/path/to/data.csv"
     
-    def test_delete_pipeline_not_found(self, pipeline_builder, mock_db_session):
-        """Test deleting a non-existent pipeline"""
-        # Arrange
-        mock_db_session.query.return_value.filter.return_value.first.return_value = None
+    def test_add_source_to_nonexistent_pipeline(self, pipeline_builder):
+        """Test adding source to non-existent pipeline"""
+        config = DataSourceConfig(
+            source_type="postgresql",
+            connection_params={"host": "localhost"}
+        )
         
-        # Act
-        result = pipeline_builder.delete_pipeline("non-existent-id")
+        node = pipeline_builder.add_data_source(
+            pipeline_id="nonexistent-id",
+            source_config=config
+        )
         
-        # Assert
-        assert result is False
+        assert node is None
+
+
+class TestTransformationNodes:
+    """Test transformation node operations"""
     
-    def test_add_data_source(self, pipeline_builder, mock_db_session):
-        """Test adding a data source node"""
-        # Arrange
-        mock_pipeline = Mock(spec=Pipeline)
-        mock_db_session.query.return_value.filter.return_value.first.return_value = mock_pipeline
+    def test_add_filter_transformation(self, pipeline_builder, sample_pipeline):
+        """Test adding filter transformation"""
+        config = TransformConfig(
+            transform_type="filter",
+            parameters={
+                "condition": "age > 18",
+                "columns": ["age"]
+            }
+        )
         
-        source_config = {
-            "name": "Test Source",
-            "sourceType": "database",
-            "position_x": 100,
-            "position_y": 200
-        }
+        node = pipeline_builder.add_transformation(
+            pipeline_id=sample_pipeline.id,
+            transform_config=config,
+            name="Age Filter",
+            position=(200, 200)
+        )
         
-        # Act
-        result = pipeline_builder.add_data_source("pipeline-id", source_config)
-        
-        # Assert
-        assert result.name == "Test Source"
-        assert result.node_type == NodeType.DATA_SOURCE
-        assert result.position_x == 100
-        assert result.position_y == 200
-        mock_db_session.add.assert_called_once()
-        mock_db_session.commit.assert_called_once()
+        assert node is not None
+        assert node.name == "Age Filter"
+        assert node.node_type == NodeType.TRANSFORMATION
+        assert node.component_type == "filter"
+        assert node.config["parameters"]["condition"] == "age > 18"
     
-    def test_add_data_source_pipeline_not_found(self, pipeline_builder, mock_db_session):
-        """Test adding data source to non-existent pipeline"""
-        # Arrange
-        mock_db_session.query.return_value.filter.return_value.first.return_value = None
+    def test_add_aggregation_transformation(self, pipeline_builder, sample_pipeline):
+        """Test adding aggregation transformation"""
+        config = TransformConfig(
+            transform_type="aggregate",
+            parameters={
+                "group_by": ["department"],
+                "aggregations": {
+                    "salary": "avg",
+                    "count": "count"
+                }
+            }
+        )
         
-        # Act & Assert
-        with pytest.raises(ValueError, match="Pipeline test-id not found"):
-            pipeline_builder.add_data_source("test-id", {})
+        node = pipeline_builder.add_transformation(
+            pipeline_id=sample_pipeline.id,
+            transform_config=config,
+            name="Department Aggregation"
+        )
+        
+        assert node is not None
+        assert node.component_type == "aggregate"
+        assert "group_by" in node.config["parameters"]
+
+
+class TestNodeConnections:
+    """Test node connection operations"""
     
-    def test_add_transformation(self, pipeline_builder, mock_db_session):
-        """Test adding a transformation node"""
-        # Arrange
-        mock_pipeline = Mock(spec=Pipeline)
-        mock_db_session.query.return_value.filter.return_value.first.return_value = mock_pipeline
-        
-        transform_config = {
-            "name": "Test Transform",
-            "transformationType": "filter"
-        }
-        
-        # Act
-        result = pipeline_builder.add_transformation("pipeline-id", transform_config)
-        
-        # Assert
-        assert result.name == "Test Transform"
-        assert result.node_type == NodeType.TRANSFORMATION
-        mock_db_session.add.assert_called_once()
-    
-    def test_connect_nodes(self, pipeline_builder, mock_db_session):
+    def test_connect_nodes(self, pipeline_builder, sample_pipeline):
         """Test connecting two nodes"""
-        # Arrange
-        mock_source_node = Mock(spec=PipelineNode)
-        mock_source_node.pipeline_id = "pipeline-id"
-        mock_target_node = Mock(spec=PipelineNode)
-        mock_target_node.pipeline_id = "pipeline-id"
+        # Create source node
+        source_config = DataSourceConfig(
+            source_type="csv",
+            connection_params={"file_path": "data.csv"}
+        )
+        source_node = pipeline_builder.add_data_source(
+            sample_pipeline.id, source_config, "Source"
+        )
         
-        mock_db_session.query.return_value.filter.return_value.first.side_effect = [
-            mock_source_node, mock_target_node, None  # None for existing connection check
-        ]
+        # Create transformation node
+        transform_config = TransformConfig(
+            transform_type="filter",
+            parameters={"condition": "active = true"}
+        )
+        transform_node = pipeline_builder.add_transformation(
+            sample_pipeline.id, transform_config, "Filter"
+        )
         
-        # Act
-        result = pipeline_builder.connect_nodes("source-id", "target-id")
+        # Connect nodes
+        connection = pipeline_builder.connect_nodes(
+            source_node.id, transform_node.id
+        )
         
-        # Assert
-        assert result.source_node_id == "source-id"
-        assert result.target_node_id == "target-id"
-        assert result.pipeline_id == "pipeline-id"
-        mock_db_session.add.assert_called_once()
+        assert connection is not None
+        assert connection.source_node_id == source_node.id
+        assert connection.target_node_id == transform_node.id
+        assert connection.pipeline_id == sample_pipeline.id
     
-    def test_connect_nodes_different_pipelines(self, pipeline_builder, mock_db_session):
-        """Test connecting nodes from different pipelines"""
-        # Arrange
-        mock_source_node = Mock(spec=PipelineNode)
-        mock_source_node.pipeline_id = "pipeline-1"
-        mock_target_node = Mock(spec=PipelineNode)
-        mock_target_node.pipeline_id = "pipeline-2"
-        
-        mock_db_session.query.return_value.filter.return_value.first.side_effect = [
-            mock_source_node, mock_target_node
-        ]
-        
-        # Act & Assert
-        with pytest.raises(ValueError, match="Nodes must be in the same pipeline"):
-            pipeline_builder.connect_nodes("source-id", "target-id")
+    def test_connect_nonexistent_nodes(self, pipeline_builder):
+        """Test connecting non-existent nodes"""
+        connection = pipeline_builder.connect_nodes(
+            "nonexistent-source", "nonexistent-target"
+        )
+        assert connection is None
     
-    def test_connect_nodes_already_connected(self, pipeline_builder, mock_db_session):
-        """Test connecting nodes that are already connected"""
-        # Arrange
-        mock_source_node = Mock(spec=PipelineNode)
-        mock_source_node.pipeline_id = "pipeline-id"
-        mock_target_node = Mock(spec=PipelineNode)
-        mock_target_node.pipeline_id = "pipeline-id"
-        mock_existing_connection = Mock(spec=PipelineConnection)
-        
-        mock_db_session.query.return_value.filter.return_value.first.side_effect = [
-            mock_source_node, mock_target_node, mock_existing_connection
-        ]
-        
-        # Act & Assert
-        with pytest.raises(ValueError, match="Connection already exists"):
-            pipeline_builder.connect_nodes("source-id", "target-id")
-    
-    def test_validate_pipeline_valid(self, pipeline_builder, mock_db_session):
-        """Test validating a valid pipeline"""
-        # Arrange
-        mock_pipeline = Mock(spec=Pipeline)
-        mock_source_node = Mock(spec=PipelineNode)
-        mock_source_node.id = "source-id"
-        mock_source_node.node_type = NodeType.DATA_SOURCE
-        mock_target_node = Mock(spec=PipelineNode)
-        mock_target_node.id = "target-id"
-        mock_target_node.node_type = NodeType.DATA_TARGET
-        mock_pipeline.nodes = [mock_source_node, mock_target_node]
-        
-        mock_connection = Mock(spec=PipelineConnection)
-        mock_connection.source_node_id = "source-id"
-        mock_connection.target_node_id = "target-id"
-        mock_pipeline.connections = [mock_connection]
-        
-        mock_db_session.query.return_value.filter.return_value.first.return_value = mock_pipeline
-        
-        # Act
-        result = pipeline_builder.validate_pipeline("pipeline-id")
-        
-        # Assert
-        assert result["is_valid"] is True
-        assert len(result["errors"]) == 0
-        mock_db_session.add.assert_called_once()  # ValidationResult saved
-    
-    def test_validate_pipeline_no_nodes(self, pipeline_builder, mock_db_session):
-        """Test validating a pipeline with no nodes"""
-        # Arrange
-        mock_pipeline = Mock(spec=Pipeline)
-        mock_pipeline.nodes = []
-        mock_pipeline.connections = []
-        
-        mock_db_session.query.return_value.filter.return_value.first.return_value = mock_pipeline
-        
-        # Act
-        result = pipeline_builder.validate_pipeline("pipeline-id")
-        
-        # Assert
-        assert result["is_valid"] is False
-        assert "Pipeline must have at least one node" in result["errors"]
-    
-    def test_validate_pipeline_no_data_source(self, pipeline_builder, mock_db_session):
-        """Test validating a pipeline with no data source"""
-        # Arrange
-        mock_pipeline = Mock(spec=Pipeline)
-        mock_node = Mock(spec=PipelineNode)
-        mock_node.node_type = NodeType.TRANSFORMATION
-        mock_pipeline.nodes = [mock_node]
-        mock_pipeline.connections = []
-        
-        mock_db_session.query.return_value.filter.return_value.first.return_value = mock_pipeline
-        
-        # Act
-        result = pipeline_builder.validate_pipeline("pipeline-id")
-        
-        # Assert
-        assert result["is_valid"] is False
-        assert "Pipeline must have at least one data source" in result["errors"]
-    
-    def test_has_circular_dependency(self, pipeline_builder, mock_db_session):
-        """Test circular dependency detection"""
-        # Arrange
-        mock_pipeline = Mock(spec=Pipeline)
-        
+    def test_duplicate_connection(self, pipeline_builder, sample_pipeline):
+        """Test creating duplicate connection"""
         # Create nodes
-        node1 = Mock(spec=PipelineNode)
-        node1.id = "node1"
-        node2 = Mock(spec=PipelineNode)
-        node2.id = "node2"
-        node3 = Mock(spec=PipelineNode)
-        node3.id = "node3"
-        mock_pipeline.nodes = [node1, node2, node3]
+        source_config = DataSourceConfig("csv", {"file_path": "data.csv"})
+        source_node = pipeline_builder.add_data_source(sample_pipeline.id, source_config)
         
-        # Create circular connections: node1 -> node2 -> node3 -> node1
-        conn1 = Mock(spec=PipelineConnection)
-        conn1.source_node_id = "node1"
-        conn1.target_node_id = "node2"
-        conn2 = Mock(spec=PipelineConnection)
-        conn2.source_node_id = "node2"
-        conn2.target_node_id = "node3"
-        conn3 = Mock(spec=PipelineConnection)
-        conn3.source_node_id = "node3"
-        conn3.target_node_id = "node1"
-        mock_pipeline.connections = [conn1, conn2, conn3]
+        transform_config = TransformConfig("filter", {"condition": "true"})
+        transform_node = pipeline_builder.add_transformation(sample_pipeline.id, transform_config)
         
-        # Act
-        result = pipeline_builder._has_circular_dependency(mock_pipeline)
+        # Create first connection
+        conn1 = pipeline_builder.connect_nodes(source_node.id, transform_node.id)
         
-        # Assert
-        assert result is True
+        # Try to create duplicate
+        conn2 = pipeline_builder.connect_nodes(source_node.id, transform_node.id)
+        
+        assert conn1 is not None
+        assert conn2 is not None
+        assert conn1.id == conn2.id  # Should return existing connection
+
+
+class TestPipelineValidation:
+    """Test pipeline validation functionality"""
     
-    def test_update_node_position(self, pipeline_builder, mock_db_session):
-        """Test updating node position"""
-        # Arrange
-        mock_node = Mock(spec=PipelineNode)
-        mock_db_session.query.return_value.filter.return_value.first.return_value = mock_node
+    def test_validate_empty_pipeline(self, pipeline_builder, sample_pipeline):
+        """Test validating empty pipeline"""
+        result = pipeline_builder.validate_pipeline(sample_pipeline.id)
         
-        # Act
-        result = pipeline_builder.update_node_position("node-id", 150, 250)
-        
-        # Assert
-        assert mock_node.position_x == 150
-        assert mock_node.position_y == 250
-        mock_db_session.commit.assert_called_once()
-        mock_db_session.refresh.assert_called_once()
+        assert not result.is_valid
+        assert "must have at least one node" in str(result.errors)
     
-    def test_update_node_position_not_found(self, pipeline_builder, mock_db_session):
-        """Test updating position of non-existent node"""
-        # Arrange
-        mock_db_session.query.return_value.filter.return_value.first.return_value = None
+    def test_validate_pipeline_without_sources(self, pipeline_builder, sample_pipeline):
+        """Test validating pipeline without data sources"""
+        # Add only transformation node
+        transform_config = TransformConfig("filter", {"condition": "true"})
+        pipeline_builder.add_transformation(sample_pipeline.id, transform_config)
         
-        # Act & Assert
-        with pytest.raises(ValueError, match="Node node-id not found"):
-            pipeline_builder.update_node_position("node-id", 150, 250)
+        result = pipeline_builder.validate_pipeline(sample_pipeline.id)
+        
+        assert not result.is_valid
+        assert "must have at least one data source" in str(result.errors)
+    
+    def test_validate_valid_pipeline(self, pipeline_builder, sample_pipeline):
+        """Test validating valid pipeline"""
+        # Add source
+        source_config = DataSourceConfig("csv", {"file_path": "data.csv"})
+        source_node = pipeline_builder.add_data_source(sample_pipeline.id, source_config)
+        
+        # Add transformation
+        transform_config = TransformConfig("filter", {"condition": "active = true"})
+        transform_node = pipeline_builder.add_transformation(sample_pipeline.id, transform_config)
+        
+        # Connect nodes
+        pipeline_builder.connect_nodes(source_node.id, transform_node.id)
+        
+        result = pipeline_builder.validate_pipeline(sample_pipeline.id)
+        
+        assert result.is_valid
+        assert len(result.errors) == 0
+    
+    def test_validate_pipeline_with_cycles(self, pipeline_builder, sample_pipeline):
+        """Test detecting cycles in pipeline"""
+        # Create nodes
+        source_config = DataSourceConfig("csv", {"file_path": "data.csv"})
+        node1 = pipeline_builder.add_data_source(sample_pipeline.id, source_config, "Node1")
+        
+        transform_config1 = TransformConfig("filter", {"condition": "true"})
+        node2 = pipeline_builder.add_transformation(sample_pipeline.id, transform_config1, "Node2")
+        
+        transform_config2 = TransformConfig("map", {"mappings": {}})
+        node3 = pipeline_builder.add_transformation(sample_pipeline.id, transform_config2, "Node3")
+        
+        # Create cycle: node1 -> node2 -> node3 -> node2
+        pipeline_builder.connect_nodes(node1.id, node2.id)
+        pipeline_builder.connect_nodes(node2.id, node3.id)
+        pipeline_builder.connect_nodes(node3.id, node2.id)  # Creates cycle
+        
+        result = pipeline_builder.validate_pipeline(sample_pipeline.id)
+        
+        assert not result.is_valid
+        assert "contains cycles" in str(result.errors)
+    
+    def test_validate_nonexistent_pipeline(self, pipeline_builder):
+        """Test validating non-existent pipeline"""
+        result = pipeline_builder.validate_pipeline("nonexistent-id")
+        
+        assert not result.is_valid
+        assert "Pipeline not found" in str(result.errors)
+
+
+class TestComponentTemplates:
+    """Test component template operations"""
+    
+    def test_create_component_template(self, pipeline_builder):
+        """Test creating component template"""
+        template = pipeline_builder.create_component_template(
+            name="PostgreSQL Source",
+            node_type=NodeType.DATA_SOURCE,
+            component_type="postgresql",
+            description="PostgreSQL database source",
+            category="Databases",
+            default_config={
+                "host": "localhost",
+                "port": 5432
+            }
+        )
+        
+        assert template is not None
+        assert template.name == "PostgreSQL Source"
+        assert template.node_type == NodeType.DATA_SOURCE
+        assert template.component_type == "postgresql"
+        assert template.default_config["port"] == 5432
+    
+    def test_get_component_templates(self, pipeline_builder):
+        """Test retrieving component templates"""
+        # Create templates
+        pipeline_builder.create_component_template(
+            "PostgreSQL", NodeType.DATA_SOURCE, "postgresql", category="Databases"
+        )
+        pipeline_builder.create_component_template(
+            "Filter", NodeType.TRANSFORMATION, "filter", category="Transformations"
+        )
+        
+        # Get all templates
+        all_templates = pipeline_builder.get_component_templates()
+        assert len(all_templates) == 2
+        
+        # Filter by node type
+        source_templates = pipeline_builder.get_component_templates(node_type=NodeType.DATA_SOURCE)
+        assert len(source_templates) == 1
+        assert source_templates[0].component_type == "postgresql"
+        
+        # Filter by category
+        db_templates = pipeline_builder.get_component_templates(category="Databases")
+        assert len(db_templates) == 1
+
+
+class TestValidationHelpers:
+    """Test validation helper methods"""
+    
+    def test_validation_result(self):
+        """Test ValidationResult class"""
+        result = ValidationResult()
+        assert result.is_valid is True
+        assert len(result.errors) == 0
+        assert len(result.warnings) == 0
+        
+        result.add_error("Test error")
+        assert result.is_valid is False
+        assert "Test error" in result.errors
+        
+        result.add_warning("Test warning")
+        assert "Test warning" in result.warnings
+    
+    def test_node_validation(self, pipeline_builder, sample_pipeline):
+        """Test individual node validation"""
+        # Create node with missing configuration
+        source_config = DataSourceConfig("postgresql", {})  # Missing required params
+        node = pipeline_builder.add_data_source(sample_pipeline.id, source_config)
+        
+        # Validate the node directly
+        validation_result = pipeline_builder._validate_node(node)
+        
+        assert not validation_result.is_valid
+        assert len(validation_result.errors) > 0
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])

@@ -1,0 +1,57 @@
+{
+  "timestamp": "2025-08-22T21:28:53.674483",
+  "overall_score": 85.71,
+  "categories": {
+    "environment": {
+      "score": 40,
+      "issues": [
+        "Missing or empty OPENAI_API_KEY",
+        "Missing or empty DATABASE_URL",
+        "Missing or empty JWT_SECRET_KEY"
+      ],
+      "status": "needs_improvement"
+    },
+    "database": {
+      "score": 80,
+      "issues": [],
+      "status": "optimized"
+    },
+    "performance": {
+      "score": 100,
+      "issues": [],
+      "status": "optimized"
+    },
+    "security": {
+      "score": 80,
+      "issues": [
+        "Missing security component: security/enterprise_security_framework.py"
+      ],
+      "status": "optimized"
+    },
+    "frontend": {
+      "score": 100,
+      "issues": [],
+      "status": "optimized"
+    },
+    "deployment": {
+      "score": 100,
+      "issues": [],
+      "status": "ready"
+    },
+    "api": {
+      "score": 100,
+      "issues": [],
+      "status": "optimized"
+    }
+  },
+  "recommendations": [
+    "\u2705 GOOD: Application is well optimized"
+  ],
+  "critical_issues": [
+    "environment: Missing or empty OPENAI_API_KEY",
+    "environment: Missing or empty DATABASE_URL",
+    "environment: Missing or empty JWT_SECRET_KEY",
+    "security: Missing security component: security/enterprise_security_framework.py"
+  ],
+  "warnings": []
+}

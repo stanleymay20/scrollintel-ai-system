@@ -1,0 +1,370 @@
+name: Agent Steering System CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'scrollintel/core/agent_steering/**'
+      - 'scrollintel/engines/orchestration/**'
+      - 'scrollintel/engines/intelligence/**'
+      - 'k8s/**'
+      - '.github/workflows/agent-steering-ci-cd.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'scrollintel/core/agent_steering/**'
+      - 'scrollintel/engines/orchestration/**'
+      - 'scrollintel/engines/intelligence/**'
+      - 'k8s/**'
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME_ORCHESTRATION: scrollintel/orchestration-engine
+  IMAGE_NAME_INTELLIGENCE: scrollintel/intelligence-engine
+  KUBERNETES_NAMESPACE: agent-steering-system
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: [3.11, 3.12]
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_USER: test_user
+          POSTGRES_DB: test_db
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v4
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Cache pip dependencies
+      uses: actions/cache@v3
+      with:
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements*.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-pip-
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install -r requirements-test.txt
+        pip install pytest pytest-cov pytest-asyncio pytest-mock
+
+    - name: Set up test environment
+      run: |
+        export DATABASE_URL="postgresql://test_user:test_password@localhost:5432/test_db"
+        export REDIS_URL="redis://localhost:6379/0"
+        export ENVIRONMENT="test"
+
+    - name: Run unit tests
+      run: |
+        pytest tests/unit/ -v --cov=scrollintel --cov-report=xml --cov-report=html
+      env:
+        DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
+        REDIS_URL: redis://localhost:6379/0
+        ENVIRONMENT: test
+
+    - name: Run integration tests
+      run: |
+        pytest tests/integration/test_agent_steering/ -v
+      env:
+        DATABASE_URL: postgresql://test_user:test_password@localhost:5432/test_db
+        REDIS_URL: redis://localhost:6379/0
+        ENVIRONMENT: test
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Run Trivy vulnerability scanner
+      uses: aquasecurity/trivy-action@master
+      with:
+        scan-type: 'fs'
+        scan-ref: '.'
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+
+    - name: Upload Trivy scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+
+    - name: Run Bandit security linter
+      run: |
+        pip install bandit
+        bandit -r scrollintel/ -f json -o bandit-report.json
+
+    - name: Upload Bandit results
+      uses: actions/upload-artifact@v3
+      with:
+        name: bandit-report
+        path: bandit-report.json
+
+  build-orchestration:
+    name: Build Orchestration Engine
+    runs-on: ubuntu-latest
+    needs: [test, security-scan]
+    if: github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ORCHESTRATION }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Orchestration Engine
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./docker/orchestration.Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+  build-intelligence:
+    name: Build Intelligence Engine
+    runs-on: ubuntu-latest
+    needs: [test, security-scan]
+    if: github.event_name == 'push'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_INTELLIGENCE }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Intelligence Engine
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./docker/intelligence.Dockerfile
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        platforms: linux/amd64,linux/arm64
+
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: [build-orchestration, build-intelligence]
+    if: github.ref == 'refs/heads/develop'
+    environment: staging
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure kubectl
+      uses: azure/k8s-set-context@v3
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ secrets.KUBE_CONFIG_STAGING }}
+
+    - name: Deploy to staging
+      run: |
+        # Update image tags in deployment files
+        sed -i "s|scrollintel/orchestration-engine:latest|${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ORCHESTRATION }}:develop-${{ github.sha }}|g" k8s/orchestration-deployment.yaml
+        sed -i "s|scrollintel/intelligence-engine:latest|${{ env.REGISTRY }}/${{ env.IMAGE_NAME_INTELLIGENCE }}:develop-${{ github.sha }}|g" k8s/intelligence-deployment.yaml
+        
+        # Apply Kubernetes manifests
+        kubectl apply -f k8s/namespace.yaml
+        kubectl apply -f k8s/configmap.yaml
+        kubectl apply -f k8s/secrets.yaml -n agent-steering-system-staging
+        kubectl apply -f k8s/rbac.yaml
+        kubectl apply -f k8s/data-services.yaml -n agent-steering-system-staging
+        kubectl apply -f k8s/kafka-cluster.yaml -n agent-steering-system-staging
+        kubectl apply -f k8s/monitoring-stack.yaml -n agent-steering-system-staging
+        kubectl apply -f k8s/orchestration-deployment.yaml -n agent-steering-system-staging
+        kubectl apply -f k8s/intelligence-deployment.yaml -n agent-steering-system-staging
+        kubectl apply -f k8s/ingress.yaml -n agent-steering-system-staging
+        
+        # Wait for deployment to complete
+        kubectl rollout status deployment/orchestration-engine -n agent-steering-system-staging --timeout=600s
+        kubectl rollout status deployment/intelligence-engine -n agent-steering-system-staging --timeout=600s
+
+    - name: Run smoke tests
+      run: |
+        # Wait for services to be ready
+        kubectl wait --for=condition=ready pod -l app=orchestration-engine -n agent-steering-system-staging --timeout=300s
+        kubectl wait --for=condition=ready pod -l app=intelligence-engine -n agent-steering-system-staging --timeout=300s
+        
+        # Run smoke tests
+        python scripts/smoke-tests.py --environment=staging
+
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: [build-orchestration, build-intelligence]
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Configure kubectl
+      uses: azure/k8s-set-context@v3
+      with:
+        method: kubeconfig
+        kubeconfig: ${{ secrets.KUBE_CONFIG_PRODUCTION }}
+
+    - name: Blue-Green Deployment
+      run: |
+        # Update image tags
+        sed -i "s|scrollintel/orchestration-engine:latest|${{ env.REGISTRY }}/${{ env.IMAGE_NAME_ORCHESTRATION }}:main-${{ github.sha }}|g" k8s/orchestration-deployment.yaml
+        sed -i "s|scrollintel/intelligence-engine:latest|${{ env.REGISTRY }}/${{ env.IMAGE_NAME_INTELLIGENCE }}:main-${{ github.sha }}|g" k8s/intelligence-deployment.yaml
+        
+        # Create green deployment
+        sed 's/orchestration-engine/orchestration-engine-green/g' k8s/orchestration-deployment.yaml > k8s/orchestration-deployment-green.yaml
+        sed 's/intelligence-engine/intelligence-engine-green/g' k8s/intelligence-deployment.yaml > k8s/intelligence-deployment-green.yaml
+        
+        # Deploy green version
+        kubectl apply -f k8s/orchestration-deployment-green.yaml -n agent-steering-system
+        kubectl apply -f k8s/intelligence-deployment-green.yaml -n agent-steering-system
+        
+        # Wait for green deployment
+        kubectl rollout status deployment/orchestration-engine-green -n agent-steering-system --timeout=600s
+        kubectl rollout status deployment/intelligence-engine-green -n agent-steering-system --timeout=600s
+        
+        # Run health checks on green deployment
+        python scripts/health-check.py --target=green --environment=production
+        
+        # Switch traffic to green (update service selectors)
+        kubectl patch service orchestration-service -n agent-steering-system -p '{"spec":{"selector":{"app":"orchestration-engine-green"}}}'
+        kubectl patch service intelligence-service -n agent-steering-system -p '{"spec":{"selector":{"app":"intelligence-engine-green"}}}'
+        
+        # Wait and verify
+        sleep 30
+        python scripts/health-check.py --target=production --environment=production
+        
+        # Clean up blue deployment
+        kubectl delete deployment orchestration-engine -n agent-steering-system --ignore-not-found=true
+        kubectl delete deployment intelligence-engine -n agent-steering-system --ignore-not-found=true
+        
+        # Rename green to blue for next deployment
+        kubectl patch deployment orchestration-engine-green -n agent-steering-system -p '{"metadata":{"name":"orchestration-engine"}}'
+        kubectl patch deployment intelligence-engine-green -n agent-steering-system -p '{"metadata":{"name":"intelligence-engine"}}'
+
+    - name: Post-deployment verification
+      run: |
+        # Run comprehensive health checks
+        python scripts/post-deployment-verification.py --environment=production
+        
+        # Update deployment status
+        curl -X POST "${{ secrets.DEPLOYMENT_WEBHOOK_URL }}" \
+          -H "Content-Type: application/json" \
+          -d '{"status":"success","environment":"production","commit":"${{ github.sha }}","timestamp":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}'
+
+  performance-test:
+    name: Performance Testing
+    runs-on: ubuntu-latest
+    needs: [deploy-staging]
+    if: github.ref == 'refs/heads/develop'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install k6
+      run: |
+        sudo gpg -k
+        sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+        echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+        sudo apt-get update
+        sudo apt-get install k6
+
+    - name: Run performance tests
+      run: |
+        k6 run tests/performance/orchestration-load-test.js
+        k6 run tests/performance/intelligence-load-test.js
+      env:
+        STAGING_API_URL: https://api.staging.agent-steering.scrollintel.com
+
+    - name: Upload performance results
+      uses: actions/upload-artifact@v3
+      with:
+        name: performance-results
+        path: performance-results/

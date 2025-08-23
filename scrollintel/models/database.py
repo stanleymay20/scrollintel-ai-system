@@ -875,3 +875,63 @@ class AuditLog(Base):
     
     def __repr__(self):
         return f"<AuditLog(id={self.id}, action={self.action}, resource_type={self.resource_type}, timestamp={self.timestamp})>"
+
+# Database session management functions
+import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from contextlib import contextmanager
+from typing import Generator
+
+# Global session factory
+_SessionLocal = None
+_engine = None
+
+def init_database_session(database_url: str = None):
+    """Initialize database session factory"""
+    global _SessionLocal, _engine
+    
+    if database_url is None:
+        # Try to get from environment or use default
+        database_url = os.getenv('DATABASE_URL', 'sqlite:///./scrollintel.db')
+    
+    # Create engine
+    if database_url.startswith('sqlite'):
+        _engine = create_engine(
+            database_url,
+            connect_args={"check_same_thread": False},
+            echo=False
+        )
+    else:
+        _engine = create_engine(database_url, echo=False)
+    
+    # Create session factory
+    _SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=_engine)
+    
+    # Create tables
+    Base.metadata.create_all(bind=_engine)
+
+@contextmanager
+def get_db_session() -> Generator:
+    """Get database session with automatic cleanup"""
+    global _SessionLocal
+    
+    if _SessionLocal is None:
+        init_database_session()
+    
+    session = _SessionLocal()
+    try:
+        yield session
+        session.commit()
+    except Exception:
+        session.rollback()
+        raise
+    finally:
+        session.close()
+
+def get_engine():
+    """Get database engine"""
+    global _engine
+    if _engine is None:
+        init_database_session()
+    return _engine

@@ -1,3 +1,4 @@
+import os
 """
 Elasticsearch Integration for Data Product Registry
 
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 class DataProductIndexer:
     """Elasticsearch indexer for data products"""
     
-    def __init__(self, elasticsearch_url: str = "http://localhost:9200"):
+    def __init__(self, elasticsearch_url: str = os.getenv("API_URL", os.getenv("ELASTICSEARCH_URL", "http://localhost:9200"))):
         self.es = Elasticsearch([elasticsearch_url])
         self.index_name = "data_products"
         self._ensure_index_exists()

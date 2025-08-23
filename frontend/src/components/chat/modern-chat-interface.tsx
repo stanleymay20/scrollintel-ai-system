@@ -132,7 +132,10 @@ export function ModernChatInterface() {
     }
 
     socket.on('message_stream', handleStreamingMessage)
-    return () => socket.off('message_stream', handleStreamingMessage)
+    
+    return () => {
+      socket.off('message_stream', handleStreamingMessage)
+    }
   }, [socket])
 
   const handleSendMessage = async () => {
@@ -273,7 +276,7 @@ export function ModernChatInterface() {
     }
   }
 
-  const handleExportConversation = async (format: string) => {
+  const handleExportConversation = async (format: 'markdown' | 'pdf' | 'json' | 'txt') => {
     if (!currentConversation) return
     
     try {

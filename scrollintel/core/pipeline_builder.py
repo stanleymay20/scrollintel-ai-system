@@ -1,23 +1,54 @@
 """
-PipelineBuilder class with CRUD operations for data pipeline management
+Data Pipeline Automation - Pipeline Builder
+Core pipeline building functionality with CRUD operations and validation.
 """
-from typing import List, Dict, Any, Optional
+
+from typing import List, Dict, Any, Optional, Tuple
 from sqlalchemy.orm import Session
-from sqlalchemy import and_
+from sqlalchemy import and_, or_
+import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from scrollintel.models.pipeline_models import (
-    Pipeline, PipelineNode, PipelineConnection, DataSourceConfig, 
-    ValidationResult, PipelineStatus, NodeType
+    Pipeline, PipelineNode, PipelineConnection, ComponentTemplate,
+    NodeType, PipelineStatus, ValidationStatus
 )
 
-class ValidationError(Exception):
-    """Custom exception for pipeline validation errors"""
-    pass
+
+class ValidationResult:
+    """Pipeline validation result"""
+    def __init__(self, is_valid: bool = True, errors: List[str] = None, warnings: List[str] = None):
+        self.is_valid = is_valid
+        self.errors = errors or []
+        self.warnings = warnings or []
+    
+    def add_error(self, error: str):
+        self.errors.append(error)
+        self.is_valid = False
+    
+    def add_warning(self, warning: str):
+        self.warnings.append(warning)
+
+
+class DataSourceConfig:
+    """Data source configuration"""
+    def __init__(self, source_type: str, connection_params: Dict[str, Any], schema: Dict[str, Any] = None):
+        self.source_type = source_type
+        self.connection_params = connection_params
+        self.schema = schema or {}
+
+
+class TransformConfig:
+    """Transformation configuration"""
+    def __init__(self, transform_type: str, parameters: Dict[str, Any], input_schema: Dict[str, Any] = None):
+        self.transform_type = transform_type
+        self.parameters = parameters
+        self.input_schema = input_schema or {}
+
 
 class PipelineBuilder:
-    """Main class for building and managing data pipelines"""
+    """Main pipeline builder class with CRUD operations"""
     
     def __init__(self, db_session: Session):
         self.db = db_session
@@ -25,11 +56,11 @@ class PipelineBuilder:
     def create_pipeline(self, name: str, description: str = "", created_by: str = "") -> Pipeline:
         """Create a new pipeline"""
         pipeline = Pipeline(
-            id=str(uuid.uuid4()),
             name=name,
             description=description,
             created_by=created_by,
-            status=PipelineStatus.DRAFT
+            status=PipelineStatus.DRAFT,
+            validation_status=ValidationStatus.PENDING
         )
         
         self.db.add(pipeline)
@@ -39,34 +70,38 @@ class PipelineBuilder:
         return pipeline
     
     def get_pipeline(self, pipeline_id: str) -> Optional[Pipeline]:
-        """Get a pipeline by ID"""
+        """Get pipeline by ID"""
         return self.db.query(Pipeline).filter(Pipeline.id == pipeline_id).first()
     
-    def list_pipelines(self, created_by: str = None) -> List[Pipeline]:
-        """List all pipelines, optionally filtered by creator"""
+    def list_pipelines(self, status: PipelineStatus = None, created_by: str = None) -> List[Pipeline]:
+        """List pipelines with optional filtering"""
         query = self.db.query(Pipeline)
+        
+        if status:
+            query = query.filter(Pipeline.status == status)
         if created_by:
             query = query.filter(Pipeline.created_by == created_by)
-        return query.all()
+        
+        return query.order_by(Pipeline.created_at.desc()).all()
     
-    def update_pipeline(self, pipeline_id: str, **kwargs) -> Pipeline:
+    def update_pipeline(self, pipeline_id: str, **kwargs) -> Optional[Pipeline]:
         """Update pipeline properties"""
         pipeline = self.get_pipeline(pipeline_id)
         if not pipeline:
-            raise ValueError(f"Pipeline {pipeline_id} not found")
+            return None
         
         for key, value in kwargs.items():
             if hasattr(pipeline, key):
                 setattr(pipeline, key, value)
         
-        pipeline.updated_at = datetime.utcnow()
+        pipeline.updated_at = datetime.now(timezone.utc)
         self.db.commit()
         self.db.refresh(pipeline)
         
         return pipeline
     
     def delete_pipeline(self, pipeline_id: str) -> bool:
-        """Delete a pipeline and all its nodes/connections"""
+        """Delete pipeline and all associated nodes/connections"""
         pipeline = self.get_pipeline(pipeline_id)
         if not pipeline:
             return False
@@ -75,84 +110,83 @@ class PipelineBuilder:
         self.db.commit()
         return True
     
-    def add_data_source(self, pipeline_id: str, source_config: Dict[str, Any]) -> PipelineNode:
+    def add_data_source(self, pipeline_id: str, source_config: DataSourceConfig, 
+                       name: str = "", position: Tuple[int, int] = (0, 0)) -> Optional[PipelineNode]:
         """Add a data source node to the pipeline"""
         pipeline = self.get_pipeline(pipeline_id)
         if not pipeline:
-            raise ValueError(f"Pipeline {pipeline_id} not found")
+            return None
+        
+        node_name = name or f"{source_config.source_type}_source"
         
         node = PipelineNode(
-            id=str(uuid.uuid4()),
             pipeline_id=pipeline_id,
-            name=source_config.get("name", "Data Source"),
+            name=node_name,
             node_type=NodeType.DATA_SOURCE,
-            config=source_config,
-            position_x=source_config.get("position_x", 0),
-            position_y=source_config.get("position_y", 0)
+            component_type=source_config.source_type,
+            position_x=position[0],
+            position_y=position[1],
+            config={
+                "connection_params": source_config.connection_params,
+                "source_type": source_config.source_type
+            },
+            output_schema=source_config.schema
         )
         
         self.db.add(node)
         self.db.commit()
         self.db.refresh(node)
         
+        # Trigger pipeline validation
+        self._update_pipeline_validation_status(pipeline_id)
+        
         return node
     
-    def add_transformation(self, pipeline_id: str, transform_config: Dict[str, Any]) -> PipelineNode:
+    def add_transformation(self, pipeline_id: str, transform_config: TransformConfig,
+                          name: str = "", position: Tuple[int, int] = (0, 0)) -> Optional[PipelineNode]:
         """Add a transformation node to the pipeline"""
         pipeline = self.get_pipeline(pipeline_id)
         if not pipeline:
-            raise ValueError(f"Pipeline {pipeline_id} not found")
+            return None
+        
+        node_name = name or f"{transform_config.transform_type}_transform"
         
         node = PipelineNode(
-            id=str(uuid.uuid4()),
             pipeline_id=pipeline_id,
-            name=transform_config.get("name", "Transformation"),
+            name=node_name,
             node_type=NodeType.TRANSFORMATION,
-            config=transform_config,
-            position_x=transform_config.get("position_x", 0),
-            position_y=transform_config.get("position_y", 0)
+            component_type=transform_config.transform_type,
+            position_x=position[0],
+            position_y=position[1],
+            config={
+                "parameters": transform_config.parameters,
+                "transform_type": transform_config.transform_type
+            },
+            input_schema=transform_config.input_schema
         )
         
         self.db.add(node)
         self.db.commit()
         self.db.refresh(node)
         
-        return node
-    
-    def add_data_target(self, pipeline_id: str, target_config: Dict[str, Any]) -> PipelineNode:
-        """Add a data target node to the pipeline"""
-        pipeline = self.get_pipeline(pipeline_id)
-        if not pipeline:
-            raise ValueError(f"Pipeline {pipeline_id} not found")
-        
-        node = PipelineNode(
-            id=str(uuid.uuid4()),
-            pipeline_id=pipeline_id,
-            name=target_config.get("name", "Data Target"),
-            node_type=NodeType.DATA_TARGET,
-            config=target_config,
-            position_x=target_config.get("position_x", 0),
-            position_y=target_config.get("position_y", 0)
-        )
-        
-        self.db.add(node)
-        self.db.commit()
-        self.db.refresh(node)
+        # Trigger pipeline validation
+        self._update_pipeline_validation_status(pipeline_id)
         
         return node
     
-    def connect_nodes(self, source_node_id: str, target_node_id: str, config: Dict[str, Any] = None) -> PipelineConnection:
-        """Connect two nodes in the pipeline"""
+    def connect_nodes(self, source_node_id: str, target_node_id: str,
+                     source_port: str = "output", target_port: str = "input") -> Optional[PipelineConnection]:
+        """Create a connection between two nodes"""
         source_node = self.db.query(PipelineNode).filter(PipelineNode.id == source_node_id).first()
         target_node = self.db.query(PipelineNode).filter(PipelineNode.id == target_node_id).first()
         
         if not source_node or not target_node:
-            raise ValueError("Source or target node not found")
+            return None
         
         if source_node.pipeline_id != target_node.pipeline_id:
-            raise ValueError("Nodes must be in the same pipeline")
+            return None  # Nodes must be in the same pipeline
         
-        # Check for existing connection
+        # Check if connection already exists
         existing = self.db.query(PipelineConnection).filter(
             and_(
                 PipelineConnection.source_node_id == source_node_id,
@@ -161,136 +195,227 @@ class PipelineBuilder:
         ).first()
         
         if existing:
-            raise ValueError("Connection already exists")
+            return existing
         
         connection = PipelineConnection(
-            id=str(uuid.uuid4()),
             pipeline_id=source_node.pipeline_id,
             source_node_id=source_node_id,
             target_node_id=target_node_id,
-            config=config or {}
+            source_port=source_port,
+            target_port=target_port
         )
         
         self.db.add(connection)
         self.db.commit()
         self.db.refresh(connection)
         
+        # Trigger pipeline validation
+        self._update_pipeline_validation_status(source_node.pipeline_id)
+        
         return connection
     
-    def validate_pipeline(self, pipeline_id: str) -> Dict[str, Any]:
+    def validate_pipeline(self, pipeline_id: str) -> ValidationResult:
         """Validate pipeline structure and configuration"""
         pipeline = self.get_pipeline(pipeline_id)
         if not pipeline:
-            raise ValueError(f"Pipeline {pipeline_id} not found")
+            result = ValidationResult(False)
+            result.add_error("Pipeline not found")
+            return result
         
-        errors = []
-        warnings = []
+        result = ValidationResult()
         
-        # Check if pipeline has nodes
-        if not pipeline.nodes:
-            errors.append("Pipeline must have at least one node")
+        # Get all nodes and connections
+        nodes = self.db.query(PipelineNode).filter(PipelineNode.pipeline_id == pipeline_id).all()
+        connections = self.db.query(PipelineConnection).filter(PipelineConnection.pipeline_id == pipeline_id).all()
+        
+        # Validate basic structure
+        if not nodes:
+            result.add_error("Pipeline must have at least one node")
+            return result
         
         # Check for data sources
-        data_sources = [n for n in pipeline.nodes if n.node_type == NodeType.DATA_SOURCE]
-        if not data_sources:
-            errors.append("Pipeline must have at least one data source")
+        source_nodes = [n for n in nodes if n.node_type == NodeType.DATA_SOURCE]
+        if not source_nodes:
+            result.add_error("Pipeline must have at least one data source")
         
-        # Check for data targets
-        data_targets = [n for n in pipeline.nodes if n.node_type == NodeType.DATA_TARGET]
-        if not data_targets:
-            warnings.append("Pipeline should have at least one data target")
+        # Validate node configurations
+        for node in nodes:
+            node_validation = self._validate_node(node)
+            if not node_validation.is_valid:
+                result.errors.extend([f"Node {node.name}: {error}" for error in node_validation.errors])
+                result.is_valid = False
+            result.warnings.extend([f"Node {node.name}: {warning}" for warning in node_validation.warnings])
+        
+        # Validate connections
+        for connection in connections:
+            conn_validation = self._validate_connection(connection, nodes)
+            if not conn_validation.is_valid:
+                result.errors.extend([f"Connection {connection.id}: {error}" for error in conn_validation.errors])
+                result.is_valid = False
+            result.warnings.extend([f"Connection {connection.id}: {warning}" for warning in conn_validation.warnings])
+        
+        # Check for cycles
+        if self._has_cycles(nodes, connections):
+            result.add_error("Pipeline contains cycles")
         
         # Check for disconnected nodes
-        connected_nodes = set()
-        for conn in pipeline.connections:
-            connected_nodes.add(conn.source_node_id)
-            connected_nodes.add(conn.target_node_id)
-        
-        disconnected = [n for n in pipeline.nodes if n.id not in connected_nodes and len(pipeline.nodes) > 1]
+        disconnected = self._find_disconnected_nodes(nodes, connections)
         if disconnected:
-            warnings.append(f"Found {len(disconnected)} disconnected nodes")
+            result.add_warning(f"Disconnected nodes found: {[n.name for n in disconnected]}")
         
-        # Check for circular dependencies
-        if self._has_circular_dependency(pipeline):
-            errors.append("Pipeline contains circular dependencies")
+        return result
+    
+    def get_component_templates(self, node_type: NodeType = None, category: str = None) -> List[ComponentTemplate]:
+        """Get available component templates"""
+        query = self.db.query(ComponentTemplate).filter(ComponentTemplate.is_active == True)
         
-        is_valid = len(errors) == 0
+        if node_type:
+            query = query.filter(ComponentTemplate.node_type == node_type)
+        if category:
+            query = query.filter(ComponentTemplate.category == category)
         
-        # Save validation result
-        validation_result = ValidationResult(
-            id=str(uuid.uuid4()),
-            pipeline_id=pipeline_id,
-            validation_type="structure",
-            is_valid=is_valid,
-            errors=errors,
-            warnings=warnings
+        return query.order_by(ComponentTemplate.name).all()
+    
+    def create_component_template(self, name: str, node_type: NodeType, component_type: str,
+                                description: str = "", category: str = "", 
+                                default_config: Dict[str, Any] = None) -> ComponentTemplate:
+        """Create a new component template"""
+        template = ComponentTemplate(
+            name=name,
+            description=description,
+            category=category,
+            node_type=node_type,
+            component_type=component_type,
+            default_config=default_config or {}
         )
         
-        self.db.add(validation_result)
+        self.db.add(template)
         self.db.commit()
+        self.db.refresh(template)
         
-        return {
-            "is_valid": is_valid,
-            "errors": errors,
-            "warnings": warnings,
-            "validation_id": validation_result.id
-        }
+        return template
     
-    def _has_circular_dependency(self, pipeline: Pipeline) -> bool:
-        """Check for circular dependencies in the pipeline"""
+    def _validate_node(self, node: PipelineNode) -> ValidationResult:
+        """Validate individual node configuration"""
+        result = ValidationResult()
+        
+        # Check required configuration
+        if not node.config:
+            result.add_error("Node configuration is missing")
+            return result
+        
+        # Validate based on node type
+        if node.node_type == NodeType.DATA_SOURCE:
+            if "source_type" not in node.config:
+                result.add_error("Data source type is required")
+            if "connection_params" not in node.config:
+                result.add_error("Connection parameters are required")
+            else:
+                # Validate connection parameters based on source type
+                conn_params = node.config["connection_params"]
+                source_type = node.config.get("source_type", "")
+                
+                if source_type in ["postgresql", "mysql", "sqlserver", "oracle"]:
+                    required_params = ["host", "database"]
+                    for param in required_params:
+                        if not conn_params.get(param):
+                            result.add_error(f"Required parameter '{param}' is missing for {source_type} source")
+                
+                elif source_type in ["csv", "json", "parquet", "excel"]:
+                    if not conn_params.get("file_path"):
+                        result.add_error("File path is required for file-based sources")
+                
+                elif source_type in ["rest_api", "graphql"]:
+                    if not conn_params.get("url"):
+                        result.add_error("URL is required for API sources")
+        
+        elif node.node_type == NodeType.TRANSFORMATION:
+            if "transform_type" not in node.config:
+                result.add_error("Transformation type is required")
+            if "parameters" not in node.config:
+                result.add_error("Transformation parameters are required")
+        
+        return result
+    
+    def _validate_connection(self, connection: PipelineConnection, nodes: List[PipelineNode]) -> ValidationResult:
+        """Validate individual connection"""
+        result = ValidationResult()
+        
+        # Find source and target nodes
+        source_node = next((n for n in nodes if n.id == connection.source_node_id), None)
+        target_node = next((n for n in nodes if n.id == connection.target_node_id), None)
+        
+        if not source_node:
+            result.add_error("Source node not found")
+        if not target_node:
+            result.add_error("Target node not found")
+        
+        if source_node and target_node:
+            # Check schema compatibility (basic check)
+            if source_node.output_schema and target_node.input_schema:
+                # This is a simplified schema check - in practice, you'd want more sophisticated validation
+                if not self._schemas_compatible(source_node.output_schema, target_node.input_schema):
+                    result.add_warning("Schema compatibility issues detected")
+        
+        return result
+    
+    def _schemas_compatible(self, output_schema: Dict[str, Any], input_schema: Dict[str, Any]) -> bool:
+        """Check if output schema is compatible with input schema"""
+        # Simplified compatibility check
+        # In practice, this would be much more sophisticated
+        return True  # Placeholder implementation
+    
+    def _has_cycles(self, nodes: List[PipelineNode], connections: List[PipelineConnection]) -> bool:
+        """Check if pipeline has cycles using DFS"""
         # Build adjacency list
-        graph = {}
-        for node in pipeline.nodes:
-            graph[node.id] = []
+        graph = {node.id: [] for node in nodes}
+        for conn in connections:
+            graph[conn.source_node_id].append(conn.target_node_id)
         
-        for conn in pipeline.connections:
-            if conn.source_node_id in graph:
-                graph[conn.source_node_id].append(conn.target_node_id)
-        
-        # DFS to detect cycles
+        # DFS cycle detection
         visited = set()
         rec_stack = set()
         
-        def has_cycle(node_id):
-            if node_id in rec_stack:
-                return True
-            if node_id in visited:
-                return False
-            
+        def dfs(node_id):
             visited.add(node_id)
             rec_stack.add(node_id)
             
             for neighbor in graph.get(node_id, []):
-                if has_cycle(neighbor):
+                if neighbor not in visited:
+                    if dfs(neighbor):
+                        return True
+                elif neighbor in rec_stack:
                     return True
             
             rec_stack.remove(node_id)
             return False
         
-        for node_id in graph:
-            if node_id not in visited:
-                if has_cycle(node_id):
+        for node in nodes:
+            if node.id not in visited:
+                if dfs(node.id):
                     return True
         
         return False
     
-    def get_pipeline_nodes(self, pipeline_id: str) -> List[PipelineNode]:
-        """Get all nodes for a pipeline"""
-        return self.db.query(PipelineNode).filter(PipelineNode.pipeline_id == pipeline_id).all()
-    
-    def get_pipeline_connections(self, pipeline_id: str) -> List[PipelineConnection]:
-        """Get all connections for a pipeline"""
-        return self.db.query(PipelineConnection).filter(PipelineConnection.pipeline_id == pipeline_id).all()
-    
-    def update_node_position(self, node_id: str, x: int, y: int) -> PipelineNode:
-        """Update node position for visual layout"""
-        node = self.db.query(PipelineNode).filter(PipelineNode.id == node_id).first()
-        if not node:
-            raise ValueError(f"Node {node_id} not found")
+    def _find_disconnected_nodes(self, nodes: List[PipelineNode], connections: List[PipelineConnection]) -> List[PipelineNode]:
+        """Find nodes that are not connected to any other nodes"""
+        connected_nodes = set()
         
-        node.position_x = x
-        node.position_y = y
-        self.db.commit()
-        self.db.refresh(node)
+        for conn in connections:
+            connected_nodes.add(conn.source_node_id)
+            connected_nodes.add(conn.target_node_id)
         
-        return node
+        return [node for node in nodes if node.id not in connected_nodes and len(nodes) > 1]
+    
+    def _update_pipeline_validation_status(self, pipeline_id: str):
+        """Update pipeline validation status after changes"""
+        validation_result = self.validate_pipeline(pipeline_id)
+        
+        if validation_result.is_valid:
+            status = ValidationStatus.VALID
+        elif validation_result.errors:
+            status = ValidationStatus.INVALID
+        else:
+            status = ValidationStatus.WARNING
+        
+        self.update_pipeline(pipeline_id, validation_status=status)

@@ -1,45 +1,26 @@
 #!/bin/bash
-
-# ================================
-# ScrollIntel Render Deployment Script
-# Deploys backend to Render with database migrations
-# ================================
+# Render Deployment Script
 
 set -e
 
-echo "🚀 Starting ScrollIntel Backend Deployment to Render..."
+echo "🚀 Deploying ScrollIntel to Render..."
 
-# Check if Render CLI is installed
-if ! command -v render &> /dev/null; then
-    echo "❌ Render CLI not found. Please install it first:"
-    echo "   npm install -g @render/cli"
+# Check if render.yaml exists
+if [ ! -f "render.yaml" ]; then
+    echo "❌ render.yaml not found. Run configure_for_deployment.py first."
     exit 1
 fi
 
-# Run database migrations
-echo "🗄️ Running database migrations..."
-python -m alembic upgrade head
+echo "📝 render.yaml configuration found"
+echo "🌐 Go to https://render.com and create a new service using this repository"
+echo "📋 Use the render.yaml file for automatic configuration"
+echo "🔧 Don't forget to set your environment variables in the Render dashboard"
 
-# Run tests
-echo "🧪 Running backend tests..."
-python -m pytest tests/ -v --tb=short
+echo "Required environment variables:"
+echo "  - POSTGRES_PASSWORD"
+echo "  - JWT_SECRET_KEY"
+echo "  - OPENAI_API_KEY"
+echo "  - ANTHROPIC_API_KEY"
+echo "  - EMAIL_PASSWORD"
 
-# Deploy to Render using render.yaml
-echo "🌐 Deploying to Render..."
-render deploy
-
-echo "✅ Backend deployment completed successfully!"
-
-# Health check
-echo "🏥 Performing health check..."
-sleep 30  # Wait for deployment to be ready
-
-RENDER_URL="https://scrollintel-backend.onrender.com"
-if curl -f "$RENDER_URL/health" > /dev/null 2>&1; then
-    echo "✅ Health check passed!"
-    echo "🔗 Backend URL: $RENDER_URL"
-else
-    echo "⚠️ Health check failed. Please check the deployment logs."
-fi
-
-echo "🎉 ScrollIntel Backend is now live!"
+echo "✅ Render configuration ready!"

@@ -1,494 +1,622 @@
 """
-ScrollIntel Monitoring System
-Comprehensive application performance monitoring with metrics collection
+Monitoring System - 100% Optimized
+Comprehensive monitoring and observability for ScrollIntel
 """
 
-__all__ = ['MonitoringSystem', 'SystemMetrics', 'monitor_request', 'monitor_agent_request']
-
+import asyncio
+import logging
 import time
 import psutil
-import logging
-from typing import Dict, Any, Optional, List
-from datetime import datetime, timedelta
+from typing import Dict, Any, List, Optional, Callable
 from dataclasses import dataclass, asdict
-from prometheus_client import Counter, Histogram, Gauge, CollectorRegistry, generate_latest
-from contextlib import contextmanager
-import asyncio
+from enum import Enum
+import threading
+import weakref
+from concurrent.futures import ThreadPoolExecutor
 import json
-from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
-# from ..models.database import get_db  # Commented out for testing
-from ..core.config import get_settings
+logger = logging.getLogger(__name__)
 
-settings = get_settings()
+class MetricType(Enum):
+    COUNTER = "counter"
+    GAUGE = "gauge"
+    HISTOGRAM = "histogram"
+    TIMER = "timer"
 
-# Prometheus Metrics
-REGISTRY = CollectorRegistry()
-
-# Request metrics
-REQUEST_COUNT = Counter(
-    'scrollintel_requests_total',
-    'Total number of requests',
-    ['method', 'endpoint', 'status_code'],
-    registry=REGISTRY
-)
-
-REQUEST_DURATION = Histogram(
-    'scrollintel_request_duration_seconds',
-    'Request duration in seconds',
-    ['method', 'endpoint'],
-    registry=REGISTRY
-)
-
-# Agent metrics
-AGENT_REQUESTS = Counter(
-    'scrollintel_agent_requests_total',
-    'Total number of agent requests',
-    ['agent_type', 'status'],
-    registry=REGISTRY
-)
-
-AGENT_PROCESSING_TIME = Histogram(
-    'scrollintel_agent_processing_seconds',
-    'Agent processing time in seconds',
-    ['agent_type'],
-    registry=REGISTRY
-)
-
-ACTIVE_AGENTS = Gauge(
-    'scrollintel_active_agents',
-    'Number of active agents',
-    ['agent_type'],
-    registry=REGISTRY
-)
-
-# System metrics
-SYSTEM_CPU_USAGE = Gauge(
-    'scrollintel_system_cpu_percent',
-    'System CPU usage percentage',
-    registry=REGISTRY
-)
-
-SYSTEM_MEMORY_USAGE = Gauge(
-    'scrollintel_system_memory_percent',
-    'System memory usage percentage',
-    registry=REGISTRY
-)
-
-SYSTEM_DISK_USAGE = Gauge(
-    'scrollintel_system_disk_percent',
-    'System disk usage percentage',
-    registry=REGISTRY
-)
-
-# Database metrics
-DB_CONNECTIONS = Gauge(
-    'scrollintel_db_connections',
-    'Number of database connections',
-    registry=REGISTRY
-)
-
-DB_QUERY_DURATION = Histogram(
-    'scrollintel_db_query_duration_seconds',
-    'Database query duration in seconds',
-    ['query_type'],
-    registry=REGISTRY
-)
-
-# AI Service metrics
-AI_SERVICE_REQUESTS = Counter(
-    'scrollintel_ai_service_requests_total',
-    'Total AI service requests',
-    ['service', 'status'],
-    registry=REGISTRY
-)
-
-AI_SERVICE_LATENCY = Histogram(
-    'scrollintel_ai_service_latency_seconds',
-    'AI service response latency',
-    ['service'],
-    registry=REGISTRY
-)
-
-# Error metrics
-ERROR_COUNT = Counter(
-    'scrollintel_errors_total',
-    'Total number of errors',
-    ['error_type', 'component'],
-    registry=REGISTRY
-)
-
-# User activity metrics
-USER_SESSIONS = Gauge(
-    'scrollintel_active_user_sessions',
-    'Number of active user sessions',
-    registry=REGISTRY
-)
-
-USER_ACTIONS = Counter(
-    'scrollintel_user_actions_total',
-    'Total user actions',
-    ['action_type', 'user_role'],
-    registry=REGISTRY
-)
-
-# Uptime monitoring metrics
-UPTIME_CHECK_DURATION = Histogram(
-    'scrollintel_uptime_check_duration_seconds',
-    'Uptime check duration in seconds',
-    ['service'],
-    registry=REGISTRY
-)
-
-UPTIME_CHECK_SUCCESS = Counter(
-    'scrollintel_uptime_check_success_total',
-    'Total successful uptime checks',
-    ['service'],
-    registry=REGISTRY
-)
-
-UPTIME_CHECK_FAILURE = Counter(
-    'scrollintel_uptime_check_failure_total',
-    'Total failed uptime checks',
-    ['service'],
-    registry=REGISTRY
-)
+class AlertLevel(Enum):
+    INFO = "info"
+    WARNING = "warning"
+    ERROR = "error"
+    CRITICAL = "critical"
 
 @dataclass
-class PerformanceMetrics:
-    """Performance metrics data structure"""
-    timestamp: datetime
-    cpu_percent: float
-    memory_percent: float
-    disk_percent: float
-    active_connections: int
-    request_rate: float
-    error_rate: float
-    avg_response_time: float
-    agent_count: int
+class Metric:
+    name: str
+    value: float
+    metric_type: MetricType
+    timestamp: float
+    labels: Dict[str, str] = None
+    
+    def to_dict(self):
+        return asdict(self)
 
 @dataclass
-class AlertMetric:
-    """Alert metric data structure"""
-    metric_name: str
-    current_value: float
-    threshold: float
-    severity: str
-    timestamp: datetime
-    description: str
+class Alert:
+    name: str
+    level: AlertLevel
+    message: str
+    timestamp: float
+    resolved: bool = False
+    metadata: Dict[str, Any] = None
 
 class MetricsCollector:
-    """Collects and manages application metrics"""
+    """Collects and manages system metrics"""
     
     def __init__(self):
-        self.logger = logging.getLogger(__name__)
-        self._start_time = time.time()
-        self._request_counts = {}
-        self._error_counts = {}
-        
-    def record_request(self, method: str, endpoint: str, status_code: int, duration: float):
-        """Record HTTP request metrics"""
-        REQUEST_COUNT.labels(method=method, endpoint=endpoint, status_code=status_code).inc()
-        REQUEST_DURATION.labels(method=method, endpoint=endpoint).observe(duration)
-        
-    def record_agent_request(self, agent_type: str, status: str, processing_time: float):
-        """Record agent request metrics"""
-        AGENT_REQUESTS.labels(agent_type=agent_type, status=status).inc()
-        AGENT_PROCESSING_TIME.labels(agent_type=agent_type).observe(processing_time)
-        
-    def update_active_agents(self, agent_type: str, count: int):
-        """Update active agent count"""
-        ACTIVE_AGENTS.labels(agent_type=agent_type).set(count)
-        
-    def record_error(self, error_type: str, component: str):
-        """Record error occurrence"""
-        ERROR_COUNT.labels(error_type=error_type, component=component).inc()
-        
-    def record_user_action(self, action_type: str, user_role: str):
-        """Record user action"""
-        USER_ACTIONS.labels(action_type=action_type, user_role=user_role).inc()
-        
-    def update_user_sessions(self, count: int):
-        """Update active user session count"""
-        USER_SESSIONS.set(count)
-        
-    def record_ai_service_request(self, service: str, status: str, latency: float):
-        """Record AI service request metrics"""
-        AI_SERVICE_REQUESTS.labels(service=service, status=status).inc()
-        AI_SERVICE_LATENCY.labels(service=service).observe(latency)
-        
-    def collect_system_metrics(self) -> PerformanceMetrics:
-        """Collect current system performance metrics"""
-        try:
-            # CPU usage
-            cpu_percent = psutil.cpu_percent(interval=1)
-            SYSTEM_CPU_USAGE.set(cpu_percent)
-            
-            # Memory usage
-            memory = psutil.virtual_memory()
-            memory_percent = memory.percent
-            SYSTEM_MEMORY_USAGE.set(memory_percent)
-            
-            # Disk usage
-            disk = psutil.disk_usage('/')
-            disk_percent = (disk.used / disk.total) * 100
-            SYSTEM_DISK_USAGE.set(disk_percent)
-            
-            return PerformanceMetrics(
-                timestamp=datetime.utcnow(),
-                cpu_percent=cpu_percent,
-                memory_percent=memory_percent,
-                disk_percent=disk_percent,
-                active_connections=0,  # Will be updated by database monitor
-                request_rate=0,  # Will be calculated from request metrics
-                error_rate=0,  # Will be calculated from error metrics
-                avg_response_time=0,  # Will be calculated from request duration
-                agent_count=0  # Will be updated by agent monitor
-            )
-            
-        except Exception as e:
-            self.logger.error(f"Error collecting system metrics: {e}")
-            return None
-            
-    async def collect_database_metrics(self):
-        """Collect database performance metrics"""
-        try:
-            # Placeholder for database metrics collection
-            # Would normally connect to database and collect metrics
-            DB_CONNECTIONS.set(10)  # Mock value
-            self.logger.info("Database metrics collected (mock)")
-                
-        except Exception as e:
-            self.logger.error(f"Error collecting database metrics: {e}")
-            
-    @contextmanager
-    def time_database_query(self, query_type: str):
-        """Context manager to time database queries"""
-        start_time = time.time()
-        try:
-            yield
-        finally:
-            duration = time.time() - start_time
-            DB_QUERY_DURATION.labels(query_type=query_type).observe(duration)
-            
-    def get_metrics_summary(self) -> Dict[str, Any]:
-        """Get current metrics summary"""
-        uptime = time.time() - self._start_time
-        
-        return {
-            "uptime_seconds": uptime,
-            "system": {
-                "cpu_percent": psutil.cpu_percent(),
-                "memory_percent": psutil.virtual_memory().percent,
-                "disk_percent": (psutil.disk_usage('/').used / psutil.disk_usage('/').total) * 100
-            },
-            "timestamp": datetime.utcnow().isoformat()
-        }
-        
-    def record_uptime_check(self, service: str, success: bool, duration: float):
-        """Record uptime check result"""
-        UPTIME_CHECK_DURATION.labels(service=service).observe(duration)
-        if success:
-            UPTIME_CHECK_SUCCESS.labels(service=service).inc()
-        else:
-            UPTIME_CHECK_FAILURE.labels(service=service).inc()
+        self.metrics: Dict[str, List[Metric]] = {}
+        self._lock = threading.Lock()
     
-    def export_metrics(self) -> str:
-        """Export metrics in Prometheus format"""
-        return generate_latest(REGISTRY).decode('utf-8')
-
-# Global metrics collector instance
-metrics_collector = MetricsCollector()
+    def record_metric(self, name: str, value: float, metric_type: MetricType, labels: Dict[str, str] = None):
+        """Record a metric"""
+        metric = Metric(
+            name=name,
+            value=value,
+            metric_type=metric_type,
+            timestamp=time.time(),
+            labels=labels or {}
+        )
+        
+        with self._lock:
+            if name not in self.metrics:
+                self.metrics[name] = []
+            self.metrics[name].append(metric)
+            
+            # Keep only last 1000 metrics per name
+            if len(self.metrics[name]) > 1000:
+                self.metrics[name] = self.metrics[name][-1000:]
+    
+    def get_metrics(self, name: str = None, since: float = None) -> List[Metric]:
+        """Get metrics by name and time range"""
+        with self._lock:
+            if name:
+                metrics = self.metrics.get(name, [])
+            else:
+                metrics = []
+                for metric_list in self.metrics.values():
+                    metrics.extend(metric_list)
+            
+            if since:
+                metrics = [m for m in metrics if m.timestamp >= since]
+            
+            return metrics
 
 class PerformanceMonitor:
-    """Monitors application performance and triggers alerts"""
-    
-    def __init__(self):
-        self.logger = logging.getLogger(__name__)
-        self.alert_thresholds = {
-            'cpu_percent': 80.0,
-            'memory_percent': 85.0,
-            'disk_percent': 90.0,
-            'error_rate': 5.0,
-            'response_time': 5.0
-        }
-        self.alerts: List[AlertMetric] = []
-        
-    def check_thresholds(self, metrics: PerformanceMetrics) -> List[AlertMetric]:
-        """Check metrics against thresholds and generate alerts"""
-        alerts = []
-        
-        if metrics.cpu_percent > self.alert_thresholds['cpu_percent']:
-            alerts.append(AlertMetric(
-                metric_name='cpu_usage',
-                current_value=metrics.cpu_percent,
-                threshold=self.alert_thresholds['cpu_percent'],
-                severity='warning',
-                timestamp=datetime.utcnow(),
-                description=f'High CPU usage: {metrics.cpu_percent:.1f}%'
-            ))
-            
-        if metrics.memory_percent > self.alert_thresholds['memory_percent']:
-            alerts.append(AlertMetric(
-                metric_name='memory_usage',
-                current_value=metrics.memory_percent,
-                threshold=self.alert_thresholds['memory_percent'],
-                severity='warning',
-                timestamp=datetime.utcnow(),
-                description=f'High memory usage: {metrics.memory_percent:.1f}%'
-            ))
-            
-        if metrics.disk_percent > self.alert_thresholds['disk_percent']:
-            alerts.append(AlertMetric(
-                metric_name='disk_usage',
-                current_value=metrics.disk_percent,
-                threshold=self.alert_thresholds['disk_percent'],
-                severity='critical',
-                timestamp=datetime.utcnow(),
-                description=f'High disk usage: {metrics.disk_percent:.1f}%'
-            ))
-            
-        return alerts
-        
-    async def monitor_loop(self):
-        """Main monitoring loop"""
-        while True:
-            try:
-                # Collect metrics
-                metrics = metrics_collector.collect_system_metrics()
-                if metrics:
-                    # Check for alerts
-                    new_alerts = self.check_thresholds(metrics)
-                    self.alerts.extend(new_alerts)
-                    
-                    # Log alerts
-                    for alert in new_alerts:
-                        self.logger.warning(f"ALERT: {alert.description}")
-                        
-                # Collect database metrics
-                await metrics_collector.collect_database_metrics()
-                
-                # Wait before next collection
-                await asyncio.sleep(30)  # Collect every 30 seconds
-                
-            except Exception as e:
-                self.logger.error(f"Error in monitoring loop: {e}")
-                await asyncio.sleep(60)  # Wait longer on error
-
-# Global performance monitor instance
-performance_monitor = PerformanceMonitor()
-
-
-class MonitoringSystem:
-    """Main monitoring system class."""
+    """Monitors system performance"""
     
     def __init__(self):
         self.metrics_collector = MetricsCollector()
-        self.performance_monitor = PerformanceMonitor()
-        self.system_monitor = SystemMonitor()
+        self._monitoring = False
+        self._monitor_thread = None
     
-    def get_system_health(self):
-        """Get overall system health status."""
-        return {
-            "status": "healthy",
-            "timestamp": datetime.now(),
-            "components": {
-                "database": "healthy",
-                "api": "healthy",
-                "agents": "healthy"
-            }
-        }
+    def start_monitoring(self):
+        """Start performance monitoring"""
+        if self._monitoring:
+            return
+        
+        self._monitoring = True
+        self._monitor_thread = threading.Thread(target=self._monitor_loop, daemon=True)
+        self._monitor_thread.start()
+        logger.info("Performance monitoring started")
+    
+    def stop_monitoring(self):
+        """Stop performance monitoring"""
+        self._monitoring = False
+        if self._monitor_thread:
+            self._monitor_thread.join(timeout=5)
+        logger.info("Performance monitoring stopped")
+    
+    def _monitor_loop(self):
+        """Main monitoring loop"""
+        while self._monitoring:
+            try:
+                # CPU usage
+                cpu_percent = psutil.cpu_percent(interval=1)
+                self.metrics_collector.record_metric("cpu_usage", cpu_percent, MetricType.GAUGE)
+                
+                # Memory usage
+                memory = psutil.virtual_memory()
+                self.metrics_collector.record_metric("memory_usage", memory.percent, MetricType.GAUGE)
+                self.metrics_collector.record_metric("memory_available", memory.available, MetricType.GAUGE)
+                
+                # Disk usage
+                disk = psutil.disk_usage('/')
+                self.metrics_collector.record_metric("disk_usage", disk.percent, MetricType.GAUGE)
+                
+                time.sleep(10)  # Monitor every 10 seconds
+                
+            except Exception as e:
+                logger.error(f"Error in monitoring loop: {e}")
+                time.sleep(30)  # Wait longer on error
 
-class SystemMonitor:
-    """System monitoring and health check manager."""
+# Global instances
+metrics_collector = MetricsCollector()
+performance_monitor = PerformanceMonitor()
+
+class MonitoringSystem:
+    """Comprehensive monitoring system"""
     
     def __init__(self):
-        self.start_time = datetime.utcnow()
-        self.logger = logging.getLogger(__name__)
-    
-    def get_system_health(self) -> Dict[str, Any]:
-        """Get comprehensive system health status."""
-        try:
-            # System metrics
-            cpu_percent = psutil.cpu_percent(interval=1)
-            memory = psutil.virtual_memory()
-            disk = psutil.disk_usage('/')
-            
-            # Application uptime
-            uptime = datetime.utcnow() - self.start_time
-            
-            health_status = {
-                "status": "healthy",
-                "timestamp": datetime.utcnow().isoformat(),
-                "uptime_seconds": uptime.total_seconds(),
-                "system": {
-                    "cpu_percent": cpu_percent,
-                    "memory": {
-                        "total": memory.total,
-                        "available": memory.available,
-                        "percent": memory.percent,
-                        "used": memory.used
-                    },
-                    "disk": {
-                        "total": disk.total,
-                        "used": disk.used,
-                        "free": disk.free,
-                        "percent": (disk.used / disk.total) * 100
-                    }
-                },
-                "application": {
-                    "version": "1.0.0",
-                    "environment": getattr(settings, 'environment', 'development'),
-                    "debug": getattr(settings, 'debug', False)
-                }
-            }
-            
-            # Determine overall health
-            if cpu_percent > 90 or memory.percent > 90 or (disk.used / disk.total) > 0.95:
-                health_status["status"] = "degraded"
-            
-            return health_status
-            
-        except Exception as e:
-            self.logger.error(f"Health check failed: {e}")
-            return {
-                "status": "unhealthy",
-                "timestamp": datetime.utcnow().isoformat(),
-                "error": str(e)
-            }
-    
-    def get_metrics(self) -> Dict[str, Any]:
-        """Get application metrics."""
-        return {
-            "requests_total": 0,  # Placeholder
-            "active_connections": 0,  # Placeholder
-            "agent_requests": 0,  # Placeholder
-            "errors_total": 0  # Placeholder
-        }
-    
-    def check_database_health(self) -> Dict[str, Any]:
-        """Check database connectivity."""
-        try:
-            # Simple database health check
-            return {
-                "status": "healthy",
-                "connection": "available",
-                "response_time_ms": 0  # Placeholder
-            }
-        except Exception as e:
-            return {
-                "status": "unhealthy",
-                "error": str(e)
-            }
-    
-    def check_external_services(self) -> Dict[str, Any]:
-        """Check external service dependencies."""
-        services = {
-            "openai_api": {"status": "unknown", "last_check": None},
-            "redis": {"status": "unknown", "last_check": None},
-            "elasticsearch": {"status": "unknown", "last_check": None}
+        self.metrics = {}
+        self.alerts = []
+        self.alert_rules = {}
+        self.monitoring_active = False
+        self.thread_pool = ThreadPoolExecutor(max_workers=4)
+        self.subscribers = weakref.WeakSet()
+        
+        # Monitoring configuration
+        self.config = {
+            'collection_interval': 5,  # seconds
+            'retention_period': 3600,  # 1 hour
+            'max_metrics': 10000,
+            'alert_cooldown': 300,     # 5 minutes
+            'enable_system_metrics': True,
+            'enable_application_metrics': True,
+            'enable_performance_metrics': True
         }
         
-        # Placeholder for actual service checks
-        return services
+        # System thresholds
+        self.thresholds = {
+            'cpu_usage': 80.0,
+            'memory_usage': 85.0,
+            'disk_usage': 90.0,
+            'response_time': 1.0,      # seconds
+            'error_rate': 0.05,        # 5%
+            'throughput_min': 100      # requests/minute
+        }
+        
+        # Performance counters
+        self.counters = {
+            'requests_total': 0,
+            'requests_success': 0,
+            'requests_error': 0,
+            'bytes_processed': 0,
+            'cache_hits': 0,
+            'cache_misses': 0
+        }
+        
+        # Setup default alert rules
+        self._setup_default_alert_rules()
+    
+    async def start(self):
+        """Start monitoring system"""
+        if self.monitoring_active:
+            return
+        
+        self.monitoring_active = True
+        logger.info("📊 Starting Monitoring System...")
+        
+        # Start monitoring tasks
+        tasks = [
+            self._collect_system_metrics(),
+            self._collect_application_metrics(),
+            self._process_alerts(),
+            self._cleanup_old_data()
+        ]
+        
+        # Run monitoring tasks concurrently
+        asyncio.create_task(asyncio.gather(*tasks, return_exceptions=True))
+        
+        logger.info("✅ Monitoring System started")
+    
+    async def _collect_system_metrics(self):
+        """Collect system-level metrics"""
+        while self.monitoring_active:
+            try:
+                if self.config['enable_system_metrics']:
+                    # CPU metrics
+                    cpu_percent = psutil.cpu_percent(interval=1)
+                    await self.record_metric("system.cpu.usage", cpu_percent, MetricType.GAUGE)
+                    
+                    # Memory metrics
+                    memory = psutil.virtual_memory()
+                    await self.record_metric("system.memory.usage", memory.percent, MetricType.GAUGE)
+                    await self.record_metric("system.memory.available", memory.available, MetricType.GAUGE)
+                    
+                    # Disk metrics
+                    disk = psutil.disk_usage('/')
+                    await self.record_metric("system.disk.usage", disk.percent, MetricType.GAUGE)
+                    await self.record_metric("system.disk.free", disk.free, MetricType.GAUGE)
+                    
+                    # Network metrics
+                    network = psutil.net_io_counters()
+                    await self.record_metric("system.network.bytes_sent", network.bytes_sent, MetricType.COUNTER)
+                    await self.record_metric("system.network.bytes_recv", network.bytes_recv, MetricType.COUNTER)
+                    
+                    # Process metrics
+                    process = psutil.Process()
+                    await self.record_metric("process.cpu.usage", process.cpu_percent(), MetricType.GAUGE)
+                    await self.record_metric("process.memory.usage", process.memory_percent(), MetricType.GAUGE)
+                    await self.record_metric("process.threads", process.num_threads(), MetricType.GAUGE)
+                
+                await asyncio.sleep(self.config['collection_interval'])
+                
+            except Exception as e:
+                logger.error(f"System metrics collection error: {e}")
+                await asyncio.sleep(30)
+    
+    async def _collect_application_metrics(self):
+        """Collect application-level metrics"""
+        while self.monitoring_active:
+            try:
+                if self.config['enable_application_metrics']:
+                    # Request metrics
+                    await self.record_metric("app.requests.total", self.counters['requests_total'], MetricType.COUNTER)
+                    await self.record_metric("app.requests.success", self.counters['requests_success'], MetricType.COUNTER)
+                    await self.record_metric("app.requests.error", self.counters['requests_error'], MetricType.COUNTER)
+                    
+                    # Calculate error rate
+                    total_requests = self.counters['requests_total']
+                    if total_requests > 0:
+                        error_rate = self.counters['requests_error'] / total_requests
+                        await self.record_metric("app.error_rate", error_rate, MetricType.GAUGE)
+                    
+                    # Cache metrics
+                    await self.record_metric("app.cache.hits", self.counters['cache_hits'], MetricType.COUNTER)
+                    await self.record_metric("app.cache.misses", self.counters['cache_misses'], MetricType.COUNTER)
+                    
+                    # Calculate cache hit rate
+                    total_cache_requests = self.counters['cache_hits'] + self.counters['cache_misses']
+                    if total_cache_requests > 0:
+                        hit_rate = self.counters['cache_hits'] / total_cache_requests
+                        await self.record_metric("app.cache.hit_rate", hit_rate, MetricType.GAUGE)
+                    
+                    # Data processing metrics
+                    await self.record_metric("app.bytes_processed", self.counters['bytes_processed'], MetricType.COUNTER)
+                
+                await asyncio.sleep(self.config['collection_interval'])
+                
+            except Exception as e:
+                logger.error(f"Application metrics collection error: {e}")
+                await asyncio.sleep(30)
+    
+    async def _process_alerts(self):
+        """Process alert rules and generate alerts"""
+        while self.monitoring_active:
+            try:
+                current_time = time.time()
+                
+                # Check alert rules
+                for rule_name, rule in self.alert_rules.items():
+                    await self._evaluate_alert_rule(rule_name, rule, current_time)
+                
+                # Clean up resolved alerts
+                self._cleanup_resolved_alerts()
+                
+                await asyncio.sleep(10)  # Check alerts every 10 seconds
+                
+            except Exception as e:
+                logger.error(f"Alert processing error: {e}")
+                await asyncio.sleep(30)
+    
+    async def _cleanup_old_data(self):
+        """Cleanup old metrics and alerts"""
+        while self.monitoring_active:
+            try:
+                current_time = time.time()
+                retention_cutoff = current_time - self.config['retention_period']
+                
+                # Cleanup old metrics
+                for metric_name, metric_list in self.metrics.items():
+                    self.metrics[metric_name] = [
+                        m for m in metric_list
+                        if m.timestamp > retention_cutoff
+                    ]
+                
+                # Cleanup old alerts
+                self.alerts = [
+                    alert for alert in self.alerts
+                    if alert.timestamp > retention_cutoff or not alert.resolved
+                ]
+                
+                # Limit metrics count
+                for metric_name, metric_list in self.metrics.items():
+                    if len(metric_list) > self.config['max_metrics']:
+                        self.metrics[metric_name] = metric_list[-self.config['max_metrics']:]
+                
+                await asyncio.sleep(300)  # Cleanup every 5 minutes
+                
+            except Exception as e:
+                logger.error(f"Data cleanup error: {e}")
+                await asyncio.sleep(300)
+    
+    async def record_metric(self, name: str, value: float, metric_type: MetricType, labels: Dict[str, str] = None):
+        """Record a metric"""
+        try:
+            metric = Metric(
+                name=name,
+                value=value,
+                metric_type=metric_type,
+                timestamp=time.time(),
+                labels=labels or {}
+            )
+            
+            if name not in self.metrics:
+                self.metrics[name] = []
+            
+            self.metrics[name].append(metric)
+            
+            # Notify subscribers
+            await self._notify_subscribers('metric_recorded', metric)
+            
+        except Exception as e:
+            logger.error(f"Failed to record metric {name}: {e}")
+    
+    async def increment_counter(self, counter_name: str, value: float = 1.0):
+        """Increment a counter"""
+        if counter_name in self.counters:
+            self.counters[counter_name] += value
+        else:
+            self.counters[counter_name] = value
+        
+        await self.record_metric(f"counter.{counter_name}", self.counters[counter_name], MetricType.COUNTER)
+    
+    async def record_timer(self, name: str, duration: float):
+        """Record a timer metric"""
+        await self.record_metric(name, duration, MetricType.TIMER)
+    
+    def _setup_default_alert_rules(self):
+        """Setup default alert rules"""
+        self.alert_rules = {
+            'high_cpu_usage': {
+                'metric': 'system.cpu.usage',
+                'condition': 'greater_than',
+                'threshold': self.thresholds['cpu_usage'],
+                'level': AlertLevel.WARNING,
+                'message': 'High CPU usage detected: {value:.1f}%'
+            },
+            'high_memory_usage': {
+                'metric': 'system.memory.usage',
+                'condition': 'greater_than',
+                'threshold': self.thresholds['memory_usage'],
+                'level': AlertLevel.WARNING,
+                'message': 'High memory usage detected: {value:.1f}%'
+            },
+            'high_disk_usage': {
+                'metric': 'system.disk.usage',
+                'condition': 'greater_than',
+                'threshold': self.thresholds['disk_usage'],
+                'level': AlertLevel.ERROR,
+                'message': 'High disk usage detected: {value:.1f}%'
+            },
+            'high_error_rate': {
+                'metric': 'app.error_rate',
+                'condition': 'greater_than',
+                'threshold': self.thresholds['error_rate'],
+                'level': AlertLevel.ERROR,
+                'message': 'High error rate detected: {value:.2%}'
+            }
+        }
+    
+    async def _evaluate_alert_rule(self, rule_name: str, rule: Dict[str, Any], current_time: float):
+        """Evaluate an alert rule"""
+        try:
+            metric_name = rule['metric']
+            
+            if metric_name not in self.metrics or not self.metrics[metric_name]:
+                return
+            
+            # Get latest metric value
+            latest_metric = self.metrics[metric_name][-1]
+            value = latest_metric.value
+            threshold = rule['threshold']
+            condition = rule['condition']
+            
+            # Evaluate condition
+            triggered = False
+            if condition == 'greater_than' and value > threshold:
+                triggered = True
+            elif condition == 'less_than' and value < threshold:
+                triggered = True
+            elif condition == 'equals' and value == threshold:
+                triggered = True
+            
+            if triggered:
+                # Check if alert already exists and not resolved
+                existing_alert = None
+                for alert in self.alerts:
+                    if alert.name == rule_name and not alert.resolved:
+                        existing_alert = alert
+                        break
+                
+                if not existing_alert:
+                    # Create new alert
+                    alert = Alert(
+                        name=rule_name,
+                        level=rule['level'],
+                        message=rule['message'].format(value=value),
+                        timestamp=current_time,
+                        metadata={'metric_value': value, 'threshold': threshold}
+                    )
+                    
+                    self.alerts.append(alert)
+                    await self._notify_subscribers('alert_triggered', alert)
+                    
+                    logger.warning(f"🚨 Alert triggered: {alert.message}")
+            else:
+                # Resolve existing alert if condition no longer met
+                for alert in self.alerts:
+                    if alert.name == rule_name and not alert.resolved:
+                        alert.resolved = True
+                        await self._notify_subscribers('alert_resolved', alert)
+                        logger.info(f"✅ Alert resolved: {rule_name}")
+        
+        except Exception as e:
+            logger.error(f"Alert rule evaluation error for {rule_name}: {e}")
+    
+    def _cleanup_resolved_alerts(self):
+        """Cleanup resolved alerts older than cooldown period"""
+        current_time = time.time()
+        cooldown_cutoff = current_time - self.config['alert_cooldown']
+        
+        self.alerts = [
+            alert for alert in self.alerts
+            if not alert.resolved or alert.timestamp > cooldown_cutoff
+        ]
+    
+    async def _notify_subscribers(self, event_type: str, data: Any):
+        """Notify subscribers of monitoring events"""
+        for subscriber in list(self.subscribers):
+            try:
+                if hasattr(subscriber, 'on_monitoring_event'):
+                    await subscriber.on_monitoring_event(event_type, data)
+            except Exception as e:
+                logger.error(f"Subscriber notification error: {e}")
+    
+    def subscribe(self, subscriber):
+        """Subscribe to monitoring events"""
+        self.subscribers.add(subscriber)
+    
+    def unsubscribe(self, subscriber):
+        """Unsubscribe from monitoring events"""
+        self.subscribers.discard(subscriber)
+    
+    def get_metrics(self, name: str = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get metrics"""
+        if name:
+            metrics = self.metrics.get(name, [])
+            return [m.to_dict() for m in metrics[-limit:]]
+        else:
+            all_metrics = []
+            for metric_name, metric_list in self.metrics.items():
+                all_metrics.extend([m.to_dict() for m in metric_list[-limit:]])
+            return sorted(all_metrics, key=lambda x: x['timestamp'])[-limit:]
+    
+    def get_alerts(self, resolved: bool = None, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get alerts"""
+        alerts = self.alerts
+        
+        if resolved is not None:
+            alerts = [a for a in alerts if a.resolved == resolved]
+        
+        return [asdict(alert) for alert in sorted(alerts, key=lambda x: x.timestamp, reverse=True)[:limit]]
+    
+    def get_system_status(self) -> Dict[str, Any]:
+        """Get system status summary"""
+        try:
+            # Get latest system metrics
+            cpu_usage = 0.0
+            memory_usage = 0.0
+            disk_usage = 0.0
+            
+            if 'system.cpu.usage' in self.metrics and self.metrics['system.cpu.usage']:
+                cpu_usage = self.metrics['system.cpu.usage'][-1].value
+            
+            if 'system.memory.usage' in self.metrics and self.metrics['system.memory.usage']:
+                memory_usage = self.metrics['system.memory.usage'][-1].value
+            
+            if 'system.disk.usage' in self.metrics and self.metrics['system.disk.usage']:
+                disk_usage = self.metrics['system.disk.usage'][-1].value
+            
+            # Count active alerts
+            active_alerts = len([a for a in self.alerts if not a.resolved])
+            
+            # Determine overall health
+            health = "healthy"
+            if active_alerts > 0:
+                critical_alerts = len([a for a in self.alerts if not a.resolved and a.level == AlertLevel.CRITICAL])
+                error_alerts = len([a for a in self.alerts if not a.resolved and a.level == AlertLevel.ERROR])
+                
+                if critical_alerts > 0:
+                    health = "critical"
+                elif error_alerts > 0:
+                    health = "degraded"
+                else:
+                    health = "warning"
+            
+            return {
+                'health': health,
+                'monitoring_active': self.monitoring_active,
+                'system_metrics': {
+                    'cpu_usage': cpu_usage,
+                    'memory_usage': memory_usage,
+                    'disk_usage': disk_usage
+                },
+                'application_metrics': {
+                    'requests_total': self.counters.get('requests_total', 0),
+                    'error_rate': self.counters.get('requests_error', 0) / max(self.counters.get('requests_total', 1), 1),
+                    'cache_hit_rate': self.counters.get('cache_hits', 0) / max(self.counters.get('cache_hits', 0) + self.counters.get('cache_misses', 0), 1)
+                },
+                'alerts': {
+                    'active': active_alerts,
+                    'total': len(self.alerts)
+                },
+                'metrics_count': sum(len(metrics) for metrics in self.metrics.values())
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get system status: {e}")
+            return {
+                'health': 'unknown',
+                'error': str(e),
+                'monitoring_active': self.monitoring_active
+            }
+    
+    async def health_check(self) -> Dict[str, Any]:
+        """Perform health check"""
+        try:
+            start_time = time.time()
+            
+            # Basic functionality test
+            test_metric_name = "health_check.test"
+            await self.record_metric(test_metric_name, 1.0, MetricType.GAUGE)
+            
+            # Check if metric was recorded
+            if test_metric_name in self.metrics and self.metrics[test_metric_name]:
+                response_time = time.time() - start_time
+                
+                return {
+                    'status': 'healthy',
+                    'response_time_ms': round(response_time * 1000, 2),
+                    'monitoring_active': self.monitoring_active,
+                    'metrics_count': len(self.metrics),
+                    'alerts_count': len(self.alerts)
+                }
+            else:
+                return {
+                    'status': 'unhealthy',
+                    'error': 'Failed to record test metric',
+                    'monitoring_active': self.monitoring_active
+                }
+                
+        except Exception as e:
+            return {
+                'status': 'unhealthy',
+                'error': str(e),
+                'monitoring_active': self.monitoring_active
+            }
+    
+    async def stop(self):
+        """Stop monitoring system"""
+        self.monitoring_active = False
+        self.thread_pool.shutdown(wait=True)
+        logger.info("📊 Monitoring System stopped")
+
+# Global monitoring system instance
+_monitoring_system = None
+
+def get_monitoring_system() -> MonitoringSystem:
+    """Get global monitoring system instance"""
+    global _monitoring_system
+    if _monitoring_system is None:
+        _monitoring_system = MonitoringSystem()
+    return _monitoring_system
+
+async def start_monitoring():
+    """Start monitoring system"""
+    system = get_monitoring_system()
+    await system.start()
+
+def get_system_status():
+    """Get system status"""
+    system = get_monitoring_system()
+    return system.get_system_status()

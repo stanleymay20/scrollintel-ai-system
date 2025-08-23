@@ -1,6 +1,9 @@
 import axios from 'axios'
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 
+  (typeof window !== 'undefined' && window.location.hostname !== 'localhost' 
+    ? `${window.location.protocol}//${window.location.hostname}:8000`
+    : 'http://localhost:8000')
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
@@ -22,10 +25,18 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
+    // Handle different error scenarios gracefully
     if (error.response?.status === 401) {
-      localStorage.removeItem('scrollintel_token')
-      window.location.href = '/login'
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('scrollintel_token')
+        window.location.href = '/login'
+      }
+    } else if (error.response?.status >= 500) {
+      console.error('Server error:', error.response.status, error.response.data)
+    } else if (error.code === 'NETWORK_ERROR' || !error.response) {
+      console.warn('Network error - API may be unavailable')
     }
+    
     return Promise.reject(error)
   }
 )
@@ -167,6 +178,43 @@ export const scrollIntelApi = {
   // Visualization
   createVisualization: (data: any) => api.post('/api/visualization/create', data),
   getVisualizations: () => api.get('/api/visualization'),
+
+  // Sample Data Management
+  getSampleDatasets: () => api.get('/api/sample-data/datasets'),
+  downloadSampleDataset: (id: string) => api.get(`/api/sample-data/datasets/${id}/download`, {
+    responseType: 'blob'
+  }),
+
+  // Template Management
+  getPromptTemplates: () => api.get('/api/prompt-management/templates'),
+  createPromptTemplate: (data: any) => api.post('/api/prompt-management/templates', data),
+  updatePromptTemplate: (id: string, data: any) => api.put(`/api/prompt-management/templates/${id}`, data),
+  deletePromptTemplate: (id: string) => api.delete(`/api/prompt-management/templates/${id}`),
+
+  // Optimization Jobs
+  getOptimizationJobs: () => api.get('/api/prompt-management/optimization/jobs'),
+  createOptimizationJob: (data: any) => api.post('/api/prompt-management/optimization/jobs', data),
+
+  // Analytics & Metrics
+  getPromptMetrics: () => api.get('/api/prompt-management/analytics/metrics'),
+  getTeamAnalytics: () => api.get('/api/prompt-management/analytics/team'),
+  getCategoryMetrics: () => api.get('/api/prompt-management/analytics/categories'),
+
+  // A/B Testing
+  getExperiments: () => api.get('/api/prompt-management/experiments'),
+  createExperiment: (data: any) => api.post('/api/prompt-management/experiments', data),
+  updateExperiment: (id: string, data: any) => api.put(`/api/prompt-management/experiments/${id}`, data),
+
+  // Video Tutorials
+  getTutorialCategories: () => api.get('/api/support/tutorials/categories'),
+  getVideoTutorials: () => api.get('/api/support/tutorials/videos'),
+  getTutorialsByCategory: (categoryId: string) => api.get(`/api/support/tutorials/categories/${categoryId}/videos`),
+
+  // Charts and Dashboards
+  getCharts: () => api.get('/api/visualization/charts'),
+  createChart: (data: any) => api.post('/api/visualization/charts', data),
+  updateChart: (id: string, data: any) => api.put(`/api/visualization/charts/${id}`, data),
+  deleteChart: (id: string) => api.delete(`/api/visualization/charts/${id}`),
 }
 
 // Legacy API functions for backward compatibility

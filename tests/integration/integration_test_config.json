@@ -1,0 +1,230 @@
+{
+  "test_suites": [
+    {
+      "name": "enterprise_connectors",
+      "path": "tests/integration/test_enterprise_connectors.py",
+      "timeout": 600,
+      "required": true,
+      "parallel": false,
+      "description": "Tests for enterprise system connectors (SAP, Salesforce, Snowflake, etc.)",
+      "tags": ["connectors", "enterprise", "integration"]
+    },
+    {
+      "name": "end_to_end_workflows",
+      "path": "tests/integration/test_end_to_end_workflows.py",
+      "timeout": 900,
+      "required": true,
+      "parallel": false,
+      "description": "Complete business workflow tests from data ingestion to decision making",
+      "tags": ["workflows", "business", "e2e"]
+    },
+    {
+      "name": "performance",
+      "path": "tests/integration/test_performance.py",
+      "timeout": 1200,
+      "required": true,
+      "parallel": false,
+      "description": "Performance testing under enterprise-scale loads",
+      "tags": ["performance", "scalability", "load"]
+    },
+    {
+      "name": "security_penetration",
+      "path": "tests/integration/test_security_penetration.py",
+      "timeout": 800,
+      "required": true,
+      "parallel": false,
+      "description": "Security penetration testing for all system components",
+      "tags": ["security", "penetration", "compliance"]
+    },
+    {
+      "name": "agent_interactions",
+      "path": "tests/integration/test_agent_interactions.py",
+      "timeout": 450,
+      "required": true,
+      "parallel": true,
+      "description": "Multi-agent coordination and interaction tests",
+      "tags": ["agents", "coordination", "communication"]
+    },
+    {
+      "name": "data_pipelines",
+      "path": "tests/integration/test_data_pipelines.py",
+      "timeout": 600,
+      "required": true,
+      "parallel": true,
+      "description": "Data pipeline integration and processing tests",
+      "tags": ["data", "pipelines", "processing"]
+    },
+    {
+      "name": "ci_cd_pipeline",
+      "path": "tests/integration/test_ci_cd_pipeline.py",
+      "timeout": 300,
+      "required": false,
+      "parallel": true,
+      "description": "CI/CD pipeline validation tests",
+      "tags": ["cicd", "deployment", "automation"]
+    },
+    {
+      "name": "smoke_tests",
+      "path": "tests/integration/test_smoke_tests.py",
+      "timeout": 180,
+      "required": true,
+      "parallel": true,
+      "description": "Basic smoke tests for core functionality",
+      "tags": ["smoke", "basic", "health"]
+    }
+  ],
+  "reporting": {
+    "formats": ["json", "html", "junit"],
+    "output_dir": "test_results/integration",
+    "include_coverage": true,
+    "coverage_threshold": 0.80,
+    "generate_badges": true,
+    "archive_results": true
+  },
+  "thresholds": {
+    "success_rate": 0.95,
+    "performance_threshold": 1800,
+    "coverage_threshold": 0.80,
+    "security_score_threshold": 0.90,
+    "max_response_time": 30.0,
+    "min_throughput": 100
+  },
+  "environment": {
+    "setup_commands": [
+      "echo 'Setting up integration test environment...'",
+      "mkdir -p test_results/integration",
+      "mkdir -p test_logs",
+      "mkdir -p test_data"
+    ],
+    "teardown_commands": [
+      "echo 'Cleaning up integration test environment...'",
+      "find test_logs -name '*.log' -mtime +7 -delete || true"
+    ],
+    "environment_variables": {
+      "SCROLLINTEL_ENV": "test",
+      "SCROLLINTEL_LOG_LEVEL": "DEBUG",
+      "SCROLLINTEL_TEST_MODE": "integration",
+      "PYTHONPATH": "."
+    },
+    "required_services": [
+      "postgresql",
+      "redis",
+      "elasticsearch"
+    ]
+  },
+  "test_data": {
+    "datasets": {
+      "customers": {
+        "size": 10000,
+        "format": "csv",
+        "location": "test_data/customers.csv"
+      },
+      "transactions": {
+        "size": 100000,
+        "format": "json",
+        "location": "test_data/transactions.json"
+      },
+      "agents": {
+        "size": 50,
+        "format": "yaml",
+        "location": "test_data/agents.yaml"
+      }
+    },
+    "mock_services": {
+      "sap_connector": {
+        "enabled": true,
+        "port": 8001,
+        "response_delay": 0.1
+      },
+      "salesforce_api": {
+        "enabled": true,
+        "port": 8002,
+        "response_delay": 0.05
+      },
+      "snowflake_warehouse": {
+        "enabled": true,
+        "port": 8003,
+        "response_delay": 0.2
+      }
+    }
+  },
+  "security": {
+    "penetration_tests": {
+      "authentication": {
+        "brute_force_attempts": 100,
+        "session_hijacking": true,
+        "token_manipulation": true
+      },
+      "data_protection": {
+        "encryption_validation": true,
+        "data_masking": true,
+        "sql_injection": true
+      },
+      "network_security": {
+        "ddos_simulation": true,
+        "ssl_validation": true,
+        "api_security": true
+      },
+      "threat_detection": {
+        "anomaly_detection": true,
+        "malware_scanning": true,
+        "intrusion_detection": true
+      }
+    },
+    "compliance_checks": [
+      "GDPR",
+      "SOX",
+      "PCI-DSS",
+      "HIPAA"
+    ]
+  },
+  "performance": {
+    "load_scenarios": {
+      "concurrent_users": [10, 50, 100, 500, 1000],
+      "data_volumes": [1000, 10000, 100000, 1000000],
+      "request_rates": [10, 50, 100, 500, 1000],
+      "duration_minutes": [5, 10, 30, 60]
+    },
+    "metrics": {
+      "response_time_percentiles": [50, 90, 95, 99],
+      "throughput_targets": {
+        "simple_queries": 1000,
+        "complex_analytics": 100,
+        "real_time_processing": 10000
+      },
+      "resource_limits": {
+        "cpu_usage": 0.80,
+        "memory_usage": 0.85,
+        "disk_io": 0.75,
+        "network_io": 0.70
+      }
+    }
+  },
+  "notifications": {
+    "on_failure": {
+      "email": ["dev-team@scrollintel.com"],
+      "slack": "#integration-tests",
+      "webhook": "https://hooks.scrollintel.com/integration-test-results"
+    },
+    "on_success": {
+      "slack": "#integration-tests"
+    },
+    "critical_failures": {
+      "email": ["cto@scrollintel.com", "dev-lead@scrollintel.com"],
+      "sms": ["+1-555-0123"],
+      "pager": "integration-test-critical"
+    }
+  },
+  "retry_policy": {
+    "max_retries": 3,
+    "retry_delay": 30,
+    "exponential_backoff": true,
+    "retry_on_failure_types": ["timeout", "connection_error", "service_unavailable"]
+  },
+  "parallel_execution": {
+    "max_workers": 4,
+    "worker_timeout": 1800,
+    "resource_isolation": true,
+    "shared_resources": ["database", "message_queue"]
+  }
+}

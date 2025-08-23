@@ -1,59 +1,72 @@
 # AI Data Readiness Platform Requirements
 
 # Core dependencies
-sqlalchemy>=1.4.0
-alembic>=1.8.0
+sqlalchemy>=2.0.0
+alembic>=1.13.0
 psycopg2-binary>=2.9.0
-pandas>=1.5.0
-numpy>=1.21.0
-scipy>=1.9.0
-scikit-learn>=1.1.0
+pandas>=2.1.0
+numpy>=1.24.0
+scipy>=1.11.0
+scikit-learn>=1.3.0
 
 # Data processing and analysis
-pyarrow>=9.0.0
-fastparquet>=0.8.0
-openpyxl>=3.0.0
+pyarrow>=14.0.0
+fastparquet>=2023.10.0
+openpyxl>=3.1.0
 xlrd>=2.0.0
 
 # Statistical analysis and drift detection
-statsmodels>=0.13.0
-seaborn>=0.11.0
-matplotlib>=3.5.0
+statsmodels>=0.14.0
+seaborn>=0.12.0
+matplotlib>=3.7.0
 
 # API and web framework
-fastapi>=0.85.0
-uvicorn>=0.18.0
-pydantic>=1.10.0
-python-multipart>=0.0.5
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+pydantic>=2.5.0
+pydantic[email]>=2.5.0
+python-multipart>=0.0.6
 
 # Async and concurrency
-asyncio-mqtt>=0.11.0
-celery>=5.2.0
-redis>=4.3.0
+asyncio-mqtt>=0.13.0
+celery>=5.3.0
+redis>=5.0.0
+aiofiles>=23.2.0
 
 # Monitoring and logging
-prometheus-client>=0.14.0
-structlog>=22.1.0
+prometheus-client>=0.19.0
+structlog>=23.2.0
 
 # Configuration and environment
-python-dotenv>=0.20.0
-pyyaml>=6.0
+python-dotenv>=1.0.0
+pyyaml>=6.0.0
 
 # Testing
-pytest>=7.1.0
-pytest-asyncio>=0.19.0
-pytest-cov>=3.0.0
-factory-boy>=3.2.0
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+pytest-cov>=4.1.0
+factory-boy>=3.3.0
 
 # Development tools
-black>=22.6.0
-flake8>=5.0.0
-mypy>=0.971
-pre-commit>=2.20.0
+black>=23.9.0
+flake8>=6.1.0
+mypy>=1.6.0
+pre-commit>=3.5.0
 
-# Optional: Advanced ML libraries
-# xgboost>=1.6.0
-# lightgbm>=3.3.0
-# catboost>=1.0.0
-# tensorflow>=2.9.0
-# torch>=1.12.0
+# Advanced ML libraries
+xgboost>=2.0.0
+lightgbm>=4.1.0
+catboost>=1.2.0
+tensorflow>=2.14.0
+torch>=2.1.0
+transformers>=4.35.0
+
+# Additional dependencies for AI readiness
+email-validator>=2.1.0
+httpx>=0.25.0
+jinja2>=3.1.0
+croniter>=1.4.0
+schedule>=1.2.0
+psutil>=5.9.0
+requests>=2.31.0
+aiohttp>=3.9.0

@@ -12,16 +12,20 @@ interface SystemMetricsProps {
 
 export function SystemMetricsCard({ metrics }: SystemMetricsProps) {
   const getMetricColor = (value: number, thresholds: { warning: number; danger: number }) => {
-    if (value >= thresholds.danger) return 'text-scrollintel-error'
-    if (value >= thresholds.warning) return 'text-scrollintel-warning'
-    return 'text-scrollintel-success'
+    if (value >= thresholds.danger) return 'text-red-500'
+    if (value >= thresholds.warning) return 'text-yellow-500'
+    return 'text-green-500'
+  }
+
+  const safeValue = (value: number | undefined, fallback: number = 0): number => {
+    return typeof value === 'number' && !isNaN(value) ? value : fallback
   }
 
   const metricItems = [
     {
       icon: <Cpu className="h-5 w-5" />,
       label: 'CPU Usage',
-      value: metrics.cpu_usage,
+      value: safeValue(metrics.cpu_usage),
       unit: '%',
       thresholds: { warning: 70, danger: 90 },
       showProgress: true,
@@ -29,42 +33,42 @@ export function SystemMetricsCard({ metrics }: SystemMetricsProps) {
     {
       icon: <MemoryStick className="h-5 w-5" />,
       label: 'Memory Usage',
-      value: metrics.memory_usage,
+      value: safeValue(metrics.memory_usage),
       unit: '%',
       thresholds: { warning: 80, danger: 95 },
       showProgress: true,
     },
     {
       icon: <Users className="h-5 w-5" />,
-      label: 'Active Agents',
-      value: metrics.active_agents,
+      label: 'Active Connections',
+      value: safeValue(metrics.active_connections),
       unit: '',
       thresholds: { warning: 50, danger: 100 },
       showProgress: false,
     },
     {
       icon: <Activity className="h-5 w-5" />,
-      label: 'Total Requests',
-      value: metrics.total_requests,
-      unit: '',
-      thresholds: { warning: 10000, danger: 50000 },
-      showProgress: false,
+      label: 'Disk Usage',
+      value: safeValue(metrics.disk_usage),
+      unit: '%',
+      thresholds: { warning: 80, danger: 95 },
+      showProgress: true,
     },
     {
       icon: <Clock className="h-5 w-5" />,
-      label: 'Avg Response Time',
-      value: metrics.avg_response_time,
+      label: 'Response Time',
+      value: safeValue(metrics.response_time),
       unit: 'ms',
       thresholds: { warning: 1000, danger: 3000 },
       showProgress: false,
     },
     {
       icon: <AlertTriangle className="h-5 w-5" />,
-      label: 'Error Rate',
-      value: metrics.error_rate,
+      label: 'Uptime',
+      value: safeValue(metrics.uptime, 99.9),
       unit: '%',
-      thresholds: { warning: 5, danger: 10 },
-      showProgress: true,
+      thresholds: { warning: 95, danger: 90 },
+      showProgress: false,
     },
   ]
 

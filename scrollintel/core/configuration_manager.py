@@ -86,7 +86,7 @@ class ScrollIntelConfig:
         """Initialize nested configurations if not provided."""
         if self.database is None:
             self.database = DatabaseConfig(
-                primary_url="postgresql://postgres:password@localhost:5432/scrollintel",
+                primary_url=os.getenv("DATABASE_URL", os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/scrollintel")),
                 fallback_url="sqlite:///./data/scrollintel.db"
             )
         if self.session is None:
@@ -158,7 +158,7 @@ class ConfigurationManager:
             "debug": False,
             "log_level": "INFO",
             "database": {
-                "primary_url": "postgresql://postgres:password@localhost:5432/scrollintel",
+                "primary_url": os.getenv("DATABASE_URL", os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/scrollintel")),
                 "fallback_url": "sqlite:///./data/scrollintel.db",
                 "pool_size": 5,
                 "max_overflow": 10,

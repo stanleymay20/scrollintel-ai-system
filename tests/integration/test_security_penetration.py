@@ -1,570 +1,799 @@
 """
-Security Penetration Tests
-Tests authentication, authorization, and security vulnerabilities
+Security Penetration Testing Suite
+Comprehensive security testing for all system components
 """
 import pytest
+import asyncio
+import hashlib
 import jwt
 import time
-import hashlib
-import secrets
-from typing import Dict, Any, List
-from unittest.mock import patch, Mock
-import requests
-from fastapi import HTTPException
+import base64
+import json
+from datetime import datetime, timedelta
+from unittest.mock import Mock, patch, AsyncMock
+import pandas as pd
+import numpy as np
 
-from scrollintel.security.auth import create_access_token, verify_token, hash_password, verify_password
-from scrollintel.security.permissions import check_permission, UserRole
-from scrollintel.security.audit import AuditLogger
-from scrollintel.security.session import SessionManager
-from scrollintel.models.schemas import User
+from scrollintel.security.enterprise_security_framework import EnterpriseSecurityFramework
+from scrollintel.security.auth import AuthenticationManager
+from scrollintel.core.realtime_orchestration_engine import RealtimeOrchestrationEngine
+from scrollintel.api.middleware.security_middleware import SecurityMiddleware
+from scrollintel.models.security_models import SecurityEvent, ThreatLevel
 
 
-class TestSecurityPenetration:
-    """Security penetration testing suite"""
+class TestAuthenticationSecurity:
+    """Test authentication and authorization security"""
     
     @pytest.fixture
-    def audit_logger(self):
-        """Create audit logger instance"""
-        return AuditLogger()
+    def auth_manager(self):
+        """Create authentication manager for testing"""
+        return AuthenticationManager()
     
     @pytest.fixture
-    def session_manager(self):
-        """Create session manager instance"""
-        return SessionManager()
+    def security_framework(self):
+        """Create security framework for testing"""
+        return EnterpriseSecurityFramework()
     
     @pytest.mark.asyncio
-    async def test_jwt_token_vulnerabilities(self):
-        """Test JWT token security vulnerabilities"""
+    async def test_brute_force_protection(self, auth_manager):
+        """Test protection against brute force attacks"""
         
-        # Test 1: Token tampering
-        valid_token = create_access_token(data={"sub": "test@example.com", "role": "user"})
+        # Simulate brute force attack
+        username = "test_user"
+        failed_attempts = []
         
-        # Try to tamper with token payload
-        try:
-            # Decode without verification (dangerous in real code)
-            payload = jwt.decode(valid_token, options={"verify_signature": False})
-            payload["role"] = "admin"  # Escalate privileges
+        for attempt in range(10):
+            try:
+                result = await auth_manager.authenticate(
+                    username=username,
+                    password=f"wrong_password_{attempt}",
+                    ip_address="192.168.1.100"
+                )
+                failed_attempts.append(result)
+            except Exception as e:
+                failed_attempts.append({'error': str(e), 'attempt': attempt})
+        
+        # Validate brute force protection
+        assert len(failed_attempts) >= 5, "Should have multiple failed attempts"
+        
+        # Check if account gets locked after threshold
+        lockout_detected = any('locked' in str(attempt).lower() or 'blocked' in str(attempt).lower() 
+                              for attempt in failed_attempts[-3:])
+        
+        assert lockout_detected, "Account should be locked after multiple failed attempts"
+        
+        # Test rate limiting
+        rapid_attempts = []
+        start_time = time.time()
+        
+        for i in range(5):
+            try:
+                result = await auth_manager.authenticate(
+                    username=username,
+                    password="wrong_password",
+                    ip_address="192.168.1.100"
+                )
+                rapid_attempts.append(result)
+            except Exception as e:
+                rapid_attempts.append({'error': str(e), 'timestamp': time.time()})
             
-            # Try to create new token with tampered payload
-            tampered_token = jwt.encode(payload, "wrong_secret", algorithm="HS256")
-            
-            # This should fail verification
-            with pytest.raises(Exception):
-                verify_token(tampered_token)
-                
-        except Exception:
-            pass  # Expected to fail
+            if i < 4:  # Don't sleep after last attempt
+                await asyncio.sleep(0.1)  # Rapid attempts
         
-        # Test 2: Token expiration bypass
-        expired_payload = {
-            "sub": "test@example.com",
-            "role": "admin",
-            "exp": int(time.time()) - 3600  # Expired 1 hour ago
-        }
+        total_time = time.time() - start_time
         
-        expired_token = jwt.encode(expired_payload, "test_secret", algorithm="HS256")
+        # Validate rate limiting (should slow down or block rapid attempts)
+        rate_limiting_active = total_time > 2.0 or any('rate' in str(attempt).lower() 
+                                                      for attempt in rapid_attempts)
         
-        with pytest.raises(Exception):
-            verify_token(expired_token)
-        
-        # Test 3: Algorithm confusion attack
-        # Try to use 'none' algorithm
-        none_payload = {"sub": "test@example.com", "role": "admin"}
-        none_token = jwt.encode(none_payload, "", algorithm="none")
-        
-        with pytest.raises(Exception):
-            verify_token(none_token)
-        
-        # Test 4: Weak secret detection
-        weak_secrets = ["123", "password", "secret", "test"]
-        
-        for weak_secret in weak_secrets:
-            # In real implementation, should reject weak secrets
-            token = jwt.encode({"sub": "test"}, weak_secret, algorithm="HS256")
-            
-            # Try to crack with common passwords
-            for guess in ["123", "password", "secret", "test", "admin"]:
-                try:
-                    decoded = jwt.decode(token, guess, algorithms=["HS256"])
-                    # If we can decode with a common password, secret is too weak
-                    assert False, f"Weak secret detected: {weak_secret}"
-                except jwt.InvalidTokenError:
-                    continue
+        assert rate_limiting_active, "Rate limiting should be active for rapid attempts"
     
     @pytest.mark.asyncio
-    async def test_authentication_bypass_attempts(self, test_client):
-        """Test various authentication bypass attempts"""
-        
-        # Test 1: SQL Injection in login
-        sql_injection_payloads = [
-            "admin' OR '1'='1",
-            "admin'; DROP TABLE users; --",
-            "admin' UNION SELECT * FROM users --",
-            "' OR 1=1 --",
-            "admin'/**/OR/**/1=1#"
-        ]
-        
-        for payload in sql_injection_payloads:
-            login_data = {
-                "email": payload,
-                "password": "any_password"
-            }
-            
-            response = test_client.post("/api/v1/auth/login", json=login_data)
-            
-            # Should not succeed with SQL injection
-            assert response.status_code in [400, 401, 422]
-            
-            # Should not contain database error messages
-            response_text = response.text.lower()
-            dangerous_keywords = ["sql", "database", "table", "select", "union", "drop"]
-            for keyword in dangerous_keywords:
-                assert keyword not in response_text, f"Potential SQL injection vulnerability: {keyword} in response"
-        
-        # Test 2: NoSQL Injection attempts
-        nosql_payloads = [
-            {"$ne": None},
-            {"$gt": ""},
-            {"$regex": ".*"},
-            {"$where": "1==1"}
-        ]
-        
-        for payload in nosql_payloads:
-            login_data = {
-                "email": payload,
-                "password": "any_password"
-            }
-            
-            response = test_client.post("/api/v1/auth/login", json=login_data)
-            assert response.status_code in [400, 401, 422]
-        
-        # Test 3: Header injection
-        malicious_headers = {
-            "X-Forwarded-For": "127.0.0.1, admin",
-            "X-Real-IP": "127.0.0.1",
-            "X-Originating-IP": "127.0.0.1",
-            "Authorization": "Bearer fake_admin_token"
-        }
-        
-        response = test_client.get("/api/v1/admin/users", headers=malicious_headers)
-        assert response.status_code in [401, 403]  # Should not bypass auth
-    
-    @pytest.mark.asyncio
-    async def test_authorization_privilege_escalation(self, test_client, test_db_session):
-        """Test privilege escalation attempts"""
-        
-        # Create test users with different roles
-        users = [
-            {"email": "viewer@test.com", "role": UserRole.VIEWER, "permissions": ["read"]},
-            {"email": "analyst@test.com", "role": UserRole.ANALYST, "permissions": ["read", "analyze"]},
-            {"email": "admin@test.com", "role": UserRole.ADMIN, "permissions": ["read", "write", "admin"]}
-        ]
-        
-        tokens = {}
-        for user_data in users:
-            # Create user in database
-            user = User(**user_data)
-            test_db_session.add(user)
-            test_db_session.commit()
-            
-            # Generate token
-            token = create_access_token(data={"sub": user.email, "role": user.role.value})
-            tokens[user.role.value] = {"Authorization": f"Bearer {token}"}
-        
-        # Test 1: Viewer trying to access admin endpoints
-        admin_endpoints = [
-            "/api/v1/admin/users",
-            "/api/v1/admin/system/config",
-            "/api/v1/admin/audit/logs"
-        ]
-        
-        for endpoint in admin_endpoints:
-            response = test_client.get(endpoint, headers=tokens["viewer"])
-            assert response.status_code == 403, f"Viewer should not access {endpoint}"
-        
-        # Test 2: Analyst trying to perform admin actions
-        admin_actions = [
-            ("/api/v1/admin/users", "POST", {"email": "new@test.com", "role": "admin"}),
-            ("/api/v1/admin/system/config", "PUT", {"setting": "value"}),
-            ("/api/v1/admin/users/1", "DELETE", {})
-        ]
-        
-        for endpoint, method, data in admin_actions:
-            if method == "POST":
-                response = test_client.post(endpoint, json=data, headers=tokens["analyst"])
-            elif method == "PUT":
-                response = test_client.put(endpoint, json=data, headers=tokens["analyst"])
-            elif method == "DELETE":
-                response = test_client.delete(endpoint, headers=tokens["analyst"])
-            
-            assert response.status_code == 403, f"Analyst should not perform {method} on {endpoint}"
-        
-        # Test 3: Role manipulation in token
-        # Try to modify role in existing token
-        analyst_token = tokens["analyst"]["Authorization"].split(" ")[1]
-        
-        try:
-            # Decode token (this would fail in real scenario due to signature)
-            payload = jwt.decode(analyst_token, options={"verify_signature": False})
-            payload["role"] = "admin"
-            
-            # Try to use modified token
-            fake_admin_token = jwt.encode(payload, "wrong_secret", algorithm="HS256")
-            fake_headers = {"Authorization": f"Bearer {fake_admin_token}"}
-            
-            response = test_client.get("/api/v1/admin/users", headers=fake_headers)
-            assert response.status_code in [401, 403]  # Should reject invalid token
-            
-        except Exception:
-            pass  # Expected to fail
-    
-    @pytest.mark.asyncio
-    async def test_session_security_vulnerabilities(self, session_manager):
+    async def test_session_security(self, auth_manager):
         """Test session management security"""
         
-        # Test 1: Session fixation
-        # Create session for user
-        user_id = "test_user_123"
-        session_id = await session_manager.create_session(user_id)
+        # Test valid authentication
+        auth_result = await auth_manager.authenticate(
+            username="valid_user",
+            password="correct_password",
+            ip_address="192.168.1.50"
+        )
         
-        # Verify session exists
-        session_data = await session_manager.get_session(session_id)
-        assert session_data["user_id"] == user_id
+        assert auth_result['authenticated'], "Valid authentication should succeed"
+        session_token = auth_result['session_token']
         
-        # Test session hijacking prevention
-        # Try to use session from different IP
-        original_ip = "192.168.1.100"
-        malicious_ip = "10.0.0.1"
+        # Test session validation
+        session_valid = await auth_manager.validate_session(session_token)
+        assert session_valid['valid'], "Valid session should be accepted"
         
-        # Set session with IP binding
-        await session_manager.update_session(session_id, {"ip_address": original_ip})
+        # Test session hijacking protection
+        # Attempt to use session from different IP
+        hijack_attempt = await auth_manager.validate_session(
+            session_token,
+            ip_address="10.0.0.1"  # Different IP
+        )
         
-        # Try to access from different IP (should be detected)
-        is_valid = await session_manager.validate_session(session_id, ip_address=malicious_ip)
-        assert not is_valid, "Session should be invalid from different IP"
+        assert not hijack_attempt['valid'], "Session should be invalid from different IP"
         
-        # Test 2: Session timeout
-        # Create session with short timeout
-        short_session_id = await session_manager.create_session(user_id, timeout=1)  # 1 second
+        # Test session timeout
+        # Mock expired session
+        with patch('time.time', return_value=time.time() + 3600):  # 1 hour later
+            expired_session = await auth_manager.validate_session(session_token)
+            assert not expired_session['valid'], "Expired session should be invalid"
         
-        # Wait for timeout
-        time.sleep(2)
+        # Test concurrent session limits
+        concurrent_sessions = []
+        for i in range(5):
+            session_result = await auth_manager.authenticate(
+                username="valid_user",
+                password="correct_password",
+                ip_address=f"192.168.1.{50 + i}"
+            )
+            concurrent_sessions.append(session_result)
         
-        # Session should be expired
-        expired_session = await session_manager.get_session(short_session_id)
-        assert expired_session is None or expired_session.get("expired", False)
-        
-        # Test 3: Concurrent session limits
-        # Create multiple sessions for same user
-        sessions = []
-        for i in range(10):
-            sid = await session_manager.create_session(user_id)
-            sessions.append(sid)
-        
-        # Should limit concurrent sessions (implementation dependent)
-        active_sessions = await session_manager.get_user_sessions(user_id)
-        assert len(active_sessions) <= 5, "Should limit concurrent sessions"
+        # Validate concurrent session limits
+        valid_sessions = sum(1 for session in concurrent_sessions if session.get('authenticated'))
+        assert valid_sessions <= 3, "Should limit concurrent sessions per user"
     
     @pytest.mark.asyncio
-    async def test_input_validation_vulnerabilities(self, test_client, test_user_token):
-        """Test input validation and injection vulnerabilities"""
+    async def test_jwt_token_security(self, auth_manager):
+        """Test JWT token security and validation"""
         
-        # Test 1: XSS attempts in file uploads
-        xss_payloads = [
-            "<script>alert('xss')</script>",
-            "javascript:alert('xss')",
-            "<img src=x onerror=alert('xss')>",
-            "';alert('xss');//",
-            "<svg onload=alert('xss')>"
-        ]
-        
-        for payload in xss_payloads:
-            # Try XSS in filename
-            files = {"file": (payload, "test content", "text/plain")}
-            response = test_client.post(
-                "/api/v1/files/upload",
-                files=files,
-                headers=test_user_token
-            )
-            
-            # Should sanitize filename
-            if response.status_code == 200:
-                result = response.json()
-                filename = result.get("filename", "")
-                assert "<script>" not in filename
-                assert "javascript:" not in filename
-                assert "onerror=" not in filename
-        
-        # Test 2: Command injection in prompts
-        command_injection_payloads = [
-            "; ls -la",
-            "| cat /etc/passwd",
-            "&& rm -rf /",
-            "`whoami`",
-            "$(id)",
-            "${IFS}cat${IFS}/etc/passwd"
-        ]
-        
-        for payload in command_injection_payloads:
-            agent_request = {
-                "prompt": f"Analyze data {payload}",
-                "agent_type": "data_scientist"
-            }
-            
-            with patch('scrollintel.agents.scroll_data_scientist.anthropic') as mock_claude:
-                mock_claude.messages.create.return_value = Mock(
-                    content=[Mock(text="Safe response")]
-                )
-                
-                response = test_client.post(
-                    "/api/v1/agents/process",
-                    json=agent_request,
-                    headers=test_user_token
-                )
-                
-                # Should not execute commands
-                if response.status_code == 200:
-                    result = response.json()
-                    content = result.get("content", "").lower()
-                    
-                    # Should not contain command output
-                    dangerous_outputs = ["root:", "bin/bash", "uid=", "gid="]
-                    for output in dangerous_outputs:
-                        assert output not in content
-        
-        # Test 3: Path traversal in file operations
-        path_traversal_payloads = [
-            "../../../etc/passwd",
-            "..\\..\\..\\windows\\system32\\config\\sam",
-            "/etc/passwd",
-            "C:\\windows\\system32\\config\\sam",
-            "....//....//....//etc/passwd"
-        ]
-        
-        for payload in path_traversal_payloads:
-            # Try path traversal in dataset access
-            response = test_client.get(
-                f"/api/v1/datasets/{payload}",
-                headers=test_user_token
-            )
-            
-            # Should not access system files
-            assert response.status_code in [400, 404, 422]
-            
-            if response.status_code != 404:
-                response_text = response.text.lower()
-                system_indicators = ["root:", "password:", "system32", "config"]
-                for indicator in system_indicators:
-                    assert indicator not in response_text
-    
-    @pytest.mark.asyncio
-    async def test_rate_limiting_bypass_attempts(self, test_client, test_user_token):
-        """Test rate limiting bypass attempts"""
-        
-        # Test 1: Rapid requests to login endpoint
-        login_attempts = []
-        for i in range(20):  # Try 20 rapid login attempts
-            login_data = {
-                "email": f"test{i}@example.com",
-                "password": "wrong_password"
-            }
-            
-            response = test_client.post("/api/v1/auth/login", json=login_data)
-            login_attempts.append(response.status_code)
-        
-        # Should start rate limiting after several attempts
-        rate_limited_count = sum(1 for status in login_attempts if status == 429)
-        assert rate_limited_count > 0, "Rate limiting should be active after multiple failed attempts"
-        
-        # Test 2: IP rotation attempts
-        # Try with different X-Forwarded-For headers
-        for i in range(10):
-            headers = {
-                **test_user_token,
-                "X-Forwarded-For": f"192.168.1.{i}"
-            }
-            
-            response = test_client.post(
-                "/api/v1/agents/process",
-                json={"prompt": "test", "agent_type": "data_scientist"},
-                headers=headers
-            )
-            
-            # Should not bypass rate limiting with IP rotation
-            if i > 5:  # After several requests
-                assert response.status_code in [200, 429]  # Either success or rate limited
-        
-        # Test 3: User-Agent rotation
-        user_agents = [
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
-            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
-            "curl/7.68.0",
-            "python-requests/2.25.1"
-        ]
-        
-        for ua in user_agents:
-            headers = {
-                **test_user_token,
-                "User-Agent": ua
-            }
-            
-            response = test_client.get("/api/v1/health", headers=headers)
-            # Should not bypass rate limiting with User-Agent rotation
-            assert response.status_code in [200, 429]
-    
-    @pytest.mark.asyncio
-    async def test_audit_log_tampering(self, audit_logger, test_db_session):
-        """Test audit log security and tampering attempts"""
-        
-        # Test 1: Log integrity
-        # Create audit log entry
-        log_entry = {
-            "user_id": "test_user",
-            "action": "login",
-            "resource_type": "auth",
-            "resource_id": "session_123",
-            "ip_address": "192.168.1.100",
-            "details": {"success": True}
+        # Generate JWT token
+        payload = {
+            'user_id': 'test_user_123',
+            'role': 'user',
+            'exp': datetime.utcnow() + timedelta(hours=1),
+            'iat': datetime.utcnow(),
+            'iss': 'scrollintel'
         }
         
-        log_id = await audit_logger.log_action(**log_entry)
+        secret_key = "test_secret_key_for_jwt"
+        token = jwt.encode(payload, secret_key, algorithm='HS256')
         
-        # Try to modify log entry directly in database
-        # This should be prevented by database constraints or triggers
-        try:
-            # Attempt direct database modification
-            test_db_session.execute(
-                "UPDATE audit_logs SET action = 'admin_access' WHERE id = :log_id",
-                {"log_id": log_id}
-            )
-            test_db_session.commit()
-            
-            # Verify log wasn't tampered with
-            retrieved_log = await audit_logger.get_log_entry(log_id)
-            assert retrieved_log["action"] == "login", "Audit log should not be modifiable"
-            
-        except Exception:
-            # Expected if proper constraints are in place
-            pass
+        # Test valid token
+        decoded = await auth_manager.validate_jwt_token(token, secret_key)
+        assert decoded['valid'], "Valid JWT should be accepted"
+        assert decoded['payload']['user_id'] == 'test_user_123'
         
-        # Test 2: Log deletion attempts
-        try:
-            test_db_session.execute(
-                "DELETE FROM audit_logs WHERE id = :log_id",
-                {"log_id": log_id}
-            )
-            test_db_session.commit()
-            
-            # Verify log still exists
-            retrieved_log = await audit_logger.get_log_entry(log_id)
-            assert retrieved_log is not None, "Audit logs should not be deletable"
-            
-        except Exception:
-            # Expected if proper constraints are in place
-            pass
+        # Test token tampering
+        tampered_token = token[:-5] + "XXXXX"  # Tamper with signature
+        tampered_result = await auth_manager.validate_jwt_token(tampered_token, secret_key)
+        assert not tampered_result['valid'], "Tampered JWT should be rejected"
         
-        # Test 3: Log injection
-        malicious_details = {
-            "'; DROP TABLE audit_logs; --": "value",
-            "<script>alert('xss')</script>": "malicious",
-            "admin_backdoor": True
-        }
+        # Test expired token
+        expired_payload = payload.copy()
+        expired_payload['exp'] = datetime.utcnow() - timedelta(hours=1)  # Expired
+        expired_token = jwt.encode(expired_payload, secret_key, algorithm='HS256')
         
-        try:
-            malicious_log = {
-                **log_entry,
-                "details": malicious_details
-            }
-            
-            log_id = await audit_logger.log_action(**malicious_log)
-            
-            # Verify malicious content is sanitized
-            retrieved_log = await audit_logger.get_log_entry(log_id)
-            details_str = str(retrieved_log["details"])
-            
-            assert "DROP TABLE" not in details_str
-            assert "<script>" not in details_str
-            
-        except Exception:
-            # Expected if proper validation is in place
-            pass
+        expired_result = await auth_manager.validate_jwt_token(expired_token, secret_key)
+        assert not expired_result['valid'], "Expired JWT should be rejected"
+        
+        # Test algorithm confusion attack
+        # Try to use 'none' algorithm
+        none_token = jwt.encode(payload, '', algorithm='none')
+        none_result = await auth_manager.validate_jwt_token(none_token, secret_key)
+        assert not none_result['valid'], "JWT with 'none' algorithm should be rejected"
     
     @pytest.mark.asyncio
-    async def test_password_security_vulnerabilities(self):
-        """Test password hashing and validation security"""
+    async def test_privilege_escalation_protection(self, auth_manager, security_framework):
+        """Test protection against privilege escalation"""
         
-        # Test 1: Weak password detection
-        weak_passwords = [
-            "123456",
-            "password",
-            "admin",
-            "test",
-            "qwerty",
-            "123456789",
-            "password123"
+        # Create user with limited privileges
+        limited_user = {
+            'user_id': 'limited_user',
+            'role': 'viewer',
+            'permissions': ['read_data', 'view_reports']
+        }
+        
+        # Test normal authorized operation
+        read_result = await security_framework.authorize_action(
+            user=limited_user,
+            action='read_data',
+            resource='customer_data'
+        )
+        assert read_result['authorized'], "User should be able to read data"
+        
+        # Test unauthorized operation (privilege escalation attempt)
+        admin_result = await security_framework.authorize_action(
+            user=limited_user,
+            action='delete_data',
+            resource='customer_data'
+        )
+        assert not admin_result['authorized'], "User should not be able to delete data"
+        
+        # Test role manipulation attempt
+        escalation_attempts = [
+            {'user_id': 'limited_user', 'role': 'admin'},  # Role change
+            {'user_id': 'limited_user', 'permissions': ['admin_access']},  # Permission addition
+            {'user_id': 'admin', 'role': 'viewer'},  # User ID spoofing
         ]
         
-        for weak_password in weak_passwords:
-            # Should reject weak passwords (implementation dependent)
-            try:
-                hashed = hash_password(weak_password)
-                # If hashing succeeds, verify it's properly hashed
-                assert len(hashed) > 50  # Should be long hash
-                assert weak_password not in hashed  # Should not contain plaintext
-            except ValueError:
-                # Expected if weak password validation is implemented
-                pass
+        for attempt in escalation_attempts:
+            escalation_result = await security_framework.detect_privilege_escalation(
+                original_user=limited_user,
+                modified_user=attempt
+            )
+            assert escalation_result['escalation_detected'], f"Should detect escalation: {attempt}"
         
-        # Test 2: Hash timing attacks
-        correct_password = "correct_password_123"
-        wrong_passwords = [
-            "wrong_password_123",
-            "completely_different",
-            "a",
-            "x" * 100
+        # Test horizontal privilege escalation
+        user_a = {'user_id': 'user_a', 'role': 'user', 'customer_id': '123'}
+        user_b_data_access = await security_framework.authorize_action(
+            user=user_a,
+            action='read_data',
+            resource='customer_data',
+            resource_owner='456'  # Different customer
+        )
+        assert not user_b_data_access['authorized'], "User should not access other user's data"
+
+
+class TestDataSecurity:
+    """Test data protection and encryption security"""
+    
+    @pytest.fixture
+    def security_framework(self):
+        return EnterpriseSecurityFramework()
+    
+    @pytest.mark.asyncio
+    async def test_data_encryption_security(self, security_framework):
+        """Test data encryption and decryption security"""
+        
+        # Test sensitive data encryption
+        sensitive_data = {
+            'ssn': '123-45-6789',
+            'credit_card': '4111-1111-1111-1111',
+            'email': 'user@example.com',
+            'phone': '+1-555-123-4567'
+        }
+        
+        # Encrypt data
+        encrypted_data = await security_framework.encrypt_sensitive_data(sensitive_data)
+        
+        # Validate encryption
+        assert encrypted_data['ssn'] != sensitive_data['ssn'], "SSN should be encrypted"
+        assert encrypted_data['credit_card'] != sensitive_data['credit_card'], "Credit card should be encrypted"
+        
+        # Test decryption with valid key
+        decrypted_data = await security_framework.decrypt_sensitive_data(
+            encrypted_data,
+            encryption_key="valid_key"
+        )
+        assert decrypted_data['ssn'] == sensitive_data['ssn'], "Decryption should restore original data"
+        
+        # Test decryption with invalid key
+        try:
+            invalid_decrypt = await security_framework.decrypt_sensitive_data(
+                encrypted_data,
+                encryption_key="invalid_key"
+            )
+            assert False, "Decryption with invalid key should fail"
+        except Exception:
+            pass  # Expected to fail
+        
+        # Test encryption strength
+        # Same data should produce different encrypted values (due to salt/IV)
+        encrypted_again = await security_framework.encrypt_sensitive_data(sensitive_data)
+        assert encrypted_data['ssn'] != encrypted_again['ssn'], "Encryption should use random salt/IV"
+    
+    @pytest.mark.asyncio
+    async def test_data_masking_security(self, security_framework):
+        """Test data masking and anonymization"""
+        
+        # Test PII data masking
+        pii_data = pd.DataFrame({
+            'customer_id': [1, 2, 3, 4, 5],
+            'name': ['John Doe', 'Jane Smith', 'Bob Johnson', 'Alice Brown', 'Charlie Wilson'],
+            'ssn': ['123-45-6789', '987-65-4321', '555-12-3456', '111-22-3333', '999-88-7777'],
+            'email': ['john@example.com', 'jane@test.org', 'bob@company.com', 'alice@email.net', 'charlie@domain.co'],
+            'salary': [50000, 75000, 60000, 80000, 55000]
+        })
+        
+        # Apply data masking
+        masked_data = await security_framework.apply_data_masking(
+            pii_data,
+            masking_rules={
+                'ssn': 'full_mask',
+                'email': 'partial_mask',
+                'salary': 'range_mask',
+                'name': 'pseudonymize'
+            }
+        )
+        
+        # Validate masking
+        assert all(masked_data['ssn'] == '***-**-****'), "SSN should be fully masked"
+        assert all('@' in email for email in masked_data['email']), "Email should preserve domain"
+        assert all(name != original for name, original in zip(masked_data['name'], pii_data['name'])), "Names should be pseudonymized"
+        
+        # Test data anonymization
+        anonymized_data = await security_framework.anonymize_dataset(
+            pii_data,
+            k_anonymity=3,
+            quasi_identifiers=['salary', 'name']
+        )
+        
+        # Validate k-anonymity
+        group_sizes = anonymized_data.groupby(['salary', 'name']).size()
+        assert all(size >= 3 for size in group_sizes), "K-anonymity should be maintained"
+    
+    @pytest.mark.asyncio
+    async def test_sql_injection_protection(self, security_framework):
+        """Test protection against SQL injection attacks"""
+        
+        # Common SQL injection payloads
+        injection_payloads = [
+            "'; DROP TABLE users; --",
+            "' OR '1'='1",
+            "' UNION SELECT * FROM passwords --",
+            "'; INSERT INTO admin VALUES ('hacker', 'password'); --",
+            "' OR 1=1 --",
+            "admin'--",
+            "' OR 'x'='x",
+            "1' AND (SELECT COUNT(*) FROM users) > 0 --"
         ]
         
-        hashed_password = hash_password(correct_password)
-        
-        # Measure verification times
-        times = []
-        for wrong_password in wrong_passwords:
-            start_time = time.time()
-            result = verify_password(wrong_password, hashed_password)
-            end_time = time.time()
+        for payload in injection_payloads:
+            # Test input sanitization
+            sanitized = await security_framework.sanitize_sql_input(payload)
             
-            times.append(end_time - start_time)
-            assert not result  # Should all be False
+            # Validate that dangerous SQL is neutralized
+            dangerous_keywords = ['DROP', 'DELETE', 'INSERT', 'UPDATE', 'UNION', 'SELECT']
+            payload_upper = sanitized.upper()
+            
+            # Should not contain dangerous SQL keywords in executable form
+            for keyword in dangerous_keywords:
+                if keyword in payload_upper:
+                    # Should be escaped or quoted
+                    assert f"'{keyword}'" in sanitized or f'"{keyword}"' in sanitized, f"SQL keyword {keyword} not properly escaped"
+            
+            # Test parameterized query protection
+            safe_query = await security_framework.create_parameterized_query(
+                "SELECT * FROM users WHERE username = ?",
+                [payload]
+            )
+            
+            # Validate that payload is treated as parameter, not SQL
+            assert payload not in safe_query['query'], "Payload should not be directly in query"
+            assert payload in safe_query['parameters'], "Payload should be in parameters"
+    
+    @pytest.mark.asyncio
+    async def test_data_leakage_prevention(self, security_framework):
+        """Test prevention of data leakage"""
         
-        # Verify correct password
-        start_time = time.time()
-        result = verify_password(correct_password, hashed_password)
-        correct_time = time.time() - start_time
+        # Test error message sanitization
+        sensitive_errors = [
+            "Database connection failed: password='secret123' host='internal.db.com'",
+            "User 'admin' authentication failed with password 'admin123'",
+            "File not found: /etc/passwd",
+            "SQL Error: Table 'secret_data' doesn't exist"
+        ]
         
-        assert result  # Should be True
+        for error in sensitive_errors:
+            sanitized_error = await security_framework.sanitize_error_message(error)
+            
+            # Should not contain sensitive information
+            sensitive_patterns = ['password=', 'passwd', 'secret', 'admin123', 'internal.db.com']
+            for pattern in sensitive_patterns:
+                assert pattern.lower() not in sanitized_error.lower(), f"Sensitive pattern '{pattern}' found in error message"
         
-        # Times should be relatively consistent (timing attack prevention)
-        avg_time = sum(times) / len(times)
-        for t in times:
-            # Allow some variance but not too much
-            assert abs(t - avg_time) < 0.1, "Password verification timing should be consistent"
+        # Test log sanitization
+        log_entries = [
+            "User login: username=john, password=secret123, ip=192.168.1.1",
+            "API call: /api/users?ssn=123-45-6789&token=abc123xyz",
+            "Database query: SELECT * FROM users WHERE credit_card='4111-1111-1111-1111'"
+        ]
         
-        # Test 3: Hash collision resistance
-        passwords = [f"password_{i}" for i in range(100)]
-        hashes = [hash_password(pwd) for pwd in passwords]
+        for log_entry in log_entries:
+            sanitized_log = await security_framework.sanitize_log_entry(log_entry)
+            
+            # Should mask sensitive data in logs
+            sensitive_data = ['secret123', '123-45-6789', '4111-1111-1111-1111', 'abc123xyz']
+            for data in sensitive_data:
+                assert data not in sanitized_log, f"Sensitive data '{data}' found in log"
         
-        # All hashes should be unique
-        assert len(set(hashes)) == len(hashes), "Password hashes should be unique"
+        # Test response data filtering
+        api_response = {
+            'users': [
+                {'id': 1, 'name': 'John', 'ssn': '123-45-6789', 'password_hash': 'abc123'},
+                {'id': 2, 'name': 'Jane', 'ssn': '987-65-4321', 'password_hash': 'def456'}
+            ],
+            'internal_config': {'db_password': 'secret', 'api_key': 'xyz789'}
+        }
         
-        # Hashes should be different even for similar passwords
-        similar_passwords = ["password1", "password2", "password3"]
-        similar_hashes = [hash_password(pwd) for pwd in similar_passwords]
+        filtered_response = await security_framework.filter_response_data(
+            api_response,
+            user_role='user'  # Non-admin user
+        )
         
-        for i, hash1 in enumerate(similar_hashes):
-            for j, hash2 in enumerate(similar_hashes):
-                if i != j:
-                    # Calculate similarity (should be low)
-                    common_chars = sum(c1 == c2 for c1, c2 in zip(hash1, hash2))
-                    similarity = common_chars / len(hash1)
-                    assert similarity < 0.1, "Similar passwords should have very different hashes"
+        # Should remove sensitive fields for non-admin users
+        assert 'ssn' not in str(filtered_response), "SSN should be filtered from response"
+        assert 'password_hash' not in str(filtered_response), "Password hash should be filtered"
+        assert 'internal_config' not in filtered_response, "Internal config should be filtered"
+
+
+class TestNetworkSecurity:
+    """Test network and communication security"""
+    
+    @pytest.fixture
+    def security_middleware(self):
+        return SecurityMiddleware()
+    
+    @pytest.mark.asyncio
+    async def test_ddos_protection(self, security_middleware):
+        """Test DDoS attack protection"""
+        
+        # Simulate DDoS attack from single IP
+        attacker_ip = "192.168.1.100"
+        requests_per_second = 100
+        
+        blocked_requests = 0
+        allowed_requests = 0
+        
+        # Send rapid requests
+        for i in range(requests_per_second):
+            request = {
+                'ip_address': attacker_ip,
+                'timestamp': time.time(),
+                'endpoint': '/api/data',
+                'user_agent': 'AttackBot/1.0'
+            }
+            
+            result = await security_middleware.check_rate_limit(request)
+            
+            if result['blocked']:
+                blocked_requests += 1
+            else:
+                allowed_requests += 1
+            
+            await asyncio.sleep(0.01)  # 10ms between requests
+        
+        # Validate DDoS protection
+        block_rate = blocked_requests / requests_per_second
+        assert block_rate >= 0.8, f"Should block most DDoS requests, blocked: {block_rate:.2%}"
+        
+        # Test distributed DDoS (multiple IPs)
+        distributed_ips = [f"10.0.0.{i}" for i in range(1, 21)]  # 20 different IPs
+        distributed_blocked = 0
+        
+        for ip in distributed_ips:
+            for j in range(10):  # 10 requests per IP
+                request = {
+                    'ip_address': ip,
+                    'timestamp': time.time(),
+                    'endpoint': '/api/data'
+                }
+                
+                result = await security_middleware.check_distributed_ddos(request)
+                if result['blocked']:
+                    distributed_blocked += 1
+        
+        # Should detect distributed attack pattern
+        distributed_block_rate = distributed_blocked / (len(distributed_ips) * 10)
+        assert distributed_block_rate >= 0.3, "Should detect distributed DDoS pattern"
+    
+    @pytest.mark.asyncio
+    async def test_ssl_tls_security(self, security_middleware):
+        """Test SSL/TLS security configuration"""
+        
+        # Test SSL certificate validation
+        ssl_configs = [
+            {
+                'certificate': 'valid_cert.pem',
+                'private_key': 'valid_key.pem',
+                'protocol': 'TLSv1.3',
+                'cipher_suites': ['TLS_AES_256_GCM_SHA384', 'TLS_CHACHA20_POLY1305_SHA256']
+            },
+            {
+                'certificate': 'expired_cert.pem',
+                'private_key': 'valid_key.pem',
+                'protocol': 'TLSv1.2',
+                'cipher_suites': ['TLS_RSA_WITH_AES_128_CBC_SHA']  # Weak cipher
+            },
+            {
+                'certificate': 'self_signed_cert.pem',
+                'private_key': 'valid_key.pem',
+                'protocol': 'SSLv3',  # Deprecated protocol
+                'cipher_suites': ['TLS_AES_256_GCM_SHA384']
+            }
+        ]
+        
+        for i, config in enumerate(ssl_configs):
+            validation_result = await security_middleware.validate_ssl_config(config)
+            
+            if i == 0:  # Valid config
+                assert validation_result['valid'], "Valid SSL config should pass validation"
+                assert validation_result['security_score'] >= 0.8, "Should have high security score"
+            else:  # Invalid configs
+                assert not validation_result['valid'] or validation_result['security_score'] < 0.6, f"Invalid SSL config {i} should fail validation"
+        
+        # Test cipher suite security
+        weak_ciphers = [
+            'TLS_RSA_WITH_RC4_128_SHA',
+            'TLS_RSA_WITH_DES_CBC_SHA',
+            'TLS_RSA_WITH_NULL_SHA'
+        ]
+        
+        for cipher in weak_ciphers:
+            cipher_result = await security_middleware.validate_cipher_suite(cipher)
+            assert not cipher_result['secure'], f"Weak cipher {cipher} should be flagged as insecure"
+    
+    @pytest.mark.asyncio
+    async def test_api_security(self, security_middleware):
+        """Test API security measures"""
+        
+        # Test API key validation
+        api_keys = [
+            {'key': 'valid_api_key_123', 'permissions': ['read', 'write'], 'expires': time.time() + 3600},
+            {'key': 'expired_key_456', 'permissions': ['read'], 'expires': time.time() - 3600},
+            {'key': 'revoked_key_789', 'permissions': ['read'], 'revoked': True},
+            {'key': 'weak_key', 'permissions': ['admin'], 'expires': time.time() + 3600}  # Weak key
+        ]
+        
+        for api_key in api_keys:
+            validation_result = await security_middleware.validate_api_key(api_key['key'])
+            
+            if api_key['key'] == 'valid_api_key_123':
+                assert validation_result['valid'], "Valid API key should be accepted"
+            else:
+                assert not validation_result['valid'], f"Invalid API key {api_key['key']} should be rejected"
+        
+        # Test request signature validation
+        request_data = {
+            'method': 'POST',
+            'url': '/api/users',
+            'body': '{"name": "John", "email": "john@example.com"}',
+            'timestamp': str(int(time.time()))
+        }
+        
+        # Generate valid signature
+        secret_key = "api_secret_key"
+        signature_string = f"{request_data['method']}{request_data['url']}{request_data['body']}{request_data['timestamp']}"
+        valid_signature = hashlib.hmac.new(
+            secret_key.encode(),
+            signature_string.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        # Test valid signature
+        signature_result = await security_middleware.validate_request_signature(
+            request_data,
+            valid_signature,
+            secret_key
+        )
+        assert signature_result['valid'], "Valid signature should be accepted"
+        
+        # Test invalid signature
+        invalid_signature = "invalid_signature_123"
+        invalid_result = await security_middleware.validate_request_signature(
+            request_data,
+            invalid_signature,
+            secret_key
+        )
+        assert not invalid_result['valid'], "Invalid signature should be rejected"
+        
+        # Test replay attack protection
+        old_request = request_data.copy()
+        old_request['timestamp'] = str(int(time.time()) - 3600)  # 1 hour old
+        
+        old_signature = hashlib.hmac.new(
+            secret_key.encode(),
+            f"{old_request['method']}{old_request['url']}{old_request['body']}{old_request['timestamp']}".encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        replay_result = await security_middleware.validate_request_signature(
+            old_request,
+            old_signature,
+            secret_key
+        )
+        assert not replay_result['valid'], "Old timestamp should be rejected (replay protection)"
+
+
+class TestThreatDetection:
+    """Test threat detection and response"""
+    
+    @pytest.fixture
+    def security_framework(self):
+        return EnterpriseSecurityFramework()
+    
+    @pytest.mark.asyncio
+    async def test_anomaly_detection(self, security_framework):
+        """Test detection of anomalous behavior"""
+        
+        # Normal user behavior baseline
+        normal_behavior = [
+            {'user_id': 'user123', 'action': 'login', 'timestamp': time.time(), 'ip': '192.168.1.10'},
+            {'user_id': 'user123', 'action': 'view_dashboard', 'timestamp': time.time() + 60, 'ip': '192.168.1.10'},
+            {'user_id': 'user123', 'action': 'generate_report', 'timestamp': time.time() + 120, 'ip': '192.168.1.10'},
+            {'user_id': 'user123', 'action': 'logout', 'timestamp': time.time() + 300, 'ip': '192.168.1.10'}
+        ]
+        
+        # Establish baseline
+        await security_framework.establish_behavior_baseline(normal_behavior)
+        
+        # Anomalous behaviors to test
+        anomalous_behaviors = [
+            # Geographic anomaly
+            {'user_id': 'user123', 'action': 'login', 'timestamp': time.time(), 'ip': '203.0.113.1', 'country': 'Unknown'},
+            
+            # Time-based anomaly
+            {'user_id': 'user123', 'action': 'bulk_download', 'timestamp': time.time(), 'hour': 3},  # 3 AM
+            
+            # Volume anomaly
+            {'user_id': 'user123', 'action': 'api_call', 'timestamp': time.time(), 'count': 1000},  # 1000 calls in short time
+            
+            # Permission anomaly
+            {'user_id': 'user123', 'action': 'admin_access', 'timestamp': time.time(), 'ip': '192.168.1.10'},
+            
+            # Data access anomaly
+            {'user_id': 'user123', 'action': 'access_sensitive_data', 'timestamp': time.time(), 'data_volume': '10GB'}
+        ]
+        
+        for behavior in anomalous_behaviors:
+            anomaly_result = await security_framework.detect_anomaly(behavior)
+            
+            assert anomaly_result['is_anomaly'], f"Should detect anomaly in behavior: {behavior['action']}"
+            assert anomaly_result['risk_score'] >= 0.7, f"Anomaly should have high risk score: {behavior['action']}"
+            assert 'recommended_action' in anomaly_result, "Should provide recommended action"
+    
+    @pytest.mark.asyncio
+    async def test_malware_detection(self, security_framework):
+        """Test malware and malicious content detection"""
+        
+        # Simulate file uploads with various content
+        test_files = [
+            {
+                'filename': 'document.pdf',
+                'content': b'%PDF-1.4 normal document content',
+                'size': 1024,
+                'mime_type': 'application/pdf'
+            },
+            {
+                'filename': 'malware.exe',
+                'content': b'MZ\x90\x00suspicious_executable_content',
+                'size': 2048,
+                'mime_type': 'application/x-executable'
+            },
+            {
+                'filename': 'script.js',
+                'content': b'eval(atob("malicious_base64_code"))',
+                'size': 512,
+                'mime_type': 'application/javascript'
+            },
+            {
+                'filename': 'image.jpg',
+                'content': b'\xff\xd8\xff\xe0normal_image_data',
+                'size': 4096,
+                'mime_type': 'image/jpeg'
+            }
+        ]
+        
+        for file_data in test_files:
+            scan_result = await security_framework.scan_for_malware(file_data)
+            
+            if 'malware' in file_data['filename'] or 'eval(' in file_data['content'].decode('utf-8', errors='ignore'):
+                assert scan_result['threat_detected'], f"Should detect threat in {file_data['filename']}"
+                assert scan_result['threat_level'] >= ThreatLevel.HIGH, "Malware should be high threat"
+            else:
+                assert not scan_result['threat_detected'], f"Should not flag clean file {file_data['filename']}"
+        
+        # Test signature-based detection
+        malicious_signatures = [
+            b'\x4d\x5a\x90\x00',  # PE executable header
+            b'eval(',  # JavaScript eval
+            b'<script>alert(',  # XSS attempt
+            b'SELECT * FROM',  # SQL injection attempt
+        ]
+        
+        for signature in malicious_signatures:
+            signature_result = await security_framework.check_malicious_signature(signature)
+            assert signature_result['malicious'], f"Should detect malicious signature: {signature}"
+    
+    @pytest.mark.asyncio
+    async def test_intrusion_detection(self, security_framework):
+        """Test intrusion detection system"""
+        
+        # Simulate network traffic patterns
+        network_events = [
+            # Normal traffic
+            {'src_ip': '192.168.1.10', 'dst_ip': '10.0.0.5', 'port': 443, 'protocol': 'HTTPS', 'size': 1024},
+            {'src_ip': '192.168.1.11', 'dst_ip': '10.0.0.5', 'port': 80, 'protocol': 'HTTP', 'size': 512},
+            
+            # Port scanning
+            {'src_ip': '203.0.113.100', 'dst_ip': '10.0.0.5', 'port': 22, 'protocol': 'SSH', 'size': 64},
+            {'src_ip': '203.0.113.100', 'dst_ip': '10.0.0.5', 'port': 23, 'protocol': 'Telnet', 'size': 64},
+            {'src_ip': '203.0.113.100', 'dst_ip': '10.0.0.5', 'port': 21, 'protocol': 'FTP', 'size': 64},
+            
+            # Data exfiltration
+            {'src_ip': '192.168.1.50', 'dst_ip': '198.51.100.1', 'port': 443, 'protocol': 'HTTPS', 'size': 1048576},  # 1MB
+            
+            # Brute force
+            {'src_ip': '203.0.113.200', 'dst_ip': '10.0.0.5', 'port': 22, 'protocol': 'SSH', 'attempts': 100}
+        ]
+        
+        intrusion_alerts = []
+        
+        for event in network_events:
+            ids_result = await security_framework.analyze_network_event(event)
+            
+            if ids_result['suspicious']:
+                intrusion_alerts.append({
+                    'event': event,
+                    'alert_type': ids_result['alert_type'],
+                    'severity': ids_result['severity']
+                })
+        
+        # Validate intrusion detection
+        assert len(intrusion_alerts) >= 3, "Should detect multiple intrusion attempts"
+        
+        # Check for specific attack types
+        alert_types = [alert['alert_type'] for alert in intrusion_alerts]
+        assert 'port_scan' in alert_types, "Should detect port scanning"
+        assert 'data_exfiltration' in alert_types or 'large_transfer' in alert_types, "Should detect data exfiltration"
+        assert 'brute_force' in alert_types, "Should detect brute force attempts"
+    
+    @pytest.mark.asyncio
+    async def test_incident_response(self, security_framework):
+        """Test automated incident response"""
+        
+        # Simulate security incidents
+        security_incidents = [
+            {
+                'type': 'brute_force_attack',
+                'severity': 'high',
+                'source_ip': '203.0.113.100',
+                'target': 'login_system',
+                'details': {'failed_attempts': 50, 'duration': 300}
+            },
+            {
+                'type': 'data_breach_attempt',
+                'severity': 'critical',
+                'source_ip': '198.51.100.50',
+                'target': 'customer_database',
+                'details': {'data_accessed': 'PII', 'volume': '10000_records'}
+            },
+            {
+                'type': 'malware_detected',
+                'severity': 'medium',
+                'source': 'file_upload',
+                'target': 'application_server',
+                'details': {'malware_type': 'trojan', 'file': 'document.pdf'}
+            }
+        ]
+        
+        for incident in security_incidents:
+            response_result = await security_framework.handle_security_incident(incident)
+            
+            # Validate incident response
+            assert response_result['response_initiated'], f"Should initiate response for {incident['type']}"
+            assert 'actions_taken' in response_result, "Should specify actions taken"
+            assert 'containment_measures' in response_result, "Should implement containment"
+            
+            # Validate response appropriateness
+            if incident['severity'] == 'critical':
+                assert 'isolate' in str(response_result['actions_taken']).lower(), "Critical incidents should trigger isolation"
+                assert 'notify_admin' in str(response_result['actions_taken']).lower(), "Critical incidents should notify admin"
+            
+            if incident['type'] == 'brute_force_attack':
+                assert 'block_ip' in str(response_result['actions_taken']).lower(), "Brute force should trigger IP blocking"
+            
+            if incident['type'] == 'malware_detected':
+                assert 'quarantine' in str(response_result['actions_taken']).lower(), "Malware should be quarantined"
+        
+        # Test incident escalation
+        critical_incident = {
+            'type': 'advanced_persistent_threat',
+            'severity': 'critical',
+            'persistence': True,
+            'lateral_movement': True,
+            'data_exfiltration': True
+        }
+        
+        escalation_result = await security_framework.escalate_incident(critical_incident)
+        
+        assert escalation_result['escalated'], "Critical APT should be escalated"
+        assert 'security_team_notified' in escalation_result, "Security team should be notified"
+        assert 'external_help_requested' in escalation_result, "Should request external help for APT"
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v", "-s"])

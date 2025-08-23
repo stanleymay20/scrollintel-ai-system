@@ -67,7 +67,7 @@ def _convert_to_legacy_format(config: ScrollIntelConfig) -> Dict[str, Any]:
                 "username": os.getenv("EMAIL_USERNAME", ""),
                 "password": os.getenv("EMAIL_PASSWORD", ""),
                 "from_email": os.getenv("FROM_EMAIL", "noreply@scrollintel.com"),
-                "base_url": os.getenv("BASE_URL", "http://localhost:3000")
+                "base_url": os.getenv("BASE_URL", os.getenv("API_URL", "http://localhost:3000"))
             }
         },
         
@@ -119,7 +119,7 @@ def get_default_config() -> Dict[str, Any]:
     return {
         "environment": os.getenv("ENVIRONMENT", "development"),
         "debug": os.getenv("DEBUG", "false").lower() == "true",
-        "database_url": os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/scrollintel"),
+        "database_url": os.getenv("DATABASE_URL", os.getenv("DATABASE_URL", os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/scrollintel"))),
         "db_pool_size": int(os.getenv("DB_POOL_SIZE", "5")),
         "db_max_overflow": int(os.getenv("DB_MAX_OVERFLOW", "10")),
         "redis_host": os.getenv("REDIS_HOST", "localhost"),
@@ -127,13 +127,13 @@ def get_default_config() -> Dict[str, Any]:
         "redis_password": os.getenv("REDIS_PASSWORD", ""),
         "redis_db": int(os.getenv("REDIS_DB", "0")),
         "skip_redis": os.getenv("SKIP_REDIS", "true").lower() == "true",
-        "jwt_secret": os.getenv("JWT_SECRET", "your-secret-key-change-in-production"),
+        "jwt_secret": os.getenv("JWT_SECRET", os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")),
         "session_timeout_minutes": int(os.getenv("SESSION_TIMEOUT_MINUTES", "60")),
         
         "infrastructure": {
             "redis_host": os.getenv("REDIS_HOST", "localhost"),
             "redis_port": int(os.getenv("REDIS_PORT", "6379")),
-            "database_url": os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/scrollintel"),
+            "database_url": os.getenv("DATABASE_URL", os.getenv("DATABASE_URL", os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/scrollintel"))),
             "scaling": {
                 "min_instances": int(os.getenv("MIN_INSTANCES", "2")),
                 "max_instances": int(os.getenv("MAX_INSTANCES", "10")),
@@ -143,7 +143,7 @@ def get_default_config() -> Dict[str, Any]:
         },
         
         "onboarding": {
-            "jwt_secret": os.getenv("JWT_SECRET", "your-secret-key-change-in-production"),
+            "jwt_secret": os.getenv("JWT_SECRET", os.getenv("JWT_SECRET_KEY", "your-secret-key-change-in-production")),
             "jwt_algorithm": "HS256",
             "email": {
                 "smtp_server": os.getenv("SMTP_SERVER", "localhost"),
@@ -151,7 +151,7 @@ def get_default_config() -> Dict[str, Any]:
                 "username": os.getenv("EMAIL_USERNAME", ""),
                 "password": os.getenv("EMAIL_PASSWORD", ""),
                 "from_email": os.getenv("FROM_EMAIL", "noreply@scrollintel.com"),
-                "base_url": os.getenv("BASE_URL", "http://localhost:3000")
+                "base_url": os.getenv("BASE_URL", os.getenv("API_URL", "http://localhost:3000"))
             }
         },
         
@@ -212,3 +212,30 @@ def reload_settings(environment: Optional[str] = None) -> Dict[str, Any]:
     except Exception as e:
         logger.warning(f"New configuration manager failed during reload, falling back to legacy: {e}")
         return _get_legacy_config()
+
+# Fallback configuration for testing
+class FallbackSettings:
+    """Fallback settings when main config fails"""
+    
+    def __init__(self):
+        import os
+        self.database_url = os.getenv('DATABASE_URL', 'sqlite:///./scrollintel.db')
+        self.openai_api_key = os.getenv('OPENAI_API_KEY', '')
+        self.jwt_secret_key = os.getenv('JWT_SECRET_KEY', 'fallback-secret-key')
+        self.debug = os.getenv('DEBUG', 'false').lower() == 'true'
+        self.environment = os.getenv('ENVIRONMENT', 'development')
+        self.db_pool_size = int(os.getenv('DB_POOL_SIZE', '5'))
+        self.db_max_overflow = int(os.getenv('DB_MAX_OVERFLOW', '10'))
+        self.redis_host = os.getenv('REDIS_HOST', 'localhost')
+        self.redis_port = int(os.getenv('REDIS_PORT', '6379'))
+        self.redis_password = os.getenv('REDIS_PASSWORD', '')
+        self.redis_db = int(os.getenv('REDIS_DB', '0'))
+        self.skip_redis = os.getenv('SKIP_REDIS', 'false').lower() == 'true'
+    
+    def get(self, key: str, default=None):
+        """Get configuration value"""
+        return getattr(self, key, default)
+
+def get_fallback_settings():
+    """Get fallback settings for testing"""
+    return FallbackSettings()

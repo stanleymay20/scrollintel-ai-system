@@ -140,9 +140,9 @@ export function MessageProcessor({ content, contentType, isStreaming }: MessageP
     )
   }
 
-  const TableComponent = ({ children }: { children: React.ReactNode }) => (
+  const TableComponent = ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
     <div className="overflow-x-auto my-4">
-      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700" {...props}>
         {children}
       </table>
     </div>
@@ -151,79 +151,80 @@ export function MessageProcessor({ content, contentType, isStreaming }: MessageP
   const components = {
     code: CodeBlock,
     table: TableComponent,
-    thead: ({ children }: { children: React.ReactNode }) => (
-      <thead className="bg-gray-50 dark:bg-gray-800">{children}</thead>
+    thead: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <thead className="bg-gray-50 dark:bg-gray-800" {...props}>{children}</thead>
     ),
-    tbody: ({ children }: { children: React.ReactNode }) => (
-      <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700">
+    tbody: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700" {...props}>
         {children}
       </tbody>
     ),
-    th: ({ children }: { children: React.ReactNode }) => (
-      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+    th: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider" {...props}>
         {children}
       </th>
     ),
-    td: ({ children }: { children: React.ReactNode }) => (
-      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+    td: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100" {...props}>
         {children}
       </td>
     ),
-    blockquote: ({ children }: { children: React.ReactNode }) => (
-      <blockquote className="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-blue-50 dark:bg-blue-900/20 italic">
+    blockquote: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <blockquote className="border-l-4 border-blue-500 pl-4 py-2 my-4 bg-blue-50 dark:bg-blue-900/20 italic" {...props}>
         {children}
       </blockquote>
     ),
-    h1: ({ children }: { children: React.ReactNode }) => (
-      <h1 className="text-2xl font-bold mt-6 mb-4 text-gray-900 dark:text-gray-100">
+    h1: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <h1 className="text-2xl font-bold mt-6 mb-4 text-gray-900 dark:text-gray-100" {...props}>
         {children}
       </h1>
     ),
-    h2: ({ children }: { children: React.ReactNode }) => (
-      <h2 className="text-xl font-semibold mt-5 mb-3 text-gray-900 dark:text-gray-100">
+    h2: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <h2 className="text-xl font-semibold mt-5 mb-3 text-gray-900 dark:text-gray-100" {...props}>
         {children}
       </h2>
     ),
-    h3: ({ children }: { children: React.ReactNode }) => (
-      <h3 className="text-lg font-medium mt-4 mb-2 text-gray-900 dark:text-gray-100">
+    h3: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <h3 className="text-lg font-medium mt-4 mb-2 text-gray-900 dark:text-gray-100" {...props}>
         {children}
       </h3>
     ),
-    ul: ({ children }: { children: React.ReactNode }) => (
-      <ul className="list-disc list-inside my-3 space-y-1 text-gray-700 dark:text-gray-300">
+    ul: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <ul className="list-disc list-inside my-3 space-y-1 text-gray-700 dark:text-gray-300" {...props}>
         {children}
       </ul>
     ),
-    ol: ({ children }: { children: React.ReactNode }) => (
-      <ol className="list-decimal list-inside my-3 space-y-1 text-gray-700 dark:text-gray-300">
+    ol: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <ol className="list-decimal list-inside my-3 space-y-1 text-gray-700 dark:text-gray-300" {...props}>
         {children}
       </ol>
     ),
-    li: ({ children }: { children: React.ReactNode }) => (
-      <li className="ml-4">{children}</li>
+    li: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <li className="ml-4" {...props}>{children}</li>
     ),
-    p: ({ children }: { children: React.ReactNode }) => (
-      <p className="my-2 text-gray-700 dark:text-gray-300 leading-relaxed">
+    p: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <p className="my-2 text-gray-700 dark:text-gray-300 leading-relaxed" {...props}>
         {children}
       </p>
     ),
-    a: ({ href, children }: { href?: string; children: React.ReactNode }) => (
+    a: ({ href, children, ...props }: { href?: string; children?: React.ReactNode; [key: string]: any }) => (
       <a
         href={href}
         target="_blank"
         rel="noopener noreferrer"
         className="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 underline"
+        {...props}
       >
         {children}
       </a>
     ),
-    strong: ({ children }: { children: React.ReactNode }) => (
-      <strong className="font-semibold text-gray-900 dark:text-gray-100">
+    strong: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <strong className="font-semibold text-gray-900 dark:text-gray-100" {...props}>
         {children}
       </strong>
     ),
-    em: ({ children }: { children: React.ReactNode }) => (
-      <em className="italic text-gray-700 dark:text-gray-300">{children}</em>
+    em: ({ children, ...props }: { children?: React.ReactNode; [key: string]: any }) => (
+      <em className="italic text-gray-700 dark:text-gray-300" {...props}>{children}</em>
     ),
     hr: () => (
       <hr className="my-6 border-gray-200 dark:border-gray-700" />

@@ -15,7 +15,7 @@ class LaunchReadinessTestSuite:
     """Comprehensive test suite for launch readiness."""
     
     def __init__(self):
-        self.base_url = "http://localhost:8000"
+        self.base_url = os.getenv("API_URL", os.getenv("API_URL", "http://localhost:8000"))
         self.frontend_url = "http://localhost:3000"
         self.test_results = []
         self.critical_failures = []

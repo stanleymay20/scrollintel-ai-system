@@ -1,16 +1,20 @@
 """
-Configuration Drift Detection with 60-Second Auto-Remediation
-Monitors infrastructure configuration changes and automatically remediates drift
+Configuration Drift Detection System
+Deploys configuration drift detection with 60-second auto-remediation
 """
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Set
-from dataclasses import dataclass, field
-from enum import Enum
-import json
+import time
 import hashlib
+import json
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Tuple
+from dataclasses import dataclass, asdict
+from enum import Enum
+import yaml
+import os
+import subprocess
 import difflib
 
 logger = logging.getLogger(__name__)
@@ -21,600 +25,720 @@ class DriftSeverity(Enum):
     HIGH = "high"
     CRITICAL = "critical"
 
-class RemediationStatus(Enum):
-    PENDING = "pending"
-    IN_PROGRESS = "in_progress"
-    COMPLETED = "completed"
+class DriftStatus(Enum):
+    DETECTED = "detected"
+    ANALYZING = "analyzing"
+    REMEDIATING = "remediating"
+    REMEDIATED = "remediated"
     FAILED = "failed"
-    MANUAL_REQUIRED = "manual_required"
+    IGNORED = "ignored"
 
-class ResourceType(Enum):
-    KUBERNETES_DEPLOYMENT = "kubernetes_deployment"
-    KUBERNETES_SERVICE = "kubernetes_service"
-    KUBERNETES_CONFIGMAP = "kubernetes_configmap"
-    KUBERNETES_SECRET = "kubernetes_secret"
-    DOCKER_CONTAINER = "docker_container"
-    NGINX_CONFIG = "nginx_config"
-    DATABASE_CONFIG = "database_config"
-    SECURITY_POLICY = "security_policy"
-    NETWORK_POLICY = "network_policy"
-    FIREWALL_RULE = "firewall_rule"
+class ConfigurationType(Enum):
+    SYSTEM = "system"
+    APPLICATION = "application"
+    NETWORK = "network"
+    SECURITY = "security"
+    DATABASE = "database"
+    KUBERNETES = "kubernetes"
+    DOCKER = "docker"
 
 @dataclass
 class ConfigurationBaseline:
-    """Baseline configuration for a resource"""
-    resource_id: str
-    resource_type: ResourceType
-    configuration: Dict[str, Any]
-    checksum: str
+    config_id: str
+    config_type: ConfigurationType
+    system_name: str
+    config_path: str
+    baseline_hash: str
+    baseline_content: str
     created_at: datetime
-    last_verified: datetime
-    tags: Dict[str, str] = field(default_factory=dict)
+    last_validated: datetime
+    validation_frequency_minutes: int
 
 @dataclass
-class DriftDetectionResult:
-    """Result of configuration drift detection"""
-    resource_id: str
-    resource_type: ResourceType
-    drift_detected: bool
+class DriftDetection:
+    drift_id: str
+    config_baseline: ConfigurationBaseline
+    detected_at: datetime
+    current_hash: str
+    current_content: str
     drift_severity: DriftSeverity
-    expected_config: Dict[str, Any]
-    actual_config: Dict[str, Any]
-    configuration_diff: List[str]
-    detection_time: datetime
-    auto_remediation_available: bool
-    remediation_actions: List[str]
+    drift_status: DriftStatus
+    differences: List[str]
+    auto_remediation_enabled: bool
+    remediation_attempts: int
+    last_remediation_attempt: Optional[datetime]
 
 @dataclass
 class RemediationAction:
-    """Configuration remediation action"""
     action_id: str
-    resource_id: str
-    resource_type: ResourceType
-    action_type: str
-    parameters: Dict[str, Any]
-    status: RemediationStatus
-    created_at: datetime
-    completed_at: Optional[datetime]
+    drift_detection: DriftDetection
+    action_type: str  # restore, update_baseline, ignore
+    executed_at: datetime
+    execution_time_seconds: float
+    success: bool
     error_message: Optional[str]
-    rollback_available: bool
+    changes_applied: List[str]
 
 class ConfigurationDriftDetection:
     """
-    Configuration Drift Detection System
-    Monitors infrastructure configuration changes and provides
-    60-second auto-remediation capabilities
+    Advanced configuration drift detection system with 60-second auto-remediation.
+    Monitors system, application, and infrastructure configurations for unauthorized changes.
     """
     
     def __init__(self):
-        self.baselines: Dict[str, ConfigurationBaseline] = {}
-        self.drift_history: List[DriftDetectionResult] = []
-        self.remediation_queue: List[RemediationAction] = []
-        self.remediation_history: List[RemediationAction] = []
+        self.configuration_baselines: Dict[str, ConfigurationBaseline] = {}
+        self.drift_detections: Dict[str, DriftDetection] = {}
+        self.remediation_actions: Dict[str, RemediationAction] = {}
         
-        # Detection settings
-        self.detection_interval = 60  # 60-second detection interval
+        # Configuration settings
+        self.monitoring_enabled = True
         self.auto_remediation_enabled = True
-        self.remediation_timeout = 60  # 60-second remediation timeout
+        self.remediation_timeout_seconds = 60
+        self.max_remediation_attempts = 3
+        self.scan_interval_seconds = 30
         
-        # Severity thresholds
-        self.severity_thresholds = {
-            'critical_keys': ['security', 'authentication', 'authorization', 'encryption'],
-            'high_keys': ['network', 'firewall', 'access_control', 'backup'],
-            'medium_keys': ['monitoring', 'logging', 'alerting', 'performance'],
-            'low_keys': ['ui', 'display', 'formatting', 'comments']
-        }
-        
-        # Auto-remediation rules
-        self.auto_remediation_rules = {
-            ResourceType.KUBERNETES_DEPLOYMENT: ['restart_pods', 'update_config', 'rollback_version'],
-            ResourceType.KUBERNETES_SERVICE: ['update_service', 'recreate_service'],
-            ResourceType.KUBERNETES_CONFIGMAP: ['update_configmap', 'recreate_configmap'],
-            ResourceType.NGINX_CONFIG: ['reload_nginx', 'restore_config'],
-            ResourceType.DATABASE_CONFIG: ['restart_service', 'restore_config'],
-            ResourceType.SECURITY_POLICY: ['restore_policy', 'alert_security_team'],
-            ResourceType.NETWORK_POLICY: ['restore_policy', 'isolate_resource'],
-            ResourceType.FIREWALL_RULE: ['restore_rules', 'emergency_lockdown']
-        }
-        
-        self._monitoring_active = False
-    
-    async def start_drift_monitoring(self) -> Dict[str, Any]:
-        """Start configuration drift monitoring"""
-        try:
-            self._monitoring_active = True
-            
-            # Start monitoring tasks
-            monitoring_tasks = [
-                self._continuous_drift_detection(),
-                self._auto_remediation_processor(),
-                self._baseline_maintenance()
+        # Monitored configuration paths
+        self.monitored_configs = {
+            ConfigurationType.SYSTEM: [
+                "/etc/passwd",
+                "/etc/group",
+                "/etc/sudoers",
+                "/etc/ssh/sshd_config",
+                "/etc/hosts",
+                "/etc/resolv.conf"
+            ],
+            ConfigurationType.APPLICATION: [
+                "/etc/nginx/nginx.conf",
+                "/etc/apache2/apache2.conf",
+                "/opt/app/config.yaml",
+                "/opt/app/settings.json"
+            ],
+            ConfigurationType.SECURITY: [
+                "/etc/security/limits.conf",
+                "/etc/pam.d/common-auth",
+                "/etc/fail2ban/jail.conf"
+            ],
+            ConfigurationType.NETWORK: [
+                "/etc/network/interfaces",
+                "/etc/iptables/rules.v4",
+                "/etc/firewall.conf"
+            ],
+            ConfigurationType.DATABASE: [
+                "/etc/postgresql/postgresql.conf",
+                "/etc/mysql/my.cnf",
+                "/etc/redis/redis.conf"
             ]
+        }
+        
+        self._initialize_system()
+        logger.info("Configuration drift detection system initialized")
+    
+    def _initialize_system(self):
+        """Initialize the drift detection system"""
+        try:
+            # Create baseline configurations for monitored files
+            asyncio.create_task(self._create_initial_baselines())
             
-            await asyncio.gather(*monitoring_tasks)
-            
-            return {
-                'status': 'success',
-                'message': 'Configuration drift monitoring started',
-                'detection_interval': self.detection_interval,
-                'auto_remediation_enabled': self.auto_remediation_enabled
-            }
+            # Start continuous monitoring
+            if self.monitoring_enabled:
+                asyncio.create_task(self._start_continuous_monitoring())
             
         except Exception as e:
-            logger.error(f"Failed to start drift monitoring: {str(e)}")
-            return {
-                'status': 'error',
-                'message': f'Failed to start monitoring: {str(e)}'
-            }
+            logger.error(f"Failed to initialize drift detection system: {e}")
     
-    async def register_configuration_baseline(self, resource_id: str, resource_type: ResourceType, 
-                                            configuration: Dict[str, Any], tags: Dict[str, str] = None) -> bool:
-        """Register a configuration baseline for monitoring"""
+    async def _create_initial_baselines(self):
+        """Create initial configuration baselines"""
         try:
-            # Calculate configuration checksum
-            config_json = json.dumps(configuration, sort_keys=True)
-            checksum = hashlib.sha256(config_json.encode()).hexdigest()
+            logger.info("Creating initial configuration baselines")
+            
+            for config_type, config_paths in self.monitored_configs.items():
+                for config_path in config_paths:
+                    try:
+                        await self._create_configuration_baseline(config_type, config_path)
+                    except Exception as e:
+                        logger.warning(f"Failed to create baseline for {config_path}: {e}")
+            
+            logger.info(f"Created {len(self.configuration_baselines)} configuration baselines")
+            
+        except Exception as e:
+            logger.error(f"Failed to create initial baselines: {e}")
+    
+    async def _create_configuration_baseline(self, config_type: ConfigurationType, config_path: str) -> ConfigurationBaseline:
+        """Create a configuration baseline for a specific file"""
+        try:
+            # Read configuration content
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+            else:
+                # Create placeholder for non-existent files
+                content = f"# Configuration file {config_path} does not exist\n"
+            
+            # Calculate hash
+            content_hash = hashlib.sha256(content.encode()).hexdigest()
+            
+            # Extract system name from path
+            system_name = os.path.basename(config_path).split('.')[0]
             
             baseline = ConfigurationBaseline(
-                resource_id=resource_id,
-                resource_type=resource_type,
-                configuration=configuration,
-                checksum=checksum,
+                config_id=f"{config_type.value}_{system_name}_{int(time.time())}",
+                config_type=config_type,
+                system_name=system_name,
+                config_path=config_path,
+                baseline_hash=content_hash,
+                baseline_content=content,
                 created_at=datetime.now(),
-                last_verified=datetime.now(),
-                tags=tags or {}
+                last_validated=datetime.now(),
+                validation_frequency_minutes=5  # Check every 5 minutes
             )
             
-            self.baselines[resource_id] = baseline
+            self.configuration_baselines[baseline.config_id] = baseline
+            logger.info(f"Created baseline for {config_path}")
             
-            logger.info(f"Registered configuration baseline for {resource_id}")
+            return baseline
+            
+        except Exception as e:
+            logger.error(f"Failed to create baseline for {config_path}: {e}")
+            raise
+    
+    async def _start_continuous_monitoring(self):
+        """Start continuous configuration monitoring"""
+        try:
+            logger.info("Starting continuous configuration monitoring")
+            
+            while self.monitoring_enabled:
+                try:
+                    # Scan all configuration baselines
+                    await self._scan_configuration_drift()
+                    
+                    # Process detected drifts
+                    await self._process_drift_detections()
+                    
+                    # Wait before next scan
+                    await asyncio.sleep(self.scan_interval_seconds)
+                    
+                except Exception as e:
+                    logger.error(f"Error in continuous monitoring: {e}")
+                    await asyncio.sleep(self.scan_interval_seconds)
+            
+        except Exception as e:
+            logger.error(f"Failed to start continuous monitoring: {e}")
+    
+    async def _scan_configuration_drift(self):
+        """Scan for configuration drift across all baselines"""
+        try:
+            drift_count = 0
+            
+            for baseline_id, baseline in self.configuration_baselines.items():
+                try:
+                    # Check if it's time to validate this baseline
+                    time_since_validation = datetime.now() - baseline.last_validated
+                    if time_since_validation.total_seconds() >= (baseline.validation_frequency_minutes * 60):
+                        
+                        drift_detected = await self._check_configuration_drift(baseline)
+                        if drift_detected:
+                            drift_count += 1
+                        
+                        # Update last validated time
+                        baseline.last_validated = datetime.now()
+                
+                except Exception as e:
+                    logger.error(f"Failed to scan drift for baseline {baseline_id}: {e}")
+            
+            if drift_count > 0:
+                logger.info(f"Detected configuration drift in {drift_count} configurations")
+            
+        except Exception as e:
+            logger.error(f"Failed to scan configuration drift: {e}")
+    
+    async def _check_configuration_drift(self, baseline: ConfigurationBaseline) -> bool:
+        """Check for drift in a specific configuration"""
+        try:
+            # Read current configuration content
+            if os.path.exists(baseline.config_path):
+                with open(baseline.config_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    current_content = f.read()
+            else:
+                current_content = f"# Configuration file {baseline.config_path} does not exist\n"
+            
+            # Calculate current hash
+            current_hash = hashlib.sha256(current_content.encode()).hexdigest()
+            
+            # Check for drift
+            if current_hash != baseline.baseline_hash:
+                # Drift detected
+                await self._create_drift_detection(baseline, current_hash, current_content)
+                return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(f"Failed to check drift for {baseline.config_path}: {e}")
+            return False
+    
+    async def _create_drift_detection(self, baseline: ConfigurationBaseline, current_hash: str, current_content: str):
+        """Create a drift detection record"""
+        try:
+            # Calculate differences
+            differences = self._calculate_differences(baseline.baseline_content, current_content)
+            
+            # Assess drift severity
+            severity = self._assess_drift_severity(differences, baseline.config_type)
+            
+            drift_detection = DriftDetection(
+                drift_id=f"drift_{baseline.config_id}_{int(time.time())}",
+                config_baseline=baseline,
+                detected_at=datetime.now(),
+                current_hash=current_hash,
+                current_content=current_content,
+                drift_severity=severity,
+                drift_status=DriftStatus.DETECTED,
+                differences=differences,
+                auto_remediation_enabled=self.auto_remediation_enabled and severity != DriftSeverity.LOW,
+                remediation_attempts=0,
+                last_remediation_attempt=None
+            )
+            
+            self.drift_detections[drift_detection.drift_id] = drift_detection
+            
+            logger.warning(f"Configuration drift detected: {baseline.config_path} ({severity.value} severity)")
+            
+            # Send alert
+            await self._send_drift_alert(drift_detection)
+            
+        except Exception as e:
+            logger.error(f"Failed to create drift detection: {e}")
+    
+    def _calculate_differences(self, baseline_content: str, current_content: str) -> List[str]:
+        """Calculate differences between baseline and current configuration"""
+        try:
+            baseline_lines = baseline_content.splitlines(keepends=True)
+            current_lines = current_content.splitlines(keepends=True)
+            
+            diff = list(difflib.unified_diff(
+                baseline_lines,
+                current_lines,
+                fromfile='baseline',
+                tofile='current',
+                lineterm=''
+            ))
+            
+            # Filter out diff headers and return meaningful changes
+            meaningful_changes = []
+            for line in diff:
+                if line.startswith('+') and not line.startswith('+++'):
+                    meaningful_changes.append(f"Added: {line[1:].strip()}")
+                elif line.startswith('-') and not line.startswith('---'):
+                    meaningful_changes.append(f"Removed: {line[1:].strip()}")
+            
+            return meaningful_changes
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate differences: {e}")
+            return ["Error calculating differences"]
+    
+    def _assess_drift_severity(self, differences: List[str], config_type: ConfigurationType) -> DriftSeverity:
+        """Assess the severity of configuration drift"""
+        try:
+            change_count = len(differences)
+            
+            # Security configurations are always high priority
+            if config_type == ConfigurationType.SECURITY:
+                if change_count > 0:
+                    return DriftSeverity.CRITICAL
+            
+            # System configurations
+            elif config_type == ConfigurationType.SYSTEM:
+                if change_count >= 5:
+                    return DriftSeverity.HIGH
+                elif change_count >= 2:
+                    return DriftSeverity.MEDIUM
+                else:
+                    return DriftSeverity.LOW
+            
+            # Application configurations
+            elif config_type == ConfigurationType.APPLICATION:
+                if change_count >= 10:
+                    return DriftSeverity.HIGH
+                elif change_count >= 3:
+                    return DriftSeverity.MEDIUM
+                else:
+                    return DriftSeverity.LOW
+            
+            # Network configurations
+            elif config_type == ConfigurationType.NETWORK:
+                if change_count >= 3:
+                    return DriftSeverity.HIGH
+                elif change_count >= 1:
+                    return DriftSeverity.MEDIUM
+                else:
+                    return DriftSeverity.LOW
+            
+            # Database configurations
+            elif config_type == ConfigurationType.DATABASE:
+                if change_count >= 5:
+                    return DriftSeverity.HIGH
+                elif change_count >= 2:
+                    return DriftSeverity.MEDIUM
+                else:
+                    return DriftSeverity.LOW
+            
+            # Default assessment
+            if change_count >= 5:
+                return DriftSeverity.HIGH
+            elif change_count >= 2:
+                return DriftSeverity.MEDIUM
+            else:
+                return DriftSeverity.LOW
+                
+        except Exception as e:
+            logger.error(f"Failed to assess drift severity: {e}")
+            return DriftSeverity.MEDIUM
+    
+    async def _send_drift_alert(self, drift_detection: DriftDetection):
+        """Send alert for detected configuration drift"""
+        try:
+            alert_message = f"""
+            CONFIGURATION DRIFT DETECTED - {drift_detection.drift_severity.value.upper()}
+            
+            System: {drift_detection.config_baseline.system_name}
+            Configuration: {drift_detection.config_baseline.config_path}
+            Type: {drift_detection.config_baseline.config_type.value}
+            Detected: {drift_detection.detected_at.isoformat()}
+            
+            Changes Detected:
+            {chr(10).join(drift_detection.differences[:10])}  # Show first 10 changes
+            
+            Auto-remediation: {'Enabled' if drift_detection.auto_remediation_enabled else 'Disabled'}
+            """
+            
+            # Log alert (in production, this would send to monitoring systems)
+            logger.warning(f"DRIFT ALERT: {alert_message}")
+            
+        except Exception as e:
+            logger.error(f"Failed to send drift alert: {e}")
+    
+    async def _process_drift_detections(self):
+        """Process all detected configuration drifts"""
+        try:
+            for drift_id, drift_detection in self.drift_detections.items():
+                if (drift_detection.drift_status == DriftStatus.DETECTED and 
+                    drift_detection.auto_remediation_enabled):
+                    
+                    # Check if we should attempt remediation
+                    if self._should_attempt_remediation(drift_detection):
+                        await self._attempt_auto_remediation(drift_detection)
+            
+        except Exception as e:
+            logger.error(f"Failed to process drift detections: {e}")
+    
+    def _should_attempt_remediation(self, drift_detection: DriftDetection) -> bool:
+        """Determine if auto-remediation should be attempted"""
+        try:
+            # Check maximum attempts
+            if drift_detection.remediation_attempts >= self.max_remediation_attempts:
+                return False
+            
+            # Check time since last attempt
+            if drift_detection.last_remediation_attempt:
+                time_since_last = datetime.now() - drift_detection.last_remediation_attempt
+                if time_since_last.total_seconds() < self.remediation_timeout_seconds:
+                    return False
+            
+            # Check severity - don't auto-remediate critical changes without human approval
+            if drift_detection.drift_severity == DriftSeverity.CRITICAL:
+                return False
+            
             return True
             
         except Exception as e:
-            logger.error(f"Failed to register baseline for {resource_id}: {str(e)}")
+            logger.error(f"Failed to determine remediation eligibility: {e}")
             return False
     
-    async def _continuous_drift_detection(self):
-        """Continuous configuration drift detection"""
-        while self._monitoring_active:
+    async def _attempt_auto_remediation(self, drift_detection: DriftDetection):
+        """Attempt automatic remediation of configuration drift"""
+        try:
+            drift_detection.drift_status = DriftStatus.REMEDIATING
+            drift_detection.remediation_attempts += 1
+            drift_detection.last_remediation_attempt = datetime.now()
+            
+            start_time = time.time()
+            
+            logger.info(f"Attempting auto-remediation for {drift_detection.config_baseline.config_path}")
+            
+            # Determine remediation strategy
+            remediation_success = await self._execute_remediation(drift_detection)
+            
+            execution_time = time.time() - start_time
+            
+            # Create remediation action record
+            action = RemediationAction(
+                action_id=f"remediation_{drift_detection.drift_id}_{int(time.time())}",
+                drift_detection=drift_detection,
+                action_type="restore" if remediation_success else "failed",
+                executed_at=datetime.now(),
+                execution_time_seconds=execution_time,
+                success=remediation_success,
+                error_message=None if remediation_success else "Remediation failed",
+                changes_applied=["Configuration restored to baseline"] if remediation_success else []
+            )
+            
+            self.remediation_actions[action.action_id] = action
+            
+            if remediation_success:
+                drift_detection.drift_status = DriftStatus.REMEDIATED
+                logger.info(f"Auto-remediation successful for {drift_detection.config_baseline.config_path}")
+            else:
+                drift_detection.drift_status = DriftStatus.FAILED
+                logger.error(f"Auto-remediation failed for {drift_detection.config_baseline.config_path}")
+            
+        except Exception as e:
+            logger.error(f"Failed to attempt auto-remediation: {e}")
+            drift_detection.drift_status = DriftStatus.FAILED
+    
+    async def _execute_remediation(self, drift_detection: DriftDetection) -> bool:
+        """Execute the actual remediation"""
+        try:
+            baseline = drift_detection.config_baseline
+            
+            # Create backup of current configuration
+            backup_path = f"{baseline.config_path}.backup.{int(time.time())}"
+            
             try:
-                # Check all registered baselines
-                for resource_id, baseline in self.baselines.items():
-                    drift_result = await self._detect_configuration_drift(resource_id, baseline)
+                # Backup current configuration
+                if os.path.exists(baseline.config_path):
+                    with open(baseline.config_path, 'r') as src, open(backup_path, 'w') as dst:
+                        dst.write(src.read())
+                
+                # Restore baseline configuration
+                with open(baseline.config_path, 'w') as f:
+                    f.write(baseline.baseline_content)
+                
+                # Verify restoration
+                with open(baseline.config_path, 'r') as f:
+                    restored_content = f.read()
+                
+                restored_hash = hashlib.sha256(restored_content.encode()).hexdigest()
+                
+                if restored_hash == baseline.baseline_hash:
+                    logger.info(f"Successfully restored {baseline.config_path}")
                     
-                    if drift_result.drift_detected:
-                        logger.warning(f"Configuration drift detected for {resource_id}: {drift_result.drift_severity.value}")
-                        
-                        # Store drift result
-                        self.drift_history.append(drift_result)
-                        
-                        # Trigger auto-remediation if enabled and available
-                        if (self.auto_remediation_enabled and 
-                            drift_result.auto_remediation_available and
-                            drift_result.drift_severity in [DriftSeverity.HIGH, DriftSeverity.CRITICAL]):
-                            
-                            await self._queue_auto_remediation(drift_result)
-                
-                # Clean up old drift history
-                cutoff_time = datetime.now() - timedelta(days=7)
-                self.drift_history = [d for d in self.drift_history if d.detection_time > cutoff_time]
-                
-                await asyncio.sleep(self.detection_interval)
+                    # Restart services if needed
+                    await self._restart_affected_services(baseline)
+                    
+                    return True
+                else:
+                    logger.error(f"Restoration verification failed for {baseline.config_path}")
+                    return False
                 
             except Exception as e:
-                logger.error(f"Drift detection error: {str(e)}")
-                await asyncio.sleep(self.detection_interval)
-    
-    async def _detect_configuration_drift(self, resource_id: str, baseline: ConfigurationBaseline) -> DriftDetectionResult:
-        """Detect configuration drift for a specific resource"""
-        try:
-            # Get current configuration
-            current_config = await self._get_current_configuration(resource_id, baseline.resource_type)
+                # Restore from backup if remediation failed
+                if os.path.exists(backup_path):
+                    try:
+                        with open(backup_path, 'r') as src, open(baseline.config_path, 'w') as dst:
+                            dst.write(src.read())
+                    except:
+                        pass
+                
+                logger.error(f"Remediation execution failed: {e}")
+                return False
             
-            # Calculate current checksum
-            current_config_json = json.dumps(current_config, sort_keys=True)
-            current_checksum = hashlib.sha256(current_config_json.encode()).hexdigest()
-            
-            # Check for drift
-            drift_detected = current_checksum != baseline.checksum
-            
-            if drift_detected:
-                # Calculate configuration diff
-                config_diff = self._calculate_configuration_diff(baseline.configuration, current_config)
-                
-                # Determine drift severity
-                drift_severity = self._calculate_drift_severity(config_diff, baseline.resource_type)
-                
-                # Check if auto-remediation is available
-                auto_remediation_available = self._is_auto_remediation_available(baseline.resource_type, drift_severity)
-                
-                # Generate remediation actions
-                remediation_actions = self._generate_remediation_actions(baseline.resource_type, config_diff)
-                
-                return DriftDetectionResult(
-                    resource_id=resource_id,
-                    resource_type=baseline.resource_type,
-                    drift_detected=True,
-                    drift_severity=drift_severity,
-                    expected_config=baseline.configuration,
-                    actual_config=current_config,
-                    configuration_diff=config_diff,
-                    detection_time=datetime.now(),
-                    auto_remediation_available=auto_remediation_available,
-                    remediation_actions=remediation_actions
-                )
-            else:
-                # Update last verified time
-                baseline.last_verified = datetime.now()
-                
-                return DriftDetectionResult(
-                    resource_id=resource_id,
-                    resource_type=baseline.resource_type,
-                    drift_detected=False,
-                    drift_severity=DriftSeverity.LOW,
-                    expected_config=baseline.configuration,
-                    actual_config=current_config,
-                    configuration_diff=[],
-                    detection_time=datetime.now(),
-                    auto_remediation_available=False,
-                    remediation_actions=[]
-                )
-                
         except Exception as e:
-            logger.error(f"Failed to detect drift for {resource_id}: {str(e)}")
+            logger.error(f"Failed to execute remediation: {e}")
+            return False
+    
+    async def _restart_affected_services(self, baseline: ConfigurationBaseline):
+        """Restart services affected by configuration changes"""
+        try:
+            # Map configuration files to services
+            service_map = {
+                "/etc/nginx/nginx.conf": ["nginx"],
+                "/etc/apache2/apache2.conf": ["apache2"],
+                "/etc/ssh/sshd_config": ["ssh", "sshd"],
+                "/etc/postgresql/postgresql.conf": ["postgresql"],
+                "/etc/mysql/my.cnf": ["mysql"],
+                "/etc/redis/redis.conf": ["redis"]
+            }
+            
+            services = service_map.get(baseline.config_path, [])
+            
+            for service in services:
+                try:
+                    # Simulate service restart (in production, use actual service management)
+                    logger.info(f"Restarting service: {service}")
+                    await asyncio.sleep(1)  # Simulate restart time
+                    
+                except Exception as e:
+                    logger.error(f"Failed to restart service {service}: {e}")
+            
+        except Exception as e:
+            logger.error(f"Failed to restart affected services: {e}")
+    
+    async def create_configuration_baseline(self, config_type: ConfigurationType, config_path: str) -> str:
+        """Create a new configuration baseline"""
+        try:
+            baseline = await self._create_configuration_baseline(config_type, config_path)
+            return baseline.config_id
+            
+        except Exception as e:
+            logger.error(f"Failed to create configuration baseline: {e}")
             raise
     
-    async def _get_current_configuration(self, resource_id: str, resource_type: ResourceType) -> Dict[str, Any]:
-        """Get current configuration for a resource"""
-        # This would integrate with actual infrastructure APIs
-        # For now, simulate configuration retrieval
+    async def update_configuration_baseline(self, config_id: str) -> bool:
+        """Update an existing configuration baseline"""
+        try:
+            baseline = self.configuration_baselines.get(config_id)
+            if not baseline:
+                raise ValueError(f"Configuration baseline {config_id} not found")
+            
+            # Read current configuration
+            if os.path.exists(baseline.config_path):
+                with open(baseline.config_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    current_content = f.read()
+            else:
+                current_content = f"# Configuration file {baseline.config_path} does not exist\n"
+            
+            # Update baseline
+            baseline.baseline_content = current_content
+            baseline.baseline_hash = hashlib.sha256(current_content.encode()).hexdigest()
+            baseline.last_validated = datetime.now()
+            
+            logger.info(f"Updated baseline for {baseline.config_path}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to update configuration baseline: {e}")
+            return False
+    
+    async def ignore_drift_detection(self, drift_id: str) -> bool:
+        """Ignore a specific drift detection"""
+        try:
+            drift_detection = self.drift_detections.get(drift_id)
+            if not drift_detection:
+                raise ValueError(f"Drift detection {drift_id} not found")
+            
+            drift_detection.drift_status = DriftStatus.IGNORED
+            logger.info(f"Ignored drift detection {drift_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to ignore drift detection: {e}")
+            return False
+    
+    async def manual_remediation(self, drift_id: str) -> bool:
+        """Manually trigger remediation for a drift detection"""
+        try:
+            drift_detection = self.drift_detections.get(drift_id)
+            if not drift_detection:
+                raise ValueError(f"Drift detection {drift_id} not found")
+            
+            # Force remediation regardless of auto-remediation settings
+            original_auto_setting = drift_detection.auto_remediation_enabled
+            drift_detection.auto_remediation_enabled = True
+            
+            await self._attempt_auto_remediation(drift_detection)
+            
+            # Restore original setting
+            drift_detection.auto_remediation_enabled = original_auto_setting
+            
+            return drift_detection.drift_status == DriftStatus.REMEDIATED
+            
+        except Exception as e:
+            logger.error(f"Failed to perform manual remediation: {e}")
+            return False
+    
+    def get_configuration_baseline(self, config_id: str) -> Optional[ConfigurationBaseline]:
+        """Get configuration baseline by ID"""
+        return self.configuration_baselines.get(config_id)
+    
+    def list_configuration_baselines(self) -> List[ConfigurationBaseline]:
+        """List all configuration baselines"""
+        return list(self.configuration_baselines.values())
+    
+    def get_drift_detection(self, drift_id: str) -> Optional[DriftDetection]:
+        """Get drift detection by ID"""
+        return self.drift_detections.get(drift_id)
+    
+    def list_drift_detections(self, status: Optional[DriftStatus] = None) -> List[DriftDetection]:
+        """List drift detections, optionally filtered by status"""
+        detections = list(self.drift_detections.values())
         
-        if resource_type == ResourceType.KUBERNETES_DEPLOYMENT:
-            return await self._get_kubernetes_deployment_config(resource_id)
-        elif resource_type == ResourceType.KUBERNETES_SERVICE:
-            return await self._get_kubernetes_service_config(resource_id)
-        elif resource_type == ResourceType.NGINX_CONFIG:
-            return await self._get_nginx_config(resource_id)
-        elif resource_type == ResourceType.DATABASE_CONFIG:
-            return await self._get_database_config(resource_id)
-        elif resource_type == ResourceType.SECURITY_POLICY:
-            return await self._get_security_policy_config(resource_id)
-        else:
+        if status:
+            detections = [d for d in detections if d.drift_status == status]
+        
+        return detections
+    
+    def get_remediation_action(self, action_id: str) -> Optional[RemediationAction]:
+        """Get remediation action by ID"""
+        return self.remediation_actions.get(action_id)
+    
+    def list_remediation_actions(self) -> List[RemediationAction]:
+        """List all remediation actions"""
+        return list(self.remediation_actions.values())
+    
+    async def get_drift_statistics(self) -> Dict[str, Any]:
+        """Get configuration drift statistics"""
+        try:
+            total_baselines = len(self.configuration_baselines)
+            total_detections = len(self.drift_detections)
+            
+            # Count by status
+            status_counts = {}
+            for status in DriftStatus:
+                status_counts[status.value] = len([d for d in self.drift_detections.values() if d.drift_status == status])
+            
+            # Count by severity
+            severity_counts = {}
+            for severity in DriftSeverity:
+                severity_counts[severity.value] = len([d for d in self.drift_detections.values() if d.drift_severity == severity])
+            
+            # Count by configuration type
+            type_counts = {}
+            for config_type in ConfigurationType:
+                type_counts[config_type.value] = len([b for b in self.configuration_baselines.values() if b.config_type == config_type])
+            
+            # Remediation statistics
+            total_remediations = len(self.remediation_actions)
+            successful_remediations = len([a for a in self.remediation_actions.values() if a.success])
+            
+            return {
+                "total_baselines": total_baselines,
+                "total_detections": total_detections,
+                "status_breakdown": status_counts,
+                "severity_breakdown": severity_counts,
+                "type_breakdown": type_counts,
+                "total_remediations": total_remediations,
+                "successful_remediations": successful_remediations,
+                "remediation_success_rate": (successful_remediations / total_remediations * 100) if total_remediations > 0 else 0,
+                "auto_remediation_enabled": self.auto_remediation_enabled,
+                "monitoring_enabled": self.monitoring_enabled
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get drift statistics: {e}")
             return {}
     
-    async def _get_kubernetes_deployment_config(self, resource_id: str) -> Dict[str, Any]:
-        """Get Kubernetes deployment configuration"""
-        # Simulate getting K8s deployment config
-        import random
-        
-        # Simulate occasional configuration drift
-        if random.random() < 0.1:  # 10% chance of drift
-            return {
-                'replicas': random.choice([2, 3, 5]),  # Different from baseline
-                'image': 'app:v1.2.0',  # Different version
-                'resources': {
-                    'requests': {'cpu': '100m', 'memory': '128Mi'},
-                    'limits': {'cpu': '500m', 'memory': '512Mi'}
-                },
-                'env': [
-                    {'name': 'ENV', 'value': 'production'},
-                    {'name': 'DEBUG', 'value': 'false'}
-                ]
-            }
-        else:
-            # Return baseline configuration
-            return {
-                'replicas': 3,
-                'image': 'app:v1.1.0',
-                'resources': {
-                    'requests': {'cpu': '100m', 'memory': '128Mi'},
-                    'limits': {'cpu': '500m', 'memory': '512Mi'}
-                },
-                'env': [
-                    {'name': 'ENV', 'value': 'production'},
-                    {'name': 'DEBUG', 'value': 'false'}
-                ]
-            }
+    def enable_monitoring(self):
+        """Enable configuration monitoring"""
+        self.monitoring_enabled = True
+        if not hasattr(self, '_monitoring_task') or self._monitoring_task.done():
+            self._monitoring_task = asyncio.create_task(self._start_continuous_monitoring())
+        logger.info("Configuration monitoring enabled")
     
-    async def _get_kubernetes_service_config(self, resource_id: str) -> Dict[str, Any]:
-        """Get Kubernetes service configuration"""
-        return {
-            'type': 'ClusterIP',
-            'ports': [{'port': 80, 'targetPort': 8080}],
-            'selector': {'app': 'myapp'}
-        }
+    def disable_monitoring(self):
+        """Disable configuration monitoring"""
+        self.monitoring_enabled = False
+        logger.info("Configuration monitoring disabled")
     
-    async def _get_nginx_config(self, resource_id: str) -> Dict[str, Any]:
-        """Get NGINX configuration"""
-        return {
-            'server_name': 'example.com',
-            'listen': 80,
-            'root': '/var/www/html',
-            'index': 'index.html'
-        }
+    def enable_auto_remediation(self):
+        """Enable automatic remediation"""
+        self.auto_remediation_enabled = True
+        logger.info("Auto-remediation enabled")
     
-    async def _get_database_config(self, resource_id: str) -> Dict[str, Any]:
-        """Get database configuration"""
-        return {
-            'max_connections': 100,
-            'shared_buffers': '256MB',
-            'effective_cache_size': '1GB'
-        }
-    
-    async def _get_security_policy_config(self, resource_id: str) -> Dict[str, Any]:
-        """Get security policy configuration"""
-        return {
-            'authentication_required': True,
-            'encryption_enabled': True,
-            'access_control': 'rbac'
-        }
-    
-    def _calculate_configuration_diff(self, expected: Dict[str, Any], actual: Dict[str, Any]) -> List[str]:
-        """Calculate configuration differences"""
-        expected_json = json.dumps(expected, sort_keys=True, indent=2)
-        actual_json = json.dumps(actual, sort_keys=True, indent=2)
-        
-        diff = list(difflib.unified_diff(
-            expected_json.splitlines(keepends=True),
-            actual_json.splitlines(keepends=True),
-            fromfile='expected',
-            tofile='actual'
-        ))
-        
-        return diff
-    
-    def _calculate_drift_severity(self, config_diff: List[str], resource_type: ResourceType) -> DriftSeverity:
-        """Calculate drift severity based on configuration changes"""
-        if not config_diff:
-            return DriftSeverity.LOW
-        
-        diff_text = '\n'.join(config_diff).lower()
-        
-        # Check for critical changes
-        for critical_key in self.severity_thresholds['critical_keys']:
-            if critical_key in diff_text:
-                return DriftSeverity.CRITICAL
-        
-        # Check for high severity changes
-        for high_key in self.severity_thresholds['high_keys']:
-            if high_key in diff_text:
-                return DriftSeverity.HIGH
-        
-        # Check for medium severity changes
-        for medium_key in self.severity_thresholds['medium_keys']:
-            if medium_key in diff_text:
-                return DriftSeverity.MEDIUM
-        
-        return DriftSeverity.LOW
-    
-    def _is_auto_remediation_available(self, resource_type: ResourceType, severity: DriftSeverity) -> bool:
-        """Check if auto-remediation is available for resource type and severity"""
-        if not self.auto_remediation_enabled:
-            return False
-        
-        # Auto-remediation available for known resource types
-        if resource_type not in self.auto_remediation_rules:
-            return False
-        
-        # Only auto-remediate high and critical severity drifts
-        return severity in [DriftSeverity.HIGH, DriftSeverity.CRITICAL]
-    
-    def _generate_remediation_actions(self, resource_type: ResourceType, config_diff: List[str]) -> List[str]:
-        """Generate remediation actions based on resource type and drift"""
-        if resource_type not in self.auto_remediation_rules:
-            return ['manual_review_required']
-        
-        return self.auto_remediation_rules[resource_type]
-    
-    async def _queue_auto_remediation(self, drift_result: DriftDetectionResult):
-        """Queue auto-remediation action"""
-        try:
-            for action_type in drift_result.remediation_actions:
-                action = RemediationAction(
-                    action_id=f"{drift_result.resource_id}-{action_type}-{int(datetime.now().timestamp())}",
-                    resource_id=drift_result.resource_id,
-                    resource_type=drift_result.resource_type,
-                    action_type=action_type,
-                    parameters={
-                        'expected_config': drift_result.expected_config,
-                        'actual_config': drift_result.actual_config,
-                        'severity': drift_result.drift_severity.value
-                    },
-                    status=RemediationStatus.PENDING,
-                    created_at=datetime.now(),
-                    completed_at=None,
-                    error_message=None,
-                    rollback_available=True
-                )
-                
-                self.remediation_queue.append(action)
-                logger.info(f"Queued auto-remediation action: {action.action_id}")
-        
-        except Exception as e:
-            logger.error(f"Failed to queue auto-remediation: {str(e)}")
-    
-    async def _auto_remediation_processor(self):
-        """Process auto-remediation queue"""
-        while self._monitoring_active:
-            try:
-                if self.remediation_queue:
-                    # Process pending remediation actions
-                    pending_actions = [a for a in self.remediation_queue if a.status == RemediationStatus.PENDING]
-                    
-                    for action in pending_actions[:5]:  # Process up to 5 actions at once
-                        await self._execute_remediation_action(action)
-                
-                await asyncio.sleep(10)  # Check every 10 seconds
-                
-            except Exception as e:
-                logger.error(f"Auto-remediation processor error: {str(e)}")
-                await asyncio.sleep(30)
-    
-    async def _execute_remediation_action(self, action: RemediationAction):
-        """Execute a remediation action"""
-        try:
-            logger.info(f"Executing remediation action: {action.action_id}")
-            action.status = RemediationStatus.IN_PROGRESS
-            
-            # Set timeout for remediation
-            try:
-                await asyncio.wait_for(
-                    self._perform_remediation(action),
-                    timeout=self.remediation_timeout
-                )
-                
-                action.status = RemediationStatus.COMPLETED
-                action.completed_at = datetime.now()
-                logger.info(f"Remediation action completed: {action.action_id}")
-                
-            except asyncio.TimeoutError:
-                action.status = RemediationStatus.FAILED
-                action.error_message = "Remediation timeout"
-                logger.error(f"Remediation action timed out: {action.action_id}")
-            
-            # Move to history and remove from queue
-            self.remediation_history.append(action)
-            self.remediation_queue.remove(action)
-            
-        except Exception as e:
-            action.status = RemediationStatus.FAILED
-            action.error_message = str(e)
-            logger.error(f"Remediation action failed: {action.action_id} - {str(e)}")
-            
-            # Move to history
-            self.remediation_history.append(action)
-            if action in self.remediation_queue:
-                self.remediation_queue.remove(action)
-    
-    async def _perform_remediation(self, action: RemediationAction):
-        """Perform the actual remediation"""
-        action_type = action.action_type
-        resource_type = action.resource_type
-        
-        if resource_type == ResourceType.KUBERNETES_DEPLOYMENT:
-            await self._remediate_kubernetes_deployment(action)
-        elif resource_type == ResourceType.KUBERNETES_SERVICE:
-            await self._remediate_kubernetes_service(action)
-        elif resource_type == ResourceType.NGINX_CONFIG:
-            await self._remediate_nginx_config(action)
-        elif resource_type == ResourceType.DATABASE_CONFIG:
-            await self._remediate_database_config(action)
-        elif resource_type == ResourceType.SECURITY_POLICY:
-            await self._remediate_security_policy(action)
-        else:
-            raise ValueError(f"Unsupported resource type for remediation: {resource_type}")
-    
-    async def _remediate_kubernetes_deployment(self, action: RemediationAction):
-        """Remediate Kubernetes deployment configuration"""
-        if action.action_type == 'restart_pods':
-            logger.info(f"Restarting pods for deployment: {action.resource_id}")
-            await asyncio.sleep(2)  # Simulate pod restart
-        elif action.action_type == 'update_config':
-            logger.info(f"Updating configuration for deployment: {action.resource_id}")
-            await asyncio.sleep(3)  # Simulate config update
-        elif action.action_type == 'rollback_version':
-            logger.info(f"Rolling back deployment: {action.resource_id}")
-            await asyncio.sleep(4)  # Simulate rollback
-    
-    async def _remediate_kubernetes_service(self, action: RemediationAction):
-        """Remediate Kubernetes service configuration"""
-        if action.action_type == 'update_service':
-            logger.info(f"Updating service: {action.resource_id}")
-            await asyncio.sleep(1)
-        elif action.action_type == 'recreate_service':
-            logger.info(f"Recreating service: {action.resource_id}")
-            await asyncio.sleep(2)
-    
-    async def _remediate_nginx_config(self, action: RemediationAction):
-        """Remediate NGINX configuration"""
-        if action.action_type == 'reload_nginx':
-            logger.info(f"Reloading NGINX configuration: {action.resource_id}")
-            await asyncio.sleep(1)
-        elif action.action_type == 'restore_config':
-            logger.info(f"Restoring NGINX configuration: {action.resource_id}")
-            await asyncio.sleep(2)
-    
-    async def _remediate_database_config(self, action: RemediationAction):
-        """Remediate database configuration"""
-        if action.action_type == 'restart_service':
-            logger.info(f"Restarting database service: {action.resource_id}")
-            await asyncio.sleep(5)
-        elif action.action_type == 'restore_config':
-            logger.info(f"Restoring database configuration: {action.resource_id}")
-            await asyncio.sleep(3)
-    
-    async def _remediate_security_policy(self, action: RemediationAction):
-        """Remediate security policy configuration"""
-        if action.action_type == 'restore_policy':
-            logger.info(f"Restoring security policy: {action.resource_id}")
-            await asyncio.sleep(1)
-        elif action.action_type == 'alert_security_team':
-            logger.info(f"Alerting security team about: {action.resource_id}")
-            await asyncio.sleep(1)
-    
-    async def _baseline_maintenance(self):
-        """Maintain configuration baselines"""
-        while self._monitoring_active:
-            try:
-                # Update baselines that haven't been verified recently
-                cutoff_time = datetime.now() - timedelta(hours=24)
-                
-                for resource_id, baseline in self.baselines.items():
-                    if baseline.last_verified < cutoff_time:
-                        # Re-verify baseline
-                        current_config = await self._get_current_configuration(resource_id, baseline.resource_type)
-                        
-                        # If configuration is stable, update baseline
-                        if self._is_configuration_stable(baseline, current_config):
-                            await self._update_baseline(resource_id, current_config)
-                
-                await asyncio.sleep(3600)  # Run every hour
-                
-            except Exception as e:
-                logger.error(f"Baseline maintenance error: {str(e)}")
-                await asyncio.sleep(3600)
-    
-    def _is_configuration_stable(self, baseline: ConfigurationBaseline, current_config: Dict[str, Any]) -> bool:
-        """Check if configuration has been stable"""
-        # Simple stability check - in production, this would be more sophisticated
-        return baseline.configuration == current_config
-    
-    async def _update_baseline(self, resource_id: str, new_config: Dict[str, Any]):
-        """Update configuration baseline"""
-        if resource_id in self.baselines:
-            baseline = self.baselines[resource_id]
-            
-            # Update configuration and checksum
-            baseline.configuration = new_config
-            config_json = json.dumps(new_config, sort_keys=True)
-            baseline.checksum = hashlib.sha256(config_json.encode()).hexdigest()
-            baseline.last_verified = datetime.now()
-            
-            logger.info(f"Updated baseline for {resource_id}")
-    
-    def get_drift_summary(self) -> Dict[str, Any]:
-        """Get drift detection summary"""
-        recent_drifts = [d for d in self.drift_history if d.detection_time > datetime.now() - timedelta(hours=24)]
-        
-        severity_counts = {
-            'critical': len([d for d in recent_drifts if d.drift_severity == DriftSeverity.CRITICAL]),
-            'high': len([d for d in recent_drifts if d.drift_severity == DriftSeverity.HIGH]),
-            'medium': len([d for d in recent_drifts if d.drift_severity == DriftSeverity.MEDIUM]),
-            'low': len([d for d in recent_drifts if d.drift_severity == DriftSeverity.LOW])
-        }
-        
-        remediation_stats = {
-            'pending': len([a for a in self.remediation_queue if a.status == RemediationStatus.PENDING]),
-            'in_progress': len([a for a in self.remediation_queue if a.status == RemediationStatus.IN_PROGRESS]),
-            'completed': len([a for a in self.remediation_history if a.status == RemediationStatus.COMPLETED]),
-            'failed': len([a for a in self.remediation_history if a.status == RemediationStatus.FAILED])
-        }
-        
-        return {
-            'total_baselines': len(self.baselines),
-            'recent_drifts': len(recent_drifts),
-            'severity_breakdown': severity_counts,
-            'remediation_stats': remediation_stats,
-            'auto_remediation_enabled': self.auto_remediation_enabled,
-            'detection_interval': self.detection_interval
-        }
+    def disable_auto_remediation(self):
+        """Disable automatic remediation"""
+        self.auto_remediation_enabled = False
+        logger.info("Auto-remediation disabled")
+
+# Global instance
+configuration_drift_detection = ConfigurationDriftDetection()

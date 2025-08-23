@@ -1,0 +1,73 @@
+{
+  "timestamp": "2025-08-22T21:32:12.832798",
+  "system_info": {
+    "cpu_count": 12,
+    "memory_total": 8286953472,
+    "memory_available": 115597312,
+    "disk_usage": 55.7,
+    "python_version": "3.13.5 (tags/v3.13.5:6cb20a2, Jun 11 2025, 16:15:46) [MSC v.1943 64 bit (AMD64)]"
+  },
+  "benchmarks": {
+    "import_speed": {
+      "individual_imports": {
+        "scrollintel.core.config": {
+          "time": 15.2315,
+          "status": "success"
+        },
+        "scrollintel.api.main": {
+          "time": 1.5176,
+          "status": "success"
+        },
+        "scrollintel.core.monitoring": {
+          "time": 0.0,
+          "status": "success"
+        },
+        "scrollintel.agents.base": {
+          "time": 0.0028,
+          "status": "success"
+        },
+        "scrollintel.models.database": {
+          "time": 0.0,
+          "status": "success"
+        }
+      },
+      "total_time": 16.7519,
+      "average_time": 3.3504,
+      "score": 0
+    },
+    "memory_usage": {
+      "initial_memory_mb": 535.31,
+      "after_imports_mb": 535.31,
+      "memory_increase_mb": 0.0,
+      "system_memory_percent": 92.6,
+      "available_memory_gb": 0.57,
+      "score": 50
+    },
+    "cpu_performance": {
+      "cpu_task_time": 0.0045,
+      "cpu_usage_percent": 37.1,
+      "cpu_count": 12,
+      "computation_result": 333328333350000,
+      "score": 100
+    },
+    "async_performance": {
+      "async_task_time": 0.0025,
+      "tasks_completed": 100,
+      "tasks_per_second": 40314.34,
+      "score": 100
+    },
+    "file_io": {
+      "write_time": 0.0174,
+      "read_time": 0.0034,
+      "total_io_time": 0.0208,
+      "data_size_mb": 0.95,
+      "score": 100
+    }
+  },
+  "recommendations": [
+    "\ud83d\ude80 Optimize module imports - consider lazy loading",
+    "\ud83d\udcbe Optimize memory usage - implement memory pooling",
+    "\u26a0\ufe0f Performance needs significant optimization"
+  ],
+  "overall_score": 70.0
+}

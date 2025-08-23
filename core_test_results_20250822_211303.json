@@ -1,0 +1,21 @@
+{
+  "timestamp": "2025-08-22T19:13:03.508542",
+  "status": "needs_attention",
+  "summary": {
+    "total_tests": 8,
+    "passed_tests": 5,
+    "failed_tests": 3,
+    "success_rate": 62.5,
+    "duration_seconds": 17.745752334594727
+  },
+  "test_results": {
+    "Module Imports": false,
+    "Configuration": true,
+    "Database Connection": false,
+    "Agent Modules": true,
+    "API Routes": true,
+    "File System": true,
+    "Environment Variables": true,
+    "Basic Functionality": false
+  }
+}

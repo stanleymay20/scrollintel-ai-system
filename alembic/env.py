@@ -44,7 +44,7 @@ def get_database_url():
         # Fallback to environment variable or default
         return os.getenv(
             "DATABASE_URL",
-            "postgresql://postgres:password@localhost:5432/scrollintel"
+            os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/scrollintel")
         )
 
 

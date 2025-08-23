@@ -1,0 +1,119 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agent-steering-ingress
+  namespace: agent-steering-system
+  labels:
+    app: agent-steering-system
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    nginx.ingress.kubernetes.io/rate-limit: "100"
+    nginx.ingress.kubernetes.io/rate-limit-window: "1m"
+    nginx.ingress.kubernetes.io/limit-connections: "10"
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      add_header X-Frame-Options DENY;
+      add_header X-Content-Type-Options nosniff;
+      add_header X-XSS-Protection "1; mode=block";
+      add_header Strict-Transport-Security "max-age=31536000; includeSubDomains";
+      add_header Referrer-Policy "strict-origin-when-cross-origin";
+spec:
+  tls:
+  - hosts:
+    - api.agent-steering.scrollintel.com
+    - monitoring.agent-steering.scrollintel.com
+    secretName: agent-steering-tls
+  rules:
+  - host: api.agent-steering.scrollintel.com
+    http:
+      paths:
+      - path: /api/v1/orchestration
+        pathType: Prefix
+        backend:
+          service:
+            name: orchestration-service
+            port:
+              number: 8080
+      - path: /api/v1/intelligence
+        pathType: Prefix
+        backend:
+          service:
+            name: intelligence-service
+            port:
+              number: 8081
+      - path: /health
+        pathType: Prefix
+        backend:
+          service:
+            name: orchestration-service
+            port:
+              number: 8080
+      - path: /metrics
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus-service
+            port:
+              number: 9090
+  - host: monitoring.agent-steering.scrollintel.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana-service
+            port:
+              number: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agent-steering-internal-ingress
+  namespace: agent-steering-system
+  labels:
+    app: agent-steering-system
+    type: internal
+  annotations:
+    kubernetes.io/ingress.class: "nginx-internal"
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Agent Steering System - Internal Access"
+spec:
+  tls:
+  - hosts:
+    - internal.agent-steering.scrollintel.com
+    secretName: agent-steering-internal-tls
+  rules:
+  - host: internal.agent-steering.scrollintel.com
+    http:
+      paths:
+      - path: /prometheus
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus-service
+            port:
+              number: 9090
+      - path: /grafana
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana-service
+            port:
+              number: 3000
+      - path: /admin
+        pathType: Prefix
+        backend:
+          service:
+            name: orchestration-service
+            port:
+              number: 8080

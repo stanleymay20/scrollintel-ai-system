@@ -15,12 +15,12 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     
     # Database
-    DATABASE_URL: str = "postgresql://scrollintel:password@localhost:5432/scrollintel_core"
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/scrollintel")
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 20
     
     # Redis
-    REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_URL: str = os.getenv("REDIS_URL", "redis://localhost:6379")
     REDIS_SESSION_DB: int = 1
     REDIS_CACHE_DB: int = 2
     
@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     
     # API
     API_V1_PREFIX: str = "/api/v1"
-    CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:8000"]
+    CORS_ORIGINS: list = [os.getenv("API_URL", "http://localhost:3000"), os.getenv("API_URL", "http://localhost:8000")]
     
     # File Processing
     MAX_FILE_SIZE: int = 100 * 1024 * 1024  # 100MB

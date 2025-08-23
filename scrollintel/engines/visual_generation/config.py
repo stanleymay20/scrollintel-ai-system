@@ -39,7 +39,7 @@ class InfrastructureConfig:
     max_file_size: int = 100 * 1024 * 1024  # 100MB
     cleanup_interval: int = 3600  # seconds
     # Redis configuration
-    redis_url: Optional[str] = "redis://localhost:6379/0"
+    redis_url: Optional[str] = os.getenv("REDIS_URL", "redis://localhost:6379")
     redis_enabled: bool = True
     # Semantic similarity configuration
     semantic_similarity_enabled: bool = True

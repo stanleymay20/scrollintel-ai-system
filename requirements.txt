@@ -15,6 +15,9 @@ aiosqlite>=0.19.0
 redis>=5.0.0
 alembic>=1.13.0
 
+# Additional system dependencies
+setuptools>=65.0.0
+
 # AI service dependencies
 openai>=1.3.0
 anthropic>=0.7.0
@@ -22,7 +25,7 @@ langchain>=0.1.0
 langchain-openai>=0.0.2
 
 # Vector database dependencies
-pinecone-client>=2.2.0
+pinecone>=2.2.0
 supabase>=2.0.0
 
 # Data processing dependencies
@@ -91,3 +94,59 @@ croniter>=1.4.0     # For cron expression parsing
 schedule>=1.2.0     # For job scheduling
 scipy>=1.11.0       # For statistical analysis
 psutil>=5.9.0       # For system monitoring
+
+# Missing dependencies found in codebase
+requests>=2.31.0    # For HTTP requests
+opencv-python>=4.8.0 # For video generation (cv2)
+dask[complete]>=2023.10.0 # For distributed computing
+pyarrow>=14.0.0     # For parquet file handling
+websockets>=12.0    # For WebSocket connections
+python-socketio>=5.10.0 # For Socket.IO support
+flask>=3.0.0        # Used in some demo files
+prometheus-client>=0.19.0 # For metrics collection
+structlog>=23.2.0   # For structured logging
+elasticsearch>=8.11.0 # For search functionality
+cryptography>=41.0.0 # For encryption
+bcrypt>=4.1.0       # For password hashing
+
+# Additional external dependencies
+boto3>=1.34.0       # For AWS services
+botocore>=1.34.0    # AWS SDK core
+beautifulsoup4>=4.12.0 # For web scraping (bs4)
+feedparser>=6.0.0   # For RSS/Atom feeds
+ffmpeg-python>=0.2.0 # For video processing
+flask-restx>=1.3.0  # For Flask REST API extensions
+gputil>=1.4.0       # For GPU monitoring
+graphene>=2.1.3,<3.0.0     # For GraphQL
+graphene-sqlalchemy>=2.3.0 # GraphQL SQLAlchemy integration
+gymnasium>=0.29.0   # For reinforcement learning environments
+jsonschema>=4.20.0  # For JSON schema validation
+pyjwt>=2.8.0        # For JWT tokens
+# kubeflow-pipelines>=2.0.0  # Optional - for Kubernetes ML pipelines # For ML pipelines (kfp)
+kubernetes>=28.1.0  # For Kubernetes API
+langchain-community>=0.0.10 # LangChain community integrations
+langchain-core>=0.1.10 # LangChain core
+langchain-text-splitters>=0.0.1 # Text splitting utilities
+librosa>=0.10.0     # For audio processing
+markdown>=3.5.0     # For markdown processing
+memory-profiler>=0.61.0 # For memory profiling
+minio>=7.2.0        # For object storage
+mlflow>=2.8.0       # For ML experiment tracking
+mutagen>=1.47.0     # For audio metadata
+networkx>=3.2.0     # For graph algorithms
+onnx>=1.15.0        # For ONNX model format
+onnxruntime>=1.16.0 # For ONNX runtime
+pyotp>=2.9.0        # For OTP generation
+python-json-logger>=2.0.0 # For JSON logging
+qrcode>=7.4.0       # For QR code generation
+rich>=13.7.0        # For rich text and beautiful formatting
+sentence-transformers>=2.2.0 # For sentence embeddings
+scikit-image>=0.22.0 # For image processing (skimage)
+soundfile>=0.12.0   # For audio file I/O
+spacy>=3.7.0        # For NLP
+stable-baselines3>=2.2.0 # For reinforcement learning
+starlette>=0.27.0   # ASGI framework (FastAPI dependency)
+streamlit>=1.28.0   # For web apps
+stripe>=7.8.0       # For payment processing
+tableau-api-lib>=0.1.0 # For Tableau integration (tableauserverclient)
+urllib3>=2.1.0      # For HTTP client

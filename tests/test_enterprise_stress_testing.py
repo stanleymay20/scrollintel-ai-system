@@ -1,3 +1,4 @@
+import os
 """
 Tests for Enterprise Stress Testing Framework
 """
@@ -88,7 +89,7 @@ class TestLoadTestingFramework:
             # Reduce concurrent users for faster testing
             load_tester.config.concurrent_users = 10
             
-            result = await load_tester.execute_load_test("http://localhost:8000")
+            result = await load_tester.execute_load_test(os.getenv("API_URL", os.getenv("API_URL", "http://localhost:8000")))
             
             assert isinstance(result, LoadTestResult)
             assert result.total_requests > 0

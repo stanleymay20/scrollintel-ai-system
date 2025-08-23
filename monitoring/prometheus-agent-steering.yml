@@ -1,0 +1,111 @@
+# Prometheus configuration for Agent Steering System monitoring
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'agent-steering-production'
+    environment: 'production'
+
+rule_files:
+  - "alert-rules.yml"
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+
+scrape_configs:
+  # Agent Steering System API metrics
+  - job_name: 'agent-steering-api'
+    static_configs:
+      - targets: ['scrollintel-api:8000']
+    metrics_path: '/metrics'
+    scrape_interval: 10s
+    scrape_timeout: 5s
+
+  # Custom Agent Steering metrics
+  - job_name: 'agent-steering-metrics'
+    static_configs:
+      - targets: ['agent-steering-exporter:9200']
+    scrape_interval: 15s
+    scrape_timeout: 10s
+
+  # System metrics
+  - job_name: 'node-exporter'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 15s
+
+  # Database metrics
+  - job_name: 'postgres-exporter'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+
+  # Redis metrics
+  - job_name: 'redis-exporter'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 30s
+
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # Blackbox exporter for uptime monitoring
+  - job_name: 'blackbox'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - http://scrollintel-api:8000/health
+        - http://scrollintel-frontend:3000
+        - http://scrollintel-api:8000/api/agents/health
+        - http://scrollintel-api:8000/api/orchestration/health
+        - http://scrollintel-api:8000/api/intelligence/health
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+
+  # Agent-specific metrics
+  - job_name: 'agent-performance'
+    static_configs:
+      - targets: ['scrollintel-api:8000']
+    metrics_path: '/api/agents/metrics'
+    scrape_interval: 10s
+
+  # Orchestration engine metrics
+  - job_name: 'orchestration-metrics'
+    static_configs:
+      - targets: ['scrollintel-api:8000']
+    metrics_path: '/api/orchestration/metrics'
+    scrape_interval: 10s
+
+  # Intelligence engine metrics
+  - job_name: 'intelligence-metrics'
+    static_configs:
+      - targets: ['scrollintel-api:8000']
+    metrics_path: '/api/intelligence/metrics'
+    scrape_interval: 15s
+
+  # Business metrics
+  - job_name: 'business-metrics'
+    static_configs:
+      - targets: ['scrollintel-api:8000']
+    metrics_path: '/api/business/metrics'
+    scrape_interval: 60s
+
+  # Security metrics
+  - job_name: 'security-metrics'
+    static_configs:
+      - targets: ['scrollintel-api:8000']
+    metrics_path: '/api/security/metrics'
+    scrape_interval: 30s

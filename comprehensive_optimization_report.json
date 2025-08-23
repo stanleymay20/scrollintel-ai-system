@@ -1,0 +1,212 @@
+{
+  "timestamp": "2025-08-22T21:33:29.070697",
+  "summary": {
+    "composite_score": 75.71333333333332,
+    "status": "\ud83d\udfe1 WELL OPTIMIZED",
+    "total_critical_issues": 7
+  },
+  "individual_reports": {
+    "optimization": {
+      "timestamp": "2025-08-22T21:28:53.674483",
+      "overall_score": 85.71,
+      "categories": {
+        "environment": {
+          "score": 40,
+          "issues": [
+            "Missing or empty OPENAI_API_KEY",
+            "Missing or empty DATABASE_URL",
+            "Missing or empty JWT_SECRET_KEY"
+          ],
+          "status": "needs_improvement"
+        },
+        "database": {
+          "score": 80,
+          "issues": [],
+          "status": "optimized"
+        },
+        "performance": {
+          "score": 100,
+          "issues": [],
+          "status": "optimized"
+        },
+        "security": {
+          "score": 80,
+          "issues": [
+            "Missing security component: security/enterprise_security_framework.py"
+          ],
+          "status": "optimized"
+        },
+        "frontend": {
+          "score": 100,
+          "issues": [],
+          "status": "optimized"
+        },
+        "deployment": {
+          "score": 100,
+          "issues": [],
+          "status": "ready"
+        },
+        "api": {
+          "score": 100,
+          "issues": [],
+          "status": "optimized"
+        }
+      },
+      "recommendations": [
+        "\u2705 GOOD: Application is well optimized"
+      ],
+      "critical_issues": [
+        "environment: Missing or empty OPENAI_API_KEY",
+        "environment: Missing or empty DATABASE_URL",
+        "environment: Missing or empty JWT_SECRET_KEY",
+        "security: Missing security component: security/enterprise_security_framework.py"
+      ],
+      "warnings": []
+    },
+    "health": {
+      "timestamp": "2025-08-22T21:30:10.531668",
+      "tests": {
+        "imports": true,
+        "configuration": false,
+        "database": true,
+        "api_routes": true,
+        "agent_system": false,
+        "performance_monitoring": true,
+        "async_functionality": true
+      },
+      "summary": {
+        "passed_tests": 5,
+        "total_tests": 7,
+        "health_percentage": 71.43,
+        "status": "degraded"
+      }
+    },
+    "performance": {
+      "timestamp": "2025-08-22T21:32:12.832798",
+      "system_info": {
+        "cpu_count": 12,
+        "memory_total": 8286953472,
+        "memory_available": 115597312,
+        "disk_usage": 55.7,
+        "python_version": "3.13.5 (tags/v3.13.5:6cb20a2, Jun 11 2025, 16:15:46) [MSC v.1943 64 bit (AMD64)]"
+      },
+      "benchmarks": {
+        "import_speed": {
+          "individual_imports": {
+            "scrollintel.core.config": {
+              "time": 15.2315,
+              "status": "success"
+            },
+            "scrollintel.api.main": {
+              "time": 1.5176,
+              "status": "success"
+            },
+            "scrollintel.core.monitoring": {
+              "time": 0.0,
+              "status": "success"
+            },
+            "scrollintel.agents.base": {
+              "time": 0.0028,
+              "status": "success"
+            },
+            "scrollintel.models.database": {
+              "time": 0.0,
+              "status": "success"
+            }
+          },
+          "total_time": 16.7519,
+          "average_time": 3.3504,
+          "score": 0
+        },
+        "memory_usage": {
+          "initial_memory_mb": 535.31,
+          "after_imports_mb": 535.31,
+          "memory_increase_mb": 0.0,
+          "system_memory_percent": 92.6,
+          "available_memory_gb": 0.57,
+          "score": 50
+        },
+        "cpu_performance": {
+          "cpu_task_time": 0.0045,
+          "cpu_usage_percent": 37.1,
+          "cpu_count": 12,
+          "computation_result": 333328333350000,
+          "score": 100
+        },
+        "async_performance": {
+          "async_task_time": 0.0025,
+          "tasks_completed": 100,
+          "tasks_per_second": 40314.34,
+          "score": 100
+        },
+        "file_io": {
+          "write_time": 0.0174,
+          "read_time": 0.0034,
+          "total_io_time": 0.0208,
+          "data_size_mb": 0.95,
+          "score": 100
+        }
+      },
+      "recommendations": [
+        "\ud83d\ude80 Optimize module imports - consider lazy loading",
+        "\ud83d\udcbe Optimize memory usage - implement memory pooling",
+        "\u26a0\ufe0f Performance needs significant optimization"
+      ],
+      "overall_score": 70.0
+    }
+  },
+  "critical_issues": [
+    "environment: Missing or empty OPENAI_API_KEY",
+    "environment: Missing or empty DATABASE_URL",
+    "environment: Missing or empty JWT_SECRET_KEY",
+    "security: Missing security component: security/enterprise_security_framework.py",
+    "System health: configuration test failed",
+    "System health: agent_system test failed",
+    "Performance: import_speed severely underperforming"
+  ],
+  "optimization_roadmap": [
+    {
+      "priority": "\ud83d\udd34 CRITICAL (Immediate)",
+      "tasks": [
+        "Fix environment configuration issues",
+        "Resolve import speed problems (implement lazy loading)",
+        "Address memory usage concerns",
+        "Fix agent system instantiation errors"
+      ]
+    },
+    {
+      "priority": "\ud83d\udfe1 HIGH (Within 1 week)",
+      "tasks": [
+        "Implement module lazy loading",
+        "Add memory pooling and optimization",
+        "Optimize database queries",
+        "Implement caching strategies"
+      ]
+    },
+    {
+      "priority": "\ud83d\udfe0 MEDIUM (Within 2 weeks)",
+      "tasks": [
+        "Complete security framework implementation",
+        "Enhance monitoring and alerting",
+        "Improve error handling and recovery",
+        "Optimize API response times"
+      ]
+    },
+    {
+      "priority": "\ud83d\udfe2 LOW (Ongoing)",
+      "tasks": [
+        "Implement advanced caching strategies",
+        "Add performance profiling and analytics",
+        "Optimize frontend bundle size",
+        "Implement CDN and edge caching"
+      ]
+    }
+  ],
+  "next_steps": [
+    "Address critical issues immediately",
+    "Implement quick fixes",
+    "Follow optimization roadmap",
+    "Set up monitoring and alerting",
+    "Schedule regular optimization reviews"
+  ]
+}

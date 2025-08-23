@@ -1,0 +1,296 @@
+# Alert rules for Agent Steering System production monitoring
+
+groups:
+  - name: agent_steering_system_alerts
+    rules:
+      # High-level system health alerts
+      - alert: AgentSteeringSystemDown
+        expr: up{job="agent-steering-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: system
+        annotations:
+          summary: "Agent Steering System is down"
+          description: "The Agent Steering System API has been down for more than 1 minute."
+
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) / rate(http_requests_total[5m]) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for the last 5 minutes."
+
+      - alert: HighResponseTime
+        expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m])) > 2
+        for: 2m
+        labels:
+          severity: warning
+          component: performance
+        annotations:
+          summary: "High response time detected"
+          description: "95th percentile response time is {{ $value }}s for the last 5 minutes."
+
+  - name: agent_orchestration_alerts
+    rules:
+      # Agent orchestration specific alerts
+      - alert: AgentOrchestrationFailure
+        expr: rate(agent_orchestration_failures_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          component: orchestration
+        annotations:
+          summary: "High agent orchestration failure rate"
+          description: "Agent orchestration failure rate is {{ $value }} failures per second."
+
+      - alert: AgentRegistryDown
+        expr: up{job="agent-steering-metrics", instance=~".*agent-registry.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: agent_registry
+        annotations:
+          summary: "Agent Registry is down"
+          description: "The Agent Registry service is not responding."
+
+      - alert: LowAgentAvailability
+        expr: agent_registry_available_agents / agent_registry_total_agents < 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: agents
+        annotations:
+          summary: "Low agent availability"
+          description: "Only {{ $value | humanizePercentage }} of agents are available."
+
+      - alert: AgentTaskQueueBacklog
+        expr: agent_task_queue_size > 100
+        for: 10m
+        labels:
+          severity: warning
+          component: orchestration
+        annotations:
+          summary: "High task queue backlog"
+          description: "Agent task queue has {{ $value }} pending tasks."
+
+  - name: intelligence_engine_alerts
+    rules:
+      # Intelligence engine specific alerts
+      - alert: IntelligenceEngineDown
+        expr: up{job="intelligence-metrics"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: intelligence
+        annotations:
+          summary: "Intelligence Engine is down"
+          description: "The Intelligence Engine is not responding."
+
+      - alert: LowDecisionConfidence
+        expr: avg(intelligence_decision_confidence) < 0.7
+        for: 10m
+        labels:
+          severity: warning
+          component: intelligence
+        annotations:
+          summary: "Low decision confidence"
+          description: "Average decision confidence is {{ $value | humanizePercentage }}."
+
+      - alert: HighIntelligenceProcessingTime
+        expr: avg(intelligence_processing_duration_seconds) > 30
+        for: 5m
+        labels:
+          severity: warning
+          component: intelligence
+        annotations:
+          summary: "High intelligence processing time"
+          description: "Average intelligence processing time is {{ $value }}s."
+
+  - name: business_metrics_alerts
+    rules:
+      # Business impact alerts
+      - alert: LowBusinessValueGeneration
+        expr: rate(business_value_generated_total[1h]) < 1000
+        for: 30m
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: "Low business value generation"
+          description: "Business value generation rate is {{ $value }} per hour."
+
+      - alert: HighCostPerDecision
+        expr: business_cost_per_decision > 50
+        for: 15m
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: "High cost per decision"
+          description: "Cost per decision is ${{ $value }}."
+
+      - alert: LowROI
+        expr: business_roi_percentage < 200
+        for: 1h
+        labels:
+          severity: warning
+          component: business
+        annotations:
+          summary: "Low ROI detected"
+          description: "ROI is {{ $value }}%, below target of 200%."
+
+  - name: infrastructure_alerts
+    rules:
+      # Infrastructure and resource alerts
+      - alert: HighCPUUsage
+        expr: 100 - (avg by(instance) (irate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}% on {{ $labels.instance }}."
+
+      - alert: HighMemoryUsage
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 85
+        for: 5m
+        labels:
+          severity: warning
+          component: infrastructure
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }}% on {{ $labels.instance }}."
+
+      - alert: LowDiskSpace
+        expr: (1 - (node_filesystem_avail_bytes / node_filesystem_size_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+          component: infrastructure
+        annotations:
+          summary: "Low disk space"
+          description: "Disk usage is {{ $value }}% on {{ $labels.instance }}."
+
+      - alert: DatabaseConnectionFailure
+        expr: up{job="postgres-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: database
+        annotations:
+          summary: "Database connection failure"
+          description: "Cannot connect to PostgreSQL database."
+
+      - alert: RedisConnectionFailure
+        expr: up{job="redis-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: cache
+        annotations:
+          summary: "Redis connection failure"
+          description: "Cannot connect to Redis cache."
+
+  - name: security_alerts
+    rules:
+      # Security and compliance alerts
+      - alert: HighFailedAuthenticationRate
+        expr: rate(security_authentication_failures_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          component: security
+        annotations:
+          summary: "High failed authentication rate"
+          description: "Failed authentication rate is {{ $value }} per second."
+
+      - alert: SecurityViolationDetected
+        expr: increase(security_violations_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          component: security
+        annotations:
+          summary: "Security violation detected"
+          description: "{{ $value }} security violations detected in the last 5 minutes."
+
+      - alert: ComplianceCheckFailure
+        expr: compliance_check_success_rate < 0.95
+        for: 10m
+        labels:
+          severity: warning
+          component: compliance
+        annotations:
+          summary: "Compliance check failure"
+          description: "Compliance check success rate is {{ $value | humanizePercentage }}."
+
+  - name: data_quality_alerts
+    rules:
+      # Data quality and processing alerts
+      - alert: DataQualityDegradation
+        expr: data_quality_score < 0.9
+        for: 15m
+        labels:
+          severity: warning
+          component: data_quality
+        annotations:
+          summary: "Data quality degradation"
+          description: "Data quality score is {{ $value | humanizePercentage }}."
+
+      - alert: DataProcessingBacklog
+        expr: data_processing_queue_size > 1000
+        for: 10m
+        labels:
+          severity: warning
+          component: data_processing
+        annotations:
+          summary: "Data processing backlog"
+          description: "Data processing queue has {{ $value }} items."
+
+      - alert: DataIngestionFailure
+        expr: rate(data_ingestion_failures_total[5m]) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          component: data_ingestion
+        annotations:
+          summary: "Data ingestion failures"
+          description: "Data ingestion failure rate is {{ $value }} per second."
+
+  - name: user_experience_alerts
+    rules:
+      # User experience and satisfaction alerts
+      - alert: LowUserSatisfactionScore
+        expr: user_satisfaction_score < 4.0
+        for: 30m
+        labels:
+          severity: warning
+          component: user_experience
+        annotations:
+          summary: "Low user satisfaction score"
+          description: "User satisfaction score is {{ $value }}/5.0."
+
+      - alert: HighUserSessionDropRate
+        expr: rate(user_session_drops_total[10m]) / rate(user_sessions_total[10m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: user_experience
+        annotations:
+          summary: "High user session drop rate"
+          description: "User session drop rate is {{ $value | humanizePercentage }}."
+
+      - alert: SlowPageLoadTime
+        expr: avg(page_load_duration_seconds) > 3
+        for: 5m
+        labels:
+          severity: warning
+          component: user_experience
+        annotations:
+          summary: "Slow page load time"
+          description: "Average page load time is {{ $value }}s."
