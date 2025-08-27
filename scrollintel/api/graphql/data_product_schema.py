@@ -5,9 +5,9 @@ Enhanced GraphQL interface for complex data product queries with
 relationships, nested filtering, advanced search capabilities, and real-time subscriptions.
 """
 
-import graphene
-from graphene import ObjectType, String, Int, Float, Boolean, List, Field, DateTime, JSONString, Enum
-from graphene_sqlalchemy import SQLAlchemyObjectType
+# import graphene  # Temporarily disabled for Docker build
+# from graphene import ObjectType, String, Int, Float, Boolean, List, Field, DateTime, JSONString, Enum  # Temporarily disabled for Docker build
+# from graphene_sqlalchemy import SQLAlchemyObjectType  # Temporarily disabled for Docker build
 from sqlalchemy.orm import Session
 from typing import Optional, List as TypingList, Dict, Any
 import asyncio

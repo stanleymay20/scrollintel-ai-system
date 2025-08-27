@@ -1,443 +1,483 @@
 """
-Webhook System for ScrollIntel - Real-time notifications for prompt management events.
+Webhook system for external integrations.
+Handles incoming webhooks and outgoing webhook notifications.
 """
 import asyncio
 import json
-import time
 import hmac
 import hashlib
-from typing import Dict, List, Optional, Any, Callable
+from typing import Dict, List, Any, Optional, Callable
 from datetime import datetime, timedelta
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from enum import Enum
 import aiohttp
-import uuid
-from sqlalchemy.orm import Session
-from sqlalchemy import Column, String, DateTime, JSON, Boolean, Integer, Text
-from sqlalchemy.ext.declarative import declarative_base
+import logging
+from urllib.parse import urlparse
 
-from ..models.database import Base
-from ..core.config import get_config
+from ..models.database import get_db_session
+from ..models.webhook_models import WebhookEndpoint, WebhookEvent, WebhookDelivery
+from ..core.rate_limiter import rate_limit
+
+
+logger = logging.getLogger(__name__)
 
 
 class WebhookEventType(Enum):
-    """Types of webhook events."""
-    PROMPT_CREATED = "prompt.created"
-    PROMPT_UPDATED = "prompt.updated"
-    PROMPT_DELETED = "prompt.deleted"
-    PROMPT_VERSION_CREATED = "prompt.version.created"
-    EXPERIMENT_STARTED = "experiment.started"
-    EXPERIMENT_COMPLETED = "experiment.completed"
-    OPTIMIZATION_STARTED = "optimization.started"
-    OPTIMIZATION_COMPLETED = "optimization.completed"
-    USAGE_THRESHOLD_EXCEEDED = "usage.threshold.exceeded"
-    RATE_LIMIT_EXCEEDED = "rate_limit.exceeded"
-
-
-class WebhookStatus(Enum):
-    """Status of webhook delivery."""
-    PENDING = "pending"
-    DELIVERED = "delivered"
-    FAILED = "failed"
-    RETRYING = "retrying"
-    DISABLED = "disabled"
+    """Webhook event types."""
+    DASHBOARD_CREATED = "dashboard.created"
+    DASHBOARD_UPDATED = "dashboard.updated"
+    DASHBOARD_DELETED = "dashboard.deleted"
+    METRIC_UPDATED = "metric.updated"
+    INSIGHT_GENERATED = "insight.generated"
+    ROI_CALCULATED = "roi.calculated"
+    FORECAST_CREATED = "forecast.created"
+    DATA_SOURCE_CONNECTED = "data_source.connected"
+    DATA_SOURCE_DISCONNECTED = "data_source.disconnected"
+    ALERT_TRIGGERED = "alert.triggered"
 
 
 @dataclass
-class WebhookEvent:
-    """Webhook event data."""
-    id: str
-    event_type: WebhookEventType
-    resource_type: str
-    resource_id: str
-    action: str
+class WebhookPayload:
+    """Webhook payload structure."""
+    event_type: str
+    event_id: str
     timestamp: datetime
-    user_id: Optional[str] = None
-    data: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "id": self.id,
-            "event_type": self.event_type.value,
-            "resource_type": self.resource_type,
-            "resource_id": self.resource_id,
-            "action": self.action,
-            "timestamp": self.timestamp.isoformat(),
-            "user_id": self.user_id,
-            "data": self.data
-        }
+    data: Dict[str, Any]
+    metadata: Dict[str, Any] = None
 
 
-class WebhookEndpoint(Base):
-    """Database model for webhook endpoints."""
-    __tablename__ = "webhook_endpoints"
-    
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String, nullable=False, index=True)
-    name = Column(String(255), nullable=False)
-    url = Column(String(2048), nullable=False)
-    secret = Column(String(255))  # For signature verification
-    events = Column(JSON, default=list)  # List of event types to subscribe to
-    active = Column(Boolean, default=True)
-    verify_ssl = Column(Boolean, default=True)
-    timeout_seconds = Column(Integer, default=30)
-    max_retries = Column(Integer, default=3)
-    retry_backoff = Column(Integer, default=60)  # Seconds
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    last_success = Column(DateTime)
-    last_failure = Column(DateTime)
-    failure_count = Column(Integer, default=0)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "id": self.id,
-            "user_id": self.user_id,
-            "name": self.name,
-            "url": self.url,
-            "events": self.events or [],
-            "active": self.active,
-            "verify_ssl": self.verify_ssl,
-            "timeout_seconds": self.timeout_seconds,
-            "max_retries": self.max_retries,
-            "retry_backoff": self.retry_backoff,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-            "last_success": self.last_success.isoformat() if self.last_success else None,
-            "last_failure": self.last_failure.isoformat() if self.last_failure else None,
-            "failure_count": self.failure_count
-        }
-
-
-class WebhookDelivery(Base):
-    """Database model for webhook delivery attempts."""
-    __tablename__ = "webhook_deliveries"
-    
-    id = Column(String, primary_key=True, default=lambda: str(uuid.uuid4()))
-    endpoint_id = Column(String, nullable=False, index=True)
-    event_id = Column(String, nullable=False, index=True)
-    event_type = Column(String, nullable=False)
-    status = Column(String, default=WebhookStatus.PENDING.value)
-    attempt_count = Column(Integer, default=0)
-    response_status = Column(Integer)
-    response_body = Column(Text)
-    error_message = Column(Text)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    delivered_at = Column(DateTime)
-    next_retry = Column(DateTime)
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary."""
-        return {
-            "id": self.id,
-            "endpoint_id": self.endpoint_id,
-            "event_id": self.event_id,
-            "event_type": self.event_type,
-            "status": self.status,
-            "attempt_count": self.attempt_count,
-            "response_status": self.response_status,
-            "response_body": self.response_body,
-            "error_message": self.error_message,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "delivered_at": self.delivered_at.isoformat() if self.delivered_at else None,
-            "next_retry": self.next_retry.isoformat() if self.next_retry else None
-        }
+@dataclass
+class WebhookEndpointConfig:
+    """Webhook endpoint configuration."""
+    url: str
+    secret: str
+    events: List[str]
+    active: bool = True
+    retry_count: int = 3
+    timeout: int = 30
+    headers: Dict[str, str] = None
 
 
 class WebhookManager:
-    """Manages webhook endpoints and event delivery."""
+    """Manages webhook endpoints and deliveries."""
     
-    def __init__(self, db_session: Optional[Session] = None):
-        self.config = get_config()
-        self.db = db_session
-        self.delivery_queue: asyncio.Queue = asyncio.Queue()
-        self.retry_queue: asyncio.Queue = asyncio.Queue()
-        self.running = False
-        self.workers: List[asyncio.Task] = []
+    def __init__(self):
+        self.endpoints: Dict[str, WebhookEndpointConfig] = {}
+        self.event_handlers: Dict[str, List[Callable]] = {}
+        self.delivery_queue = asyncio.Queue()
+        self.retry_queue = asyncio.Queue()
+        self._running = False
         
-        # Event handlers
-        self.event_handlers: Dict[WebhookEventType, List[Callable]] = {}
-    
     async def start(self):
-        """Start the webhook delivery system."""
-        if self.running:
+        """Start webhook delivery workers."""
+        if self._running:
             return
-        
-        self.running = True
+            
+        self._running = True
         
         # Start delivery workers
-        for i in range(3):  # 3 concurrent workers
-            worker = asyncio.create_task(self._delivery_worker(f"worker-{i}"))
-            self.workers.append(worker)
+        asyncio.create_task(self._delivery_worker())
+        asyncio.create_task(self._retry_worker())
         
-        # Start retry worker
-        retry_worker = asyncio.create_task(self._retry_worker())
-        self.workers.append(retry_worker)
+        logger.info("Webhook manager started")
     
     async def stop(self):
-        """Stop the webhook delivery system."""
-        self.running = False
-        
-        # Cancel all workers
-        for worker in self.workers:
-            worker.cancel()
-        
-        # Wait for workers to finish
-        await asyncio.gather(*self.workers, return_exceptions=True)
-        self.workers.clear()
+        """Stop webhook delivery workers."""
+        self._running = False
+        logger.info("Webhook manager stopped")
     
     async def register_endpoint(
         self,
-        user_id: str,
-        name: str,
-        url: str,
-        events: List[str],
-        secret: Optional[str] = None,
-        verify_ssl: bool = True,
-        timeout_seconds: int = 30,
-        max_retries: int = 3
-    ) -> str:
-        """Register a new webhook endpoint."""
-        if not self.db:
-            raise ValueError("Database session required")
-        
-        # Validate events
-        valid_events = [event.value for event in WebhookEventType]
-        invalid_events = [event for event in events if event not in valid_events]
-        if invalid_events:
-            raise ValueError(f"Invalid event types: {invalid_events}")
-        
-        endpoint = WebhookEndpoint(
-            user_id=user_id,
-            name=name,
-            url=url,
-            secret=secret,
-            events=events,
-            verify_ssl=verify_ssl,
-            timeout_seconds=timeout_seconds,
-            max_retries=max_retries
-        )
-        
-        self.db.add(endpoint)
-        self.db.commit()
-        
-        return endpoint.id
-    
-    async def update_endpoint(
-        self,
         endpoint_id: str,
-        user_id: str,
-        **updates
+        config: WebhookEndpointConfig,
+        user_id: str
     ) -> bool:
-        """Update a webhook endpoint."""
-        if not self.db:
+        """Register a new webhook endpoint."""
+        try:
+            # Validate URL
+            parsed_url = urlparse(config.url)
+            if not parsed_url.scheme or not parsed_url.netloc:
+                raise ValueError("Invalid webhook URL")
+            
+            # Validate events
+            valid_events = [e.value for e in WebhookEventType]
+            for event in config.events:
+                if event not in valid_events:
+                    raise ValueError(f"Invalid event type: {event}")
+            
+            # Store endpoint configuration
+            async with get_db_session() as session:
+                endpoint = WebhookEndpoint(
+                    id=endpoint_id,
+                    user_id=user_id,
+                    url=config.url,
+                    secret=config.secret,
+                    events=config.events,
+                    active=config.active,
+                    retry_count=config.retry_count,
+                    timeout=config.timeout,
+                    headers=config.headers or {},
+                    created_at=datetime.utcnow()
+                )
+                
+                session.add(endpoint)
+                await session.commit()
+            
+            # Cache endpoint
+            self.endpoints[endpoint_id] = config
+            
+            logger.info(f"Registered webhook endpoint: {endpoint_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to register webhook endpoint: {e}")
             return False
-        
-        endpoint = self.db.query(WebhookEndpoint).filter(
-            WebhookEndpoint.id == endpoint_id,
-            WebhookEndpoint.user_id == user_id
-        ).first()
-        
-        if not endpoint:
-            return False
-        
-        # Update allowed fields
-        allowed_fields = [
-            'name', 'url', 'secret', 'events', 'active',
-            'verify_ssl', 'timeout_seconds', 'max_retries', 'retry_backoff'
-        ]
-        
-        for field, value in updates.items():
-            if field in allowed_fields:
-                setattr(endpoint, field, value)
-        
-        endpoint.updated_at = datetime.utcnow()
-        self.db.commit()
-        
-        return True
     
-    async def delete_endpoint(self, endpoint_id: str, user_id: str) -> bool:
-        """Delete a webhook endpoint."""
-        if not self.db:
+    async def unregister_endpoint(self, endpoint_id: str) -> bool:
+        """Unregister a webhook endpoint."""
+        try:
+            async with get_db_session() as session:
+                endpoint = await session.get(WebhookEndpoint, endpoint_id)
+                if endpoint:
+                    await session.delete(endpoint)
+                    await session.commit()
+            
+            # Remove from cache
+            self.endpoints.pop(endpoint_id, None)
+            
+            logger.info(f"Unregistered webhook endpoint: {endpoint_id}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to unregister webhook endpoint: {e}")
             return False
-        
-        endpoint = self.db.query(WebhookEndpoint).filter(
-            WebhookEndpoint.id == endpoint_id,
-            WebhookEndpoint.user_id == user_id
-        ).first()
-        
-        if not endpoint:
-            return False
-        
-        self.db.delete(endpoint)
-        self.db.commit()
-        
-        return True
     
-    async def get_endpoints(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get all webhook endpoints for a user."""
-        if not self.db:
+    async def list_endpoints(self, user_id: str) -> List[Dict[str, Any]]:
+        """List webhook endpoints for a user."""
+        try:
+            async with get_db_session() as session:
+                endpoints = await session.execute(
+                    "SELECT * FROM webhook_endpoints WHERE user_id = ?",
+                    (user_id,)
+                )
+                
+                return [
+                    {
+                        "id": endpoint.id,
+                        "url": endpoint.url,
+                        "events": endpoint.events,
+                        "active": endpoint.active,
+                        "created_at": endpoint.created_at.isoformat(),
+                        "last_delivery": endpoint.last_delivery.isoformat() if endpoint.last_delivery else None,
+                        "delivery_count": endpoint.delivery_count,
+                        "failure_count": endpoint.failure_count
+                    }
+                    for endpoint in endpoints
+                ]
+                
+        except Exception as e:
+            logger.error(f"Failed to list webhook endpoints: {e}")
             return []
-        
-        endpoints = self.db.query(WebhookEndpoint).filter(
-            WebhookEndpoint.user_id == user_id
-        ).all()
-        
-        return [endpoint.to_dict() for endpoint in endpoints]
     
-    async def trigger_event(self, event: WebhookEvent):
-        """Trigger a webhook event."""
-        if not self.running:
-            await self.start()
+    async def emit_event(
+        self,
+        event_type: WebhookEventType,
+        data: Dict[str, Any],
+        user_id: Optional[str] = None,
+        metadata: Dict[str, Any] = None
+    ):
+        """Emit a webhook event."""
+        try:
+            payload = WebhookPayload(
+                event_type=event_type.value,
+                event_id=f"evt_{datetime.utcnow().timestamp()}",
+                timestamp=datetime.utcnow(),
+                data=data,
+                metadata=metadata or {}
+            )
+            
+            # Store event
+            async with get_db_session() as session:
+                event = WebhookEvent(
+                    id=payload.event_id,
+                    event_type=payload.event_type,
+                    user_id=user_id,
+                    payload=payload.data,
+                    metadata=payload.metadata,
+                    created_at=payload.timestamp
+                )
+                
+                session.add(event)
+                await session.commit()
+            
+            # Queue for delivery
+            await self.delivery_queue.put((payload, user_id))
+            
+            # Call local event handlers
+            handlers = self.event_handlers.get(event_type.value, [])
+            for handler in handlers:
+                try:
+                    await handler(payload)
+                except Exception as e:
+                    logger.error(f"Event handler failed: {e}")
+            
+            logger.debug(f"Emitted webhook event: {event_type.value}")
+            
+        except Exception as e:
+            logger.error(f"Failed to emit webhook event: {e}")
+    
+    def register_event_handler(
+        self,
+        event_type: WebhookEventType,
+        handler: Callable[[WebhookPayload], None]
+    ):
+        """Register a local event handler."""
+        if event_type.value not in self.event_handlers:
+            self.event_handlers[event_type.value] = []
         
-        # Add to delivery queue
-        await self.delivery_queue.put(event)
-        
-        # Call registered event handlers
-        handlers = self.event_handlers.get(event.event_type, [])
-        for handler in handlers:
+        self.event_handlers[event_type.value].append(handler)
+        logger.info(f"Registered event handler for: {event_type.value}")
+    
+    async def _delivery_worker(self):
+        """Worker to deliver webhook events."""
+        while self._running:
             try:
-                await handler(event)
-            except Exception as e:
-                # Log error but don't fail the webhook delivery
-                print(f"Event handler error: {e}")
-    
-    def register_event_handler(self, event_type: WebhookEventType, handler: Callable):
-        """Register an event handler."""
-        if event_type not in self.event_handlers:
-            self.event_handlers[event_type] = []
-        self.event_handlers[event_type].append(handler)
-    
-    async def _delivery_worker(self, worker_name: str):
-        """Worker for delivering webhook events."""
-        while self.running:
-            try:
-                # Get event from queue with timeout
-                event = await asyncio.wait_for(
+                # Get next event from queue
+                payload, user_id = await asyncio.wait_for(
                     self.delivery_queue.get(),
                     timeout=1.0
                 )
                 
-                await self._deliver_event(event)
+                # Find matching endpoints
+                endpoints = await self._get_matching_endpoints(payload.event_type, user_id)
+                
+                # Deliver to each endpoint
+                for endpoint_id, config in endpoints.items():
+                    await self._deliver_webhook(endpoint_id, config, payload)
                 
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
-                print(f"Delivery worker {worker_name} error: {e}")
+                logger.error(f"Delivery worker error: {e}")
     
-    async def _deliver_event(self, event: WebhookEvent):
-        """Deliver event to all subscribed endpoints."""
-        if not self.db:
-            return
-        
-        # Find endpoints subscribed to this event type
-        endpoints = self.db.query(WebhookEndpoint).filter(
-            WebhookEndpoint.active == True,
-            WebhookEndpoint.events.contains([event.event_type.value])
-        ).all()
-        
-        for endpoint in endpoints:
-            # Create delivery record
-            delivery = WebhookDelivery(
-                endpoint_id=endpoint.id,
-                event_id=event.id,
-                event_type=event.event_type.value
-            )
-            
-            self.db.add(delivery)
-            self.db.commit()
-            
-            # Attempt delivery
-            await self._attempt_delivery(endpoint, event, delivery)
+    async def _retry_worker(self):
+        """Worker to retry failed webhook deliveries."""
+        while self._running:
+            try:
+                # Get next retry from queue
+                delivery_id, attempt = await asyncio.wait_for(
+                    self.retry_queue.get(),
+                    timeout=5.0
+                )
+                
+                # Wait before retry (exponential backoff)
+                wait_time = min(2 ** attempt, 300)  # Max 5 minutes
+                await asyncio.sleep(wait_time)
+                
+                # Retry delivery
+                await self._retry_delivery(delivery_id)
+                
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                logger.error(f"Retry worker error: {e}")
     
-    async def _attempt_delivery(
+    async def _get_matching_endpoints(
         self,
-        endpoint: WebhookEndpoint,
-        event: WebhookEvent,
-        delivery: WebhookDelivery
+        event_type: str,
+        user_id: Optional[str] = None
+    ) -> Dict[str, WebhookEndpointConfig]:
+        """Get endpoints that should receive this event."""
+        matching = {}
+        
+        try:
+            async with get_db_session() as session:
+                query = """
+                    SELECT * FROM webhook_endpoints 
+                    WHERE active = true 
+                    AND ? = ANY(events)
+                """
+                params = [event_type]
+                
+                if user_id:
+                    query += " AND user_id = ?"
+                    params.append(user_id)
+                
+                endpoints = await session.execute(query, params)
+                
+                for endpoint in endpoints:
+                    config = WebhookEndpointConfig(
+                        url=endpoint.url,
+                        secret=endpoint.secret,
+                        events=endpoint.events,
+                        active=endpoint.active,
+                        retry_count=endpoint.retry_count,
+                        timeout=endpoint.timeout,
+                        headers=endpoint.headers
+                    )
+                    matching[endpoint.id] = config
+                    
+        except Exception as e:
+            logger.error(f"Failed to get matching endpoints: {e}")
+        
+        return matching
+    
+    async def _deliver_webhook(
+        self,
+        endpoint_id: str,
+        config: WebhookEndpointConfig,
+        payload: WebhookPayload
     ):
-        """Attempt to deliver event to endpoint."""
-        delivery.attempt_count += 1
-        delivery.status = WebhookStatus.PENDING.value
+        """Deliver webhook to a specific endpoint."""
+        delivery_id = f"del_{datetime.utcnow().timestamp()}"
         
         try:
             # Prepare payload
-            payload = {
-                "event": event.to_dict(),
-                "timestamp": datetime.utcnow().isoformat(),
-                "delivery_id": delivery.id
+            webhook_payload = {
+                "event_type": payload.event_type,
+                "event_id": payload.event_id,
+                "timestamp": payload.timestamp.isoformat(),
+                "data": payload.data,
+                "metadata": payload.metadata
             }
             
-            # Create signature if secret is provided
+            # Create signature
+            signature = self._create_signature(
+                json.dumps(webhook_payload, sort_keys=True),
+                config.secret
+            )
+            
+            # Prepare headers
             headers = {
                 "Content-Type": "application/json",
-                "User-Agent": "ScrollIntel-Webhooks/1.0",
-                "X-ScrollIntel-Event": event.event_type.value,
-                "X-ScrollIntel-Delivery": delivery.id
+                "X-Webhook-Signature": signature,
+                "X-Webhook-Event": payload.event_type,
+                "X-Webhook-ID": payload.event_id,
+                "User-Agent": "ScrollIntel-Webhooks/1.0"
             }
             
-            if endpoint.secret:
-                signature = self._create_signature(
-                    json.dumps(payload, sort_keys=True),
-                    endpoint.secret
+            if config.headers:
+                headers.update(config.headers)
+            
+            # Store delivery attempt
+            async with get_db_session() as session:
+                delivery = WebhookDelivery(
+                    id=delivery_id,
+                    endpoint_id=endpoint_id,
+                    event_id=payload.event_id,
+                    status="pending",
+                    attempt=1,
+                    created_at=datetime.utcnow()
                 )
-                headers["X-ScrollIntel-Signature"] = signature
+                
+                session.add(delivery)
+                await session.commit()
             
             # Make HTTP request
-            timeout = aiohttp.ClientTimeout(total=endpoint.timeout_seconds)
-            connector = aiohttp.TCPConnector(verify_ssl=endpoint.verify_ssl)
-            
-            async with aiohttp.ClientSession(
-                timeout=timeout,
-                connector=connector
-            ) as session:
+            async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=config.timeout)) as session:
                 async with session.post(
-                    endpoint.url,
-                    json=payload,
+                    config.url,
+                    json=webhook_payload,
                     headers=headers
                 ) as response:
-                    delivery.response_status = response.status
-                    delivery.response_body = await response.text()
+                    success = 200 <= response.status < 300
                     
-                    if 200 <= response.status < 300:
-                        # Success
-                        delivery.status = WebhookStatus.DELIVERED.value
-                        delivery.delivered_at = datetime.utcnow()
-                        endpoint.last_success = datetime.utcnow()
-                        endpoint.failure_count = 0
+                    # Update delivery status
+                    await self._update_delivery_status(
+                        delivery_id,
+                        "success" if success else "failed",
+                        response.status,
+                        await response.text() if not success else None
+                    )
+                    
+                    if success:
+                        logger.debug(f"Webhook delivered successfully: {endpoint_id}")
                     else:
-                        # HTTP error
-                        raise aiohttp.ClientResponseError(
-                            request_info=response.request_info,
-                            history=response.history,
-                            status=response.status,
-                            message=f"HTTP {response.status}"
-                        )
+                        logger.warning(f"Webhook delivery failed: {endpoint_id}, status: {response.status}")
+                        
+                        # Queue for retry if not too many attempts
+                        if delivery.attempt < config.retry_count:
+                            await self.retry_queue.put((delivery_id, delivery.attempt))
         
         except Exception as e:
-            # Delivery failed
-            delivery.status = WebhookStatus.FAILED.value
-            delivery.error_message = str(e)
-            endpoint.last_failure = datetime.utcnow()
-            endpoint.failure_count += 1
+            logger.error(f"Webhook delivery error: {e}")
             
-            # Schedule retry if attempts remaining
-            if delivery.attempt_count < endpoint.max_retries:
-                delivery.status = WebhookStatus.RETRYING.value
-                retry_delay = endpoint.retry_backoff * (2 ** (delivery.attempt_count - 1))
-                delivery.next_retry = datetime.utcnow() + timedelta(seconds=retry_delay)
+            # Update delivery status
+            await self._update_delivery_status(
+                delivery_id,
+                "failed",
+                0,
+                str(e)
+            )
+            
+            # Queue for retry
+            await self.retry_queue.put((delivery_id, 1))
+    
+    async def _retry_delivery(self, delivery_id: str):
+        """Retry a failed webhook delivery."""
+        try:
+            async with get_db_session() as session:
+                delivery = await session.get(WebhookDelivery, delivery_id)
+                if not delivery or delivery.status == "success":
+                    return
                 
-                # Add to retry queue
-                await self.retry_queue.put((endpoint, event, delivery))
-            
-            # Disable endpoint if too many failures
-            if endpoint.failure_count >= 10:
-                endpoint.active = False
-        
-        finally:
-            self.db.commit()
+                # Get endpoint and event
+                endpoint = await session.get(WebhookEndpoint, delivery.endpoint_id)
+                event = await session.get(WebhookEvent, delivery.event_id)
+                
+                if not endpoint or not event:
+                    return
+                
+                # Recreate payload
+                payload = WebhookPayload(
+                    event_type=event.event_type,
+                    event_id=event.id,
+                    timestamp=event.created_at,
+                    data=event.payload,
+                    metadata=event.metadata
+                )
+                
+                # Create config
+                config = WebhookEndpointConfig(
+                    url=endpoint.url,
+                    secret=endpoint.secret,
+                    events=endpoint.events,
+                    retry_count=endpoint.retry_count,
+                    timeout=endpoint.timeout,
+                    headers=endpoint.headers
+                )
+                
+                # Update attempt count
+                delivery.attempt += 1
+                await session.commit()
+                
+                # Retry delivery
+                await self._deliver_webhook(endpoint.id, config, payload)
+                
+        except Exception as e:
+            logger.error(f"Retry delivery error: {e}")
+    
+    async def _update_delivery_status(
+        self,
+        delivery_id: str,
+        status: str,
+        response_code: int,
+        response_body: Optional[str] = None
+    ):
+        """Update webhook delivery status."""
+        try:
+            async with get_db_session() as session:
+                delivery = await session.get(WebhookDelivery, delivery_id)
+                if delivery:
+                    delivery.status = status
+                    delivery.response_code = response_code
+                    delivery.response_body = response_body
+                    delivery.delivered_at = datetime.utcnow()
+                    
+                    await session.commit()
+                    
+        except Exception as e:
+            logger.error(f"Failed to update delivery status: {e}")
     
     def _create_signature(self, payload: str, secret: str) -> str:
         """Create HMAC signature for webhook payload."""
@@ -446,145 +486,51 @@ class WebhookManager:
             payload.encode('utf-8'),
             hashlib.sha256
         ).hexdigest()
+        
         return f"sha256={signature}"
     
-    async def _retry_worker(self):
-        """Worker for retrying failed webhook deliveries."""
-        while self.running:
-            try:
-                # Get retry item from queue with timeout
-                endpoint, event, delivery = await asyncio.wait_for(
-                    self.retry_queue.get(),
-                    timeout=5.0
-                )
-                
-                # Check if it's time to retry
-                if delivery.next_retry and datetime.utcnow() >= delivery.next_retry:
-                    await self._attempt_delivery(endpoint, event, delivery)
-                else:
-                    # Put back in queue for later
-                    await self.retry_queue.put((endpoint, event, delivery))
-                    await asyncio.sleep(1)
-                
-            except asyncio.TimeoutError:
-                continue
-            except Exception as e:
-                print(f"Retry worker error: {e}")
-    
-    async def get_delivery_status(
+    async def verify_signature(
         self,
-        endpoint_id: str,
-        user_id: str,
-        limit: int = 50
-    ) -> List[Dict[str, Any]]:
-        """Get delivery status for an endpoint."""
-        if not self.db:
-            return []
-        
-        # Verify endpoint ownership
-        endpoint = self.db.query(WebhookEndpoint).filter(
-            WebhookEndpoint.id == endpoint_id,
-            WebhookEndpoint.user_id == user_id
-        ).first()
-        
-        if not endpoint:
-            return []
-        
-        deliveries = self.db.query(WebhookDelivery).filter(
-            WebhookDelivery.endpoint_id == endpoint_id
-        ).order_by(
-            WebhookDelivery.created_at.desc()
-        ).limit(limit).all()
-        
-        return [delivery.to_dict() for delivery in deliveries]
+        payload: str,
+        signature: str,
+        secret: str
+    ) -> bool:
+        """Verify webhook signature."""
+        try:
+            expected_signature = self._create_signature(payload, secret)
+            return hmac.compare_digest(signature, expected_signature)
+        except Exception:
+            return False
     
-    async def test_endpoint(self, endpoint_id: str, user_id: str) -> Dict[str, Any]:
-        """Test a webhook endpoint with a test event."""
-        if not self.db:
-            return {"success": False, "error": "Database not available"}
-        
-        endpoint = self.db.query(WebhookEndpoint).filter(
-            WebhookEndpoint.id == endpoint_id,
-            WebhookEndpoint.user_id == user_id
-        ).first()
-        
-        if not endpoint:
-            return {"success": False, "error": "Endpoint not found"}
-        
-        # Create test event
-        test_event = WebhookEvent(
-            id=f"test_{int(time.time())}",
-            event_type=WebhookEventType.PROMPT_CREATED,
-            resource_type="prompt",
-            resource_id="test-prompt-id",
-            action="test",
-            timestamp=datetime.utcnow(),
-            user_id=user_id,
-            data={"test": True, "message": "This is a test webhook"}
-        )
-        
-        # Create delivery record
-        delivery = WebhookDelivery(
-            endpoint_id=endpoint.id,
-            event_id=test_event.id,
-            event_type=test_event.event_type.value
-        )
-        
-        self.db.add(delivery)
-        self.db.commit()
-        
-        # Attempt delivery
-        await self._attempt_delivery(endpoint, test_event, delivery)
-        
-        return {
-            "success": delivery.status == WebhookStatus.DELIVERED.value,
-            "status": delivery.status,
-            "response_status": delivery.response_status,
-            "error_message": delivery.error_message,
-            "delivery_id": delivery.id
-        }
+    async def get_delivery_stats(self, endpoint_id: str) -> Dict[str, Any]:
+        """Get delivery statistics for an endpoint."""
+        try:
+            async with get_db_session() as session:
+                stats = await session.execute("""
+                    SELECT 
+                        COUNT(*) as total_deliveries,
+                        COUNT(CASE WHEN status = 'success' THEN 1 END) as successful_deliveries,
+                        COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_deliveries,
+                        AVG(CASE WHEN status = 'success' THEN response_code END) as avg_response_time
+                    FROM webhook_deliveries 
+                    WHERE endpoint_id = ?
+                    AND created_at > ?
+                """, (endpoint_id, datetime.utcnow() - timedelta(days=30)))
+                
+                result = stats.fetchone()
+                
+                return {
+                    "total_deliveries": result.total_deliveries or 0,
+                    "successful_deliveries": result.successful_deliveries or 0,
+                    "failed_deliveries": result.failed_deliveries or 0,
+                    "success_rate": (result.successful_deliveries / result.total_deliveries * 100) if result.total_deliveries else 0,
+                    "avg_response_time": result.avg_response_time or 0
+                }
+                
+        except Exception as e:
+            logger.error(f"Failed to get delivery stats: {e}")
+            return {}
 
 
 # Global webhook manager instance
 webhook_manager = WebhookManager()
-
-
-# Convenience functions
-async def trigger_webhook_event(
-    event_type: WebhookEventType,
-    resource_type: str,
-    resource_id: str,
-    action: str,
-    user_id: Optional[str] = None,
-    data: Optional[Dict[str, Any]] = None
-):
-    """Trigger a webhook event."""
-    event = WebhookEvent(
-        id=f"event_{int(time.time() * 1000000)}",
-        event_type=event_type,
-        resource_type=resource_type,
-        resource_id=resource_id,
-        action=action,
-        timestamp=datetime.utcnow(),
-        user_id=user_id,
-        data=data or {}
-    )
-    
-    await webhook_manager.trigger_event(event)
-
-
-async def register_webhook_endpoint(
-    user_id: str,
-    name: str,
-    url: str,
-    events: List[str],
-    secret: Optional[str] = None
-) -> str:
-    """Register a webhook endpoint."""
-    return await webhook_manager.register_endpoint(
-        user_id=user_id,
-        name=name,
-        url=url,
-        events=events,
-        secret=secret
-    )

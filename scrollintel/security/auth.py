@@ -75,10 +75,9 @@ class AuthenticationManager:
     def authenticate_user(self, username: str, password: str) -> Optional[Dict[str, Any]]:
         """Authenticate user (placeholder - implement with your user store)"""
         # TODO: Implement actual user authentication
-        # This is a placeholder implementation
-        if username == "admin" and password == "admin":
-            return {"username": username, "user_id": 1, "role": "admin"}
-        return None
+        # This is a placeholder implementation - DO NOT USE IN PRODUCTION
+        # Use proper password hashing and database lookup
+        return None  # Disabled for security
     
     def create_access_token_for_user(self, user_data: Dict[str, Any]) -> str:
         """Create access token for authenticated user"""

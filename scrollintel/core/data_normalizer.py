@@ -80,6 +80,7 @@ class NormalizationResult:
 class DataNormalizer:
     """
     Advanced data normalizer with schema mapping and transformation capabilities
+    Enhanced with automated schema discovery and intelligent mapping suggestions
     """
     
     def __init__(self, config: Optional[Dict[str, Any]] = None):
@@ -87,6 +88,15 @@ class DataNormalizer:
         self.schemas: Dict[str, DataSchema] = {}
         self.mappings: Dict[str, List[SchemaMapping]] = {}
         self.transformation_functions = self._initialize_transformations()
+        self.schema_registry = {}
+        self.mapping_suggestions = {}
+        self.transformation_cache = {}
+        self.validation_rules: Dict[str, List[callable]] = {}
+        self.quality_thresholds = self.config.get("quality_thresholds", {
+            "completeness": 0.95,
+            "validity": 0.98,
+            "consistency": 0.99
+        })
         
     def register_schema(self, schema: DataSchema) -> bool:
         """Register a data schema for normalization"""
@@ -398,3 +408,363 @@ class DataNormalizer:
             ],
             "metadata": schema.metadata
         }
+    
+    def auto_discover_schema(self, data: pd.DataFrame, schema_name: str) -> DataSchema:
+        """Automatically discover schema from data"""
+        try:
+            fields = []
+            
+            for column in data.columns:
+                # Infer data type
+                dtype = data[column].dtype
+                if pd.api.types.is_integer_dtype(dtype):
+                    data_type = DataType.INTEGER
+                elif pd.api.types.is_float_dtype(dtype):
+                    data_type = DataType.FLOAT
+                elif pd.api.types.is_bool_dtype(dtype):
+                    data_type = DataType.BOOLEAN
+                elif pd.api.types.is_datetime64_any_dtype(dtype):
+                    data_type = DataType.DATETIME
+                else:
+                    data_type = DataType.STRING
+                
+                # Check if field is required (has non-null values)
+                required = data[column].notna().all()
+                
+                # Get default value if not required
+                default_value = None
+                if not required:
+                    mode_values = data[column].mode()
+                    if not mode_values.empty:
+                        default_value = mode_values.iloc[0]
+                
+                field = SchemaField(
+                    name=column,
+                    data_type=data_type,
+                    required=required,
+                    default_value=default_value,
+                    description=f"Auto-discovered field from {schema_name}"
+                )
+                fields.append(field)
+            
+            schema = DataSchema(
+                name=schema_name,
+                version="1.0",
+                fields=fields,
+                metadata={
+                    "auto_discovered": True,
+                    "discovery_timestamp": datetime.utcnow().isoformat(),
+                    "source_records": len(data)
+                }
+            )
+            
+            return schema
+            
+        except Exception as e:
+            logger.error(f"Schema auto-discovery failed: {str(e)}")
+            raise
+    
+    def suggest_field_mappings(self, source_schema: str, target_schema: str) -> List[Dict[str, Any]]:
+        """Suggest field mappings between schemas using similarity analysis"""
+        try:
+            source_schema_obj = self.schemas.get(source_schema)
+            target_schema_obj = self.schemas.get(target_schema)
+            
+            if not source_schema_obj or not target_schema_obj:
+                return []
+            
+            suggestions = []
+            
+            for target_field in target_schema_obj.fields:
+                best_matches = []
+                
+                for source_field in source_schema_obj.fields:
+                    # Calculate similarity score
+                    name_similarity = self._calculate_name_similarity(
+                        source_field.name, target_field.name
+                    )
+                    type_compatibility = self._check_type_compatibility(
+                        source_field.data_type, target_field.data_type
+                    )
+                    
+                    overall_score = (name_similarity * 0.7) + (type_compatibility * 0.3)
+                    
+                    if overall_score > 0.3:  # Threshold for suggestions
+                        best_matches.append({
+                            "source_field": source_field.name,
+                            "target_field": target_field.name,
+                            "similarity_score": overall_score,
+                            "name_similarity": name_similarity,
+                            "type_compatibility": type_compatibility,
+                            "suggested_transformation": self._suggest_transformation(
+                                source_field, target_field
+                            )
+                        })
+                
+                # Sort by similarity score
+                best_matches.sort(key=lambda x: x["similarity_score"], reverse=True)
+                suggestions.extend(best_matches[:3])  # Top 3 suggestions per target field
+            
+            return suggestions
+            
+        except Exception as e:
+            logger.error(f"Failed to suggest mappings: {str(e)}")
+            return []
+    
+    def _calculate_name_similarity(self, name1: str, name2: str) -> float:
+        """Calculate similarity between field names"""
+        try:
+            # Simple similarity based on common substrings and edit distance
+            name1_lower = name1.lower().replace("_", "").replace("-", "")
+            name2_lower = name2.lower().replace("_", "").replace("-", "")
+            
+            if name1_lower == name2_lower:
+                return 1.0
+            
+            # Check for substring matches
+            if name1_lower in name2_lower or name2_lower in name1_lower:
+                return 0.8
+            
+            # Simple edit distance approximation
+            common_chars = set(name1_lower) & set(name2_lower)
+            total_chars = set(name1_lower) | set(name2_lower)
+            
+            if total_chars:
+                return len(common_chars) / len(total_chars)
+            
+            return 0.0
+            
+        except Exception:
+            return 0.0
+    
+    def _check_type_compatibility(self, source_type: DataType, target_type: DataType) -> float:
+        """Check compatibility between data types"""
+        if source_type == target_type:
+            return 1.0
+        
+        # Define compatibility matrix
+        compatibility_matrix = {
+            (DataType.INTEGER, DataType.FLOAT): 0.9,
+            (DataType.INTEGER, DataType.STRING): 0.7,
+            (DataType.FLOAT, DataType.STRING): 0.7,
+            (DataType.BOOLEAN, DataType.STRING): 0.6,
+            (DataType.DATETIME, DataType.STRING): 0.8,
+        }
+        
+        # Check both directions
+        score = compatibility_matrix.get((source_type, target_type), 0.0)
+        if score == 0.0:
+            score = compatibility_matrix.get((target_type, source_type), 0.0)
+        
+        return score
+    
+    def _suggest_transformation(self, source_field: SchemaField, target_field: SchemaField) -> Dict[str, Any]:
+        """Suggest appropriate transformation for field mapping"""
+        if source_field.data_type == target_field.data_type:
+            return {
+                "type": TransformationType.DIRECT_MAPPING.value,
+                "confidence": 0.9
+            }
+        
+        # Type conversion suggestions
+        if (source_field.data_type == DataType.INTEGER and 
+            target_field.data_type == DataType.FLOAT):
+            return {
+                "type": TransformationType.CALCULATION.value,
+                "formula": f"float({source_field.name})",
+                "confidence": 0.8
+            }
+        
+        if target_field.data_type == DataType.STRING:
+            return {
+                "type": TransformationType.CALCULATION.value,
+                "formula": f"str({source_field.name})",
+                "confidence": 0.7
+            }
+        
+        return {
+            "type": TransformationType.DIRECT_MAPPING.value,
+            "confidence": 0.5
+        }
+    
+    def register_validation_rule(self, field_name: str, validation_func: callable) -> bool:
+        """Register a custom validation rule for a field"""
+        try:
+            if field_name not in self.validation_rules:
+                self.validation_rules[field_name] = []
+            
+            self.validation_rules[field_name].append(validation_func)
+            logger.info(f"Registered validation rule for field: {field_name}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to register validation rule for {field_name}: {str(e)}")
+            return False
+    
+    def validate_normalized_data(self, data: pd.DataFrame, schema_name: str) -> Dict[str, Any]:
+        """Validate normalized data against schema and custom rules"""
+        try:
+            schema = self.schemas.get(schema_name)
+            if not schema:
+                return {"error": f"Schema {schema_name} not found"}
+            
+            validation_results = {
+                "valid": True,
+                "errors": [],
+                "warnings": [],
+                "quality_metrics": {}
+            }
+            
+            # Schema validation
+            for field in schema.fields:
+                if field.name not in data.columns:
+                    if field.required:
+                        validation_results["errors"].append(f"Required field {field.name} missing")
+                        validation_results["valid"] = False
+                    else:
+                        validation_results["warnings"].append(f"Optional field {field.name} missing")
+                    continue
+                
+                # Data type validation
+                column_data = data[field.name]
+                
+                # Completeness check
+                completeness = column_data.notna().sum() / len(data) if len(data) > 0 else 1.0
+                if completeness < self.quality_thresholds.get("completeness", 0.95):
+                    validation_results["warnings"].append(
+                        f"Field {field.name} completeness ({completeness:.2%}) below threshold"
+                    )
+                
+                # Custom validation rules
+                if field.name in self.validation_rules:
+                    for rule in self.validation_rules[field.name]:
+                        try:
+                            rule_result = rule(column_data)
+                            if not rule_result.get("valid", True):
+                                validation_results["errors"].append(
+                                    f"Validation failed for {field.name}: {rule_result.get('message', 'Unknown error')}"
+                                )
+                                validation_results["valid"] = False
+                        except Exception as e:
+                            validation_results["warnings"].append(
+                                f"Validation rule error for {field.name}: {str(e)}"
+                            )
+                
+                # Calculate quality metrics
+                validation_results["quality_metrics"][field.name] = {
+                    "completeness": completeness,
+                    "null_count": column_data.isna().sum(),
+                    "unique_count": column_data.nunique(),
+                    "data_type": str(column_data.dtype)
+                }
+            
+            return validation_results
+            
+        except Exception as e:
+            logger.error(f"Data validation failed: {str(e)}")
+            return {"error": str(e)}
+    
+    def create_data_quality_profile(self, data: pd.DataFrame, dataset_name: str) -> Dict[str, Any]:
+        """Create comprehensive data quality profile"""
+        try:
+            profile = {
+                "dataset_name": dataset_name,
+                "profiling_timestamp": datetime.utcnow().isoformat(),
+                "basic_statistics": {
+                    "row_count": len(data),
+                    "column_count": len(data.columns),
+                    "memory_usage": data.memory_usage(deep=True).sum(),
+                    "duplicate_rows": data.duplicated().sum()
+                },
+                "column_profiles": {},
+                "data_quality_score": 0.0,
+                "recommendations": []
+            }
+            
+            total_quality_score = 0
+            
+            for column in data.columns:
+                column_data = data[column]
+                
+                # Basic statistics
+                column_profile = {
+                    "data_type": str(column_data.dtype),
+                    "null_count": column_data.isna().sum(),
+                    "null_percentage": column_data.isna().sum() / len(data) * 100,
+                    "unique_count": column_data.nunique(),
+                    "unique_percentage": column_data.nunique() / len(data) * 100 if len(data) > 0 else 0
+                }
+                
+                # Type-specific statistics
+                if pd.api.types.is_numeric_dtype(column_data):
+                    column_profile.update({
+                        "min": column_data.min(),
+                        "max": column_data.max(),
+                        "mean": column_data.mean(),
+                        "median": column_data.median(),
+                        "std": column_data.std(),
+                        "zeros_count": (column_data == 0).sum(),
+                        "negative_count": (column_data < 0).sum()
+                    })
+                elif pd.api.types.is_string_dtype(column_data) or column_data.dtype == 'object':
+                    non_null_data = column_data.dropna()
+                    if not non_null_data.empty:
+                        column_profile.update({
+                            "min_length": non_null_data.astype(str).str.len().min(),
+                            "max_length": non_null_data.astype(str).str.len().max(),
+                            "avg_length": non_null_data.astype(str).str.len().mean(),
+                            "empty_strings": (non_null_data.astype(str) == "").sum(),
+                            "whitespace_only": non_null_data.astype(str).str.strip().eq("").sum()
+                        })
+                
+                # Quality score for this column
+                completeness_score = (1 - column_profile["null_percentage"] / 100) * 100
+                uniqueness_score = min(100, column_profile["unique_percentage"])
+                
+                column_quality_score = (completeness_score + uniqueness_score) / 2
+                column_profile["quality_score"] = column_quality_score
+                
+                total_quality_score += column_quality_score
+                
+                profile["column_profiles"][column] = column_profile
+            
+            # Overall quality score
+            profile["data_quality_score"] = total_quality_score / len(data.columns) if data.columns.size > 0 else 0
+            
+            # Generate recommendations
+            profile["recommendations"] = self._generate_quality_recommendations(profile)
+            
+            return profile
+            
+        except Exception as e:
+            logger.error(f"Failed to create data quality profile: {str(e)}")
+            return {"error": str(e)}
+    
+    def _generate_quality_recommendations(self, profile: Dict[str, Any]) -> List[str]:
+        """Generate data quality improvement recommendations"""
+        recommendations = []
+        
+        try:
+            # Overall recommendations
+            if profile["data_quality_score"] < 70:
+                recommendations.append("Overall data quality is poor. Consider comprehensive data cleansing.")
+            
+            # Duplicate rows
+            if profile["basic_statistics"]["duplicate_rows"] > 0:
+                recommendations.append(f"Remove {profile['basic_statistics']['duplicate_rows']} duplicate rows.")
+            
+            # Column-specific recommendations
+            for column, column_profile in profile["column_profiles"].items():
+                if column_profile["null_percentage"] > 20:
+                    recommendations.append(f"Column '{column}' has high null percentage ({column_profile['null_percentage']:.1f}%). Consider imputation or removal.")
+                
+                if column_profile["unique_count"] == 1:
+                    recommendations.append(f"Column '{column}' has only one unique value. Consider removing if not needed.")
+                
+                if column_profile.get("empty_strings", 0) > 0:
+                    recommendations.append(f"Column '{column}' contains empty strings. Consider standardizing null representation.")
+            
+            return recommendations
+            
+        except Exception as e:
+            logger.error(f"Failed to generate recommendations: {str(e)}")
+            return ["Error generating recommendations"]

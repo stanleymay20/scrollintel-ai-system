@@ -1,0 +1,232 @@
+version: '3.8'
+
+services:
+  # Reverse Proxy & Load Balancer
+  traefik:
+    image: traefik:v3.0
+    container_name: scrollintel-traefik
+    restart: unless-stopped
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.tlschallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.email=admin@scrollintel.com"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      - "--certificatesresolvers.letsencrypt.acme.caserver=https://acme-v02.api.letsencrypt.org/directory"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8080:8080"  # Traefik dashboard
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./letsencrypt:/letsencrypt
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.scrollintel.com`)"
+      - "traefik.http.routers.traefik.tls=true"
+      - "traefik.http.routers.traefik.tls.certresolver=letsencrypt"
+      - "traefik.http.services.traefik.loadbalancer.server.port=8080"
+    networks:
+      - scrollintel-network
+
+  # Frontend Application
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: production
+    container_name: scrollintel-frontend
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - NEXT_PUBLIC_API_URL=https://api.scrollintel.com
+      - NEXT_PUBLIC_APP_URL=https://app.scrollintel.com
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`scrollintel.com`, `www.scrollintel.com`, `app.scrollintel.com`)"
+      - "traefik.http.routers.frontend.tls=true"
+      - "traefik.http.routers.frontend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.frontend.loadbalancer.server.port=3000"
+      # Redirect www to non-www
+      - "traefik.http.middlewares.www-redirect.redirectregex.regex=^https://www\.scrollintel.com/(.*)"
+      - "traefik.http.middlewares.www-redirect.redirectregex.replacement=https://scrollintel.com/${1}"
+      - "traefik.http.routers.frontend.middlewares=www-redirect"
+    networks:
+      - scrollintel-network
+    depends_on:
+      - backend
+
+  # Backend API (Multiple instances for load balancing)
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: scrollintel-backend
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://scrollintel:secure_password@db:5432/scrollintel_prod
+      - REDIS_URL=redis://redis:6379/0
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`api.scrollintel.com`)"
+      - "traefik.http.routers.backend.tls=true"
+      - "traefik.http.routers.backend.tls.certresolver=letsencrypt"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
+      # Rate limiting
+      - "traefik.http.middlewares.api-ratelimit.ratelimit.burst=100"
+      - "traefik.http.middlewares.api-ratelimit.ratelimit.average=50"
+      - "traefik.http.routers.backend.middlewares=api-ratelimit"
+    networks:
+      - scrollintel-network
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+
+  # Backend Replica for Load Balancing
+  backend-replica:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: scrollintel-backend-replica
+    restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      - ENVIRONMENT=production
+      - DATABASE_URL=postgresql://scrollintel:secure_password@db:5432/scrollintel_prod
+      - REDIS_URL=redis://redis:6379/0
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.services.backend.loadbalancer.server.port=8000"
+    networks:
+      - scrollintel-network
+    depends_on:
+      - db
+      - redis
+    volumes:
+      - ./uploads:/app/uploads
+      - ./logs:/app/logs
+
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: scrollintel-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: scrollintel_prod
+      POSTGRES_USER: scrollintel
+      POSTGRES_PASSWORD: secure_password
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
+    networks:
+      - scrollintel-network
+    ports:
+      - "127.0.0.1:5432:5432"  # Only accessible locally
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: scrollintel-redis
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    volumes:
+      - redis_data:/data
+    networks:
+      - scrollintel-network
+    ports:
+      - "127.0.0.1:6379:6379"  # Only accessible locally
+
+  # Monitoring Stack
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: scrollintel-prometheus
+    restart: unless-stopped
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    networks:
+      - scrollintel-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.prometheus.rule=Host(`prometheus.scrollintel.com`)"
+      - "traefik.http.routers.prometheus.tls=true"
+      - "traefik.http.routers.prometheus.tls.certresolver=letsencrypt"
+      - "traefik.http.services.prometheus.loadbalancer.server.port=9090"
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: scrollintel-grafana
+    restart: unless-stopped
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_SERVER_DOMAIN=grafana.scrollintel.com
+      - GF_SERVER_ROOT_URL=https://grafana.scrollintel.com
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana-dashboard-scrollintel-mvp.json:/etc/grafana/provisioning/dashboards/scrollintel.json
+    networks:
+      - scrollintel-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.grafana.rule=Host(`grafana.scrollintel.com`)"
+      - "traefik.http.routers.grafana.tls=true"
+      - "traefik.http.routers.grafana.tls.certresolver=letsencrypt"
+      - "traefik.http.services.grafana.loadbalancer.server.port=3000"
+
+  # Log Aggregation
+  loki:
+    image: grafana/loki:latest
+    container_name: scrollintel-loki
+    restart: unless-stopped
+    volumes:
+      - loki_data:/loki
+    networks:
+      - scrollintel-network
+    command: -config.file=/etc/loki/local-config.yaml
+
+  # Backup Service
+  backup:
+    image: postgres:15-alpine
+    container_name: scrollintel-backup
+    restart: "no"
+    environment:
+      PGPASSWORD: secure_password
+    volumes:
+      - ./backups:/backups
+      - ./scripts/backup.sh:/backup.sh
+    networks:
+      - scrollintel-network
+    depends_on:
+      - db
+    entrypoint: ["/bin/sh", "/backup.sh"]
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+  loki_data:
+
+networks:
+  scrollintel-network:
+    driver: bridge

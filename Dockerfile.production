@@ -1,0 +1,42 @@
+# ================================
+# ScrollIntel Production Dockerfile
+# Optimized for stability and performance
+# ================================
+
+FROM python:3.11-slim as base
+
+# Set environment variables for stability
+ENV PYTHONUNBUFFERED=1     PYTHONDONTWRITEBYTECODE=1     PIP_NO_CACHE_DIR=1     PIP_DISABLE_PIP_VERSION_CHECK=1     MPLCONFIGDIR=/tmp/matplotlib     TF_CPP_MIN_LOG_LEVEL=2     TF_ENABLE_ONEDNN_OPTS=0
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y     gcc     g++     libpq-dev     curl     && rm -rf /var/lib/apt/lists/*     && mkdir -p /tmp/matplotlib     && chmod 777 /tmp/matplotlib
+
+# Create app user with proper permissions
+RUN groupadd -r scrollintel && useradd -r -g scrollintel scrollintel     && mkdir -p /home/scrollintel/.config     && chown -R scrollintel:scrollintel /home/scrollintel
+
+# Set work directory
+WORKDIR /app
+
+# Copy requirements first for better caching
+COPY requirements_docker.txt .
+
+# Install Python dependencies with error handling
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel &&     pip install --no-cache-dir tf-keras>=2.15.0 &&     pip install --no-cache-dir -r requirements_docker.txt
+
+# Copy application code
+COPY . .
+
+# Create necessary directories with proper permissions
+RUN mkdir -p /app/logs /app/models /app/uploads /app/tmp     && chown -R scrollintel:scrollintel /app     && chmod -R 755 /app
+
+# Switch to app user
+USER scrollintel
+
+# Expose port
+EXPOSE 8000
+
+# Health check with better error handling
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3     CMD curl -f http://localhost:8000/health || exit 1
+
+# Production command with single worker for stability
+CMD ["uvicorn", "scrollintel.api.simple_main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--timeout-keep-alive", "30"]

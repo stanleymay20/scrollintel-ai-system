@@ -1,575 +1,521 @@
 """
-API Routes for Audit and Compliance System
-
-This module provides REST API endpoints for audit logging, compliance checking,
-access control, and change approval workflows.
+API routes for audit and compliance system.
 """
-
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
-from fastapi import APIRouter, HTTPException, Depends, Query, Body
-from fastapi.security import HTTPBearer
-from pydantic import BaseModel, Field
+from typing import Optional, List, Dict, Any
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
-from ...core.audit_logger import audit_logger, AuditAction
-from ...core.compliance_manager import compliance_manager
-from ...core.access_control import access_control_manager, Permission
-from ...core.change_approval import change_approval_manager
-from ...models.audit_models import (
-    AuditLogResponse, ComplianceCheckResponse, ComplianceReportResponse,
-    AccessControlResponse, ChangeApprovalResponse, RiskLevel, ApprovalStatus,
-    ComplianceStatus
+from scrollintel.models.audit_models import (
+    AuditLogResponse, ComplianceRuleCreate, ComplianceRuleResponse,
+    ComplianceViolationResponse, AccessControlCreate, ChangeApprovalCreate,
+    ChangeApprovalResponse, ComplianceReport, AuditAction
 )
-from ...security.auth import get_current_user
+from scrollintel.core.audit_logger import AuditLogger
+from scrollintel.core.compliance_manager import ComplianceManager
+from scrollintel.core.access_control import AccessControlManager
+from scrollintel.core.change_approval import ChangeApprovalManager
+from scrollintel.models.database import get_db
 
 
-router = APIRouter(prefix="/api/v1/audit-compliance", tags=["audit-compliance"])
-security = HTTPBearer()
+router = APIRouter(prefix="/audit-compliance", tags=["audit", "compliance"])
 
 
-# Request/Response Models
-class AuditLogRequest(BaseModel):
+# Request/Response models
+class ComplianceCheckRequest(BaseModel):
+    resource_type: str
+    resource_data: Dict[str, Any]
     action: str
+    user_context: Dict[str, Any]
+
+
+class ComplianceCheckResponse(BaseModel):
+    compliant: bool
+    violations: List[Dict[str, Any]]
+    actions_required: List[str]
+    risk_level: str
+
+
+class PermissionCheckRequest(BaseModel):
+    user_id: str
     resource_type: str
     resource_id: str
-    resource_name: Optional[str] = None
-    old_values: Optional[Dict[str, Any]] = None
-    new_values: Optional[Dict[str, Any]] = None
-    changes_summary: Optional[str] = None
-    context: Optional[Dict[str, Any]] = None
-    metadata: Optional[Dict[str, Any]] = None
-    risk_level: RiskLevel = RiskLevel.LOW
-
-
-class ComplianceCheckRequest(BaseModel):
-    audit_log_ids: List[str]
-    rules: Optional[List[str]] = None
-
-
-class AccessControlRequest(BaseModel):
-    user_id: str
-    user_email: str
-    role: str
-    custom_permissions: Optional[List[str]] = None
-    resource_restrictions: Optional[Dict[str, Any]] = None
-    expires_at: Optional[datetime] = None
-
-
-class ChangeApprovalRequest(BaseModel):
-    prompt_id: str
-    change_type: str
-    change_description: str
-    change_justification: str
-    proposed_changes: Dict[str, Any]
+    permission: str
+    user_roles: Optional[List[str]] = None
+    user_teams: Optional[List[str]] = None
     context: Optional[Dict[str, Any]] = None
 
 
-class ApprovalDecisionRequest(BaseModel):
-    decision: str = Field(..., regex="^(approve|reject)$")
-    comments: Optional[str] = None
+class PermissionCheckResponse(BaseModel):
+    allowed: bool
+    reason: Optional[str] = None
+    access_control_id: Optional[str] = None
+    granted_by: Optional[str] = None
+    permissions: Optional[List[str]] = None
 
 
-class ComplianceReportRequest(BaseModel):
-    report_type: str = Field(..., regex="^(audit_summary|violations|compliance_status)$")
-    report_name: str
-    start_date: datetime
-    end_date: datetime
-    filters: Optional[Dict[str, Any]] = None
-    file_format: str = Field(default="json", regex="^(json|csv)$")
-
-
-# Audit Logging Endpoints
-@router.post("/audit-logs", response_model=Dict[str, str])
-async def create_audit_log(
-    request: AuditLogRequest,
-    current_user: Dict = Depends(get_current_user)
-):
-    """Create a new audit log entry"""
-    try:
-        audit_id = audit_logger.log_action(
-            user_id=current_user["user_id"],
-            user_email=current_user["email"],
-            action=AuditAction(request.action),
-            resource_type=request.resource_type,
-            resource_id=request.resource_id,
-            resource_name=request.resource_name,
-            old_values=request.old_values,
-            new_values=request.new_values,
-            changes_summary=request.changes_summary,
-            context=request.context,
-            metadata=request.metadata,
-            risk_level=request.risk_level
-        )
-        
-        return {"audit_id": audit_id}
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
+# Audit Log Routes
 @router.get("/audit-logs", response_model=List[AuditLogResponse])
 async def get_audit_logs(
-    resource_id: Optional[str] = Query(None),
     resource_type: Optional[str] = Query(None),
+    resource_id: Optional[str] = Query(None),
     user_id: Optional[str] = Query(None),
     action: Optional[str] = Query(None),
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     limit: int = Query(100, le=1000),
     offset: int = Query(0, ge=0),
-    current_user: Dict = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
-    """Get audit logs with filtering options"""
-    # Check permission
-    if not access_control_manager.check_permission(
-        current_user["user_id"], Permission.ADMIN_AUDIT_READ
-    ):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    """Get audit logs with filters."""
     
-    try:
-        audit_action_enum = AuditAction(action) if action else None
-        
-        audit_logs = audit_logger.get_audit_trail(
-            resource_id=resource_id,
-            resource_type=resource_type,
-            user_id=user_id,
-            action=audit_action_enum,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            offset=offset
-        )
-        
-        return audit_logs
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    audit_logger = AuditLogger(db)
+    
+    action_enum = None
+    if action:
+        try:
+            action_enum = AuditAction(action)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid action: {action}")
+    
+    logs = audit_logger.get_audit_trail(
+        resource_type=resource_type,
+        resource_id=resource_id,
+        user_id=user_id,
+        action=action_enum,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        offset=offset
+    )
+    
+    return logs
+
+
+@router.get("/audit-logs/resource/{resource_type}/{resource_id}", response_model=List[AuditLogResponse])
+async def get_resource_audit_history(
+    resource_type: str,
+    resource_id: str,
+    db: Session = Depends(get_db)
+):
+    """Get complete audit history for a specific resource."""
+    
+    audit_logger = AuditLogger(db)
+    logs = audit_logger.get_resource_history(resource_type, resource_id)
+    
+    return logs
 
 
 @router.get("/audit-logs/search", response_model=List[AuditLogResponse])
 async def search_audit_logs(
-    query: str = Query(..., min_length=3),
-    filters: Optional[Dict[str, Any]] = Body(None),
+    q: str = Query(..., description="Search term"),
+    risk_level: Optional[str] = Query(None),
+    action: Optional[str] = Query(None),
     limit: int = Query(100, le=1000),
-    current_user: Dict = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
-    """Search audit logs with text search"""
-    # Check permission
-    if not access_control_manager.check_permission(
-        current_user["user_id"], Permission.ADMIN_AUDIT_READ
-    ):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    """Search audit logs by content."""
     
-    try:
-        audit_logs = audit_logger.search_audit_logs(
-            search_query=query,
-            filters=filters,
-            limit=limit
-        )
-        
-        return audit_logs
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    audit_logger = AuditLogger(db)
+    
+    filters = {}
+    if risk_level:
+        filters["risk_level"] = risk_level
+    if action:
+        filters["action"] = action
+    
+    logs = audit_logger.search_audit_logs(q, filters, limit)
+    
+    return logs
 
 
-@router.get("/audit-logs/user-activity/{user_id}", response_model=Dict[str, Any])
-async def get_user_activity(
-    user_id: str,
+@router.get("/audit-logs/statistics")
+async def get_audit_statistics(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
-    current_user: Dict = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
-    """Get comprehensive user activity summary"""
-    # Check permission (users can view their own activity, admins can view any)
-    if (current_user["user_id"] != user_id and 
-        not access_control_manager.check_permission(
-            current_user["user_id"], Permission.ADMIN_AUDIT_READ
-        )):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    """Get audit statistics for reporting."""
     
-    try:
-        activity = audit_logger.get_user_activity(
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date
-        )
-        
-        return activity
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    audit_logger = AuditLogger(db)
+    stats = audit_logger.get_audit_statistics(start_date, end_date)
+    
+    return stats
 
 
-# Compliance Management Endpoints
-@router.post("/compliance-checks", response_model=Dict[str, List[str]])
-async def run_compliance_checks(
+# Compliance Rules Routes
+@router.post("/compliance-rules", response_model=ComplianceRuleResponse)
+async def create_compliance_rule(
+    rule: ComplianceRuleCreate,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Create a new compliance rule."""
+    
+    compliance_manager = ComplianceManager(db)
+    
+    # Get user from request context (would be from auth middleware)
+    created_by = request.headers.get("X-User-ID", "unknown")
+    
+    rule_response = compliance_manager.create_rule(rule, created_by)
+    
+    return rule_response
+
+
+@router.get("/compliance-rules", response_model=List[ComplianceRuleResponse])
+async def get_compliance_rules(
+    rule_type: Optional[str] = Query(None),
+    enabled_only: bool = Query(True),
+    db: Session = Depends(get_db)
+):
+    """Get compliance rules."""
+    
+    compliance_manager = ComplianceManager(db)
+    rules = compliance_manager.get_rules(rule_type, enabled_only)
+    
+    return rules
+
+
+@router.put("/compliance-rules/{rule_id}", response_model=ComplianceRuleResponse)
+async def update_compliance_rule(
+    rule_id: str,
+    updates: Dict[str, Any],
+    db: Session = Depends(get_db)
+):
+    """Update a compliance rule."""
+    
+    compliance_manager = ComplianceManager(db)
+    rule = compliance_manager.update_rule(rule_id, updates)
+    
+    if not rule:
+        raise HTTPException(status_code=404, detail="Compliance rule not found")
+    
+    return rule
+
+
+@router.post("/compliance-rules/check", response_model=ComplianceCheckResponse)
+async def check_compliance(
     request: ComplianceCheckRequest,
-    current_user: Dict = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
-    """Run compliance checks on audit log entries"""
-    # Check permission
-    if not access_control_manager.check_permission(
-        current_user["user_id"], Permission.ADMIN_COMPLIANCE_MANAGE
-    ):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    """Check compliance for a resource operation."""
     
-    try:
-        all_check_ids = []
-        
-        for audit_log_id in request.audit_log_ids:
-            check_ids = compliance_manager.run_compliance_check(
-                audit_log_id=audit_log_id,
-                rules=request.rules
-            )
-            all_check_ids.extend(check_ids)
-        
-        return {"compliance_check_ids": all_check_ids}
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.post("/compliance-checks/bulk", response_model=Dict[str, Any])
-async def run_bulk_compliance_checks(
-    start_date: Optional[datetime] = Body(None),
-    end_date: Optional[datetime] = Body(None),
-    batch_size: int = Body(100, le=1000),
-    current_user: Dict = Depends(get_current_user)
-):
-    """Run compliance checks on multiple audit log entries"""
-    # Check permission
-    if not access_control_manager.check_permission(
-        current_user["user_id"], Permission.ADMIN_COMPLIANCE_MANAGE
-    ):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    compliance_manager = ComplianceManager(db)
     
-    try:
-        results = compliance_manager.run_bulk_compliance_check(
-            start_date=start_date,
-            end_date=end_date,
-            batch_size=batch_size
-        )
-        
-        return results
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    result = compliance_manager.check_compliance(
+        resource_type=request.resource_type,
+        resource_data=request.resource_data,
+        action=request.action,
+        user_context=request.user_context
+    )
+    
+    return ComplianceCheckResponse(**result)
 
 
-@router.get("/compliance-status", response_model=Dict[str, Any])
-async def get_compliance_status(
-    resource_id: Optional[str] = Query(None),
+# Compliance Violations Routes
+@router.get("/compliance-violations", response_model=List[ComplianceViolationResponse])
+async def get_compliance_violations(
+    status: Optional[str] = Query(None),
+    severity: Optional[str] = Query(None),
     resource_type: Optional[str] = Query(None),
-    current_user: Dict = Depends(get_current_user)
-):
-    """Get current compliance status"""
-    # Check permission
-    if not access_control_manager.check_permission(
-        current_user["user_id"], Permission.ADMIN_COMPLIANCE_MANAGE
-    ):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
-    
-    try:
-        status = compliance_manager.get_compliance_status(
-            resource_id=resource_id,
-            resource_type=resource_type
-        )
-        
-        return status
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.post("/compliance-reports", response_model=Dict[str, str])
-async def generate_compliance_report(
-    request: ComplianceReportRequest,
-    current_user: Dict = Depends(get_current_user)
-):
-    """Generate comprehensive compliance report"""
-    # Check permission
-    if not access_control_manager.check_permission(
-        current_user["user_id"], Permission.ADMIN_COMPLIANCE_MANAGE
-    ):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
-    
-    try:
-        report_id = compliance_manager.generate_compliance_report(
-            report_type=request.report_type,
-            report_name=request.report_name,
-            start_date=request.start_date,
-            end_date=request.end_date,
-            filters=request.filters,
-            generated_by=current_user["user_id"],
-            file_format=request.file_format
-        )
-        
-        return {"report_id": report_id}
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-# Access Control Endpoints
-@router.post("/access-control", response_model=Dict[str, str])
-async def grant_user_access(
-    request: AccessControlRequest,
-    current_user: Dict = Depends(get_current_user)
-):
-    """Grant access permissions to a user"""
-    # Check permission
-    if not access_control_manager.check_permission(
-        current_user["user_id"], Permission.ADMIN_USER_MANAGE
-    ):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
-    
-    try:
-        access_id = access_control_manager.grant_access(
-            user_id=request.user_id,
-            user_email=request.user_email,
-            role=request.role,
-            granted_by=current_user["user_id"],
-            custom_permissions=set(request.custom_permissions) if request.custom_permissions else None,
-            resource_restrictions=request.resource_restrictions,
-            expires_at=request.expires_at
-        )
-        
-        return {"access_id": access_id}
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.delete("/access-control/{user_id}", response_model=Dict[str, bool])
-async def revoke_user_access(
-    user_id: str,
-    reason: Optional[str] = Body(None),
-    current_user: Dict = Depends(get_current_user)
-):
-    """Revoke user access permissions"""
-    # Check permission
-    if not access_control_manager.check_permission(
-        current_user["user_id"], Permission.ADMIN_USER_MANAGE
-    ):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
-    
-    try:
-        success = access_control_manager.revoke_access(
-            user_id=user_id,
-            revoked_by=current_user["user_id"],
-            reason=reason
-        )
-        
-        return {"revoked": success}
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-
-@router.get("/access-control", response_model=List[AccessControlResponse])
-async def list_user_access(
-    include_inactive: bool = Query(False),
-    role_filter: Optional[str] = Query(None),
     limit: int = Query(100, le=1000),
-    offset: int = Query(0, ge=0),
-    current_user: Dict = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
-    """List all user access entries"""
-    # Check permission
-    if not access_control_manager.check_permission(
-        current_user["user_id"], Permission.ADMIN_USER_MANAGE
-    ):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    """Get compliance violations."""
     
-    try:
-        access_entries = access_control_manager.list_user_access(
-            include_inactive=include_inactive,
-            role_filter=role_filter,
-            limit=limit,
-            offset=offset
-        )
-        
-        return access_entries
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    compliance_manager = ComplianceManager(db)
+    violations = compliance_manager.get_violations(status, severity, resource_type, limit)
+    
+    return violations
 
 
-@router.get("/access-control/permissions/{user_id}", response_model=Dict[str, Any])
+@router.get("/compliance-violations/report", response_model=ComplianceReport)
+async def generate_compliance_report(
+    start_date: datetime = Query(...),
+    end_date: datetime = Query(...),
+    db: Session = Depends(get_db)
+):
+    """Generate compliance report for a date range."""
+    
+    compliance_manager = ComplianceManager(db)
+    report = compliance_manager.generate_compliance_report(start_date, end_date)
+    
+    return report
+
+
+# Access Control Routes
+@router.post("/access-control/grant")
+async def grant_access(
+    access_config: AccessControlCreate,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Grant access to a resource."""
+    
+    access_manager = AccessControlManager(db)
+    
+    # Get user from request context
+    granted_by = request.headers.get("X-User-ID", "unknown")
+    
+    access_id = access_manager.grant_access(
+        resource_type=access_config.resource_type,
+        resource_id=access_config.resource_id,
+        granted_by=granted_by,
+        user_id=access_config.user_id,
+        role=access_config.role,
+        team_id=access_config.team_id,
+        permissions=access_config.permissions,
+        conditions=access_config.conditions,
+        expires_at=access_config.expires_at
+    )
+    
+    return {"access_id": access_id, "message": "Access granted successfully"}
+
+
+@router.delete("/access-control/{access_id}")
+async def revoke_access(
+    access_id: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Revoke access control."""
+    
+    access_manager = AccessControlManager(db)
+    
+    # Get user from request context
+    revoked_by = request.headers.get("X-User-ID", "unknown")
+    
+    success = access_manager.revoke_access(access_id, revoked_by)
+    
+    if not success:
+        raise HTTPException(status_code=404, detail="Access control not found")
+    
+    return {"message": "Access revoked successfully"}
+
+
+@router.post("/access-control/check", response_model=PermissionCheckResponse)
+async def check_permission(
+    request: PermissionCheckRequest,
+    db: Session = Depends(get_db)
+):
+    """Check if user has permission for a resource."""
+    
+    access_manager = AccessControlManager(db)
+    
+    result = access_manager.check_permission(
+        user_id=request.user_id,
+        resource_type=request.resource_type,
+        resource_id=request.resource_id,
+        permission=request.permission,
+        user_roles=request.user_roles,
+        user_teams=request.user_teams,
+        context=request.context
+    )
+    
+    return PermissionCheckResponse(**result)
+
+
+@router.get("/access-control/user/{user_id}")
 async def get_user_permissions(
     user_id: str,
-    current_user: Dict = Depends(get_current_user)
+    resource_type: Optional[str] = Query(None),
+    db: Session = Depends(get_db)
 ):
-    """Get comprehensive user permissions and access info"""
-    # Users can view their own permissions, admins can view any
-    if (current_user["user_id"] != user_id and 
-        not access_control_manager.check_permission(
-            current_user["user_id"], Permission.ADMIN_USER_MANAGE
-        )):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    """Get all permissions for a user."""
     
-    try:
-        permissions = access_control_manager.get_user_permissions(user_id)
-        return permissions
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    access_manager = AccessControlManager(db)
+    permissions = access_manager.get_user_permissions(user_id, resource_type)
+    
+    return {"user_id": user_id, "permissions": permissions}
 
 
-@router.get("/access-control/roles", response_model=List[Dict[str, Any]])
-async def list_available_roles(
-    current_user: Dict = Depends(get_current_user)
+@router.get("/access-control/resource/{resource_type}/{resource_id}")
+async def get_resource_permissions(
+    resource_type: str,
+    resource_id: str,
+    db: Session = Depends(get_db)
 ):
-    """List all available roles"""
-    try:
-        roles = access_control_manager.list_available_roles()
-        return roles
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    """Get all permissions for a resource."""
+    
+    access_manager = AccessControlManager(db)
+    permissions = access_manager.get_resource_permissions(resource_type, resource_id)
+    
+    return {"resource_type": resource_type, "resource_id": resource_id, "permissions": permissions}
 
 
-# Change Approval Endpoints
-@router.post("/change-approvals", response_model=Dict[str, str])
+# Change Approval Routes
+@router.post("/change-approvals", response_model=str)
 async def request_change_approval(
-    request: ChangeApprovalRequest,
-    current_user: Dict = Depends(get_current_user)
+    approval_request: ChangeApprovalCreate,
+    request: Request,
+    db: Session = Depends(get_db)
 ):
-    """Request approval for a prompt change"""
-    try:
-        approval_id = change_approval_manager.request_approval(
-            prompt_id=request.prompt_id,
-            requester_id=current_user["user_id"],
-            requester_email=current_user["email"],
-            change_type=request.change_type,
-            change_description=request.change_description,
-            change_justification=request.change_justification,
-            proposed_changes=request.proposed_changes,
-            context=request.context
-        )
-        
-        return {"approval_id": approval_id}
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    """Request approval for a change."""
+    
+    approval_manager = ChangeApprovalManager(db)
+    
+    # Get user from request context
+    requested_by = request.headers.get("X-User-ID", "unknown")
+    
+    approval_id = approval_manager.request_approval(
+        resource_type=approval_request.resource_type,
+        resource_id=approval_request.resource_id,
+        change_description=approval_request.change_description,
+        proposed_changes=approval_request.proposed_changes,
+        requested_by=requested_by,
+        priority=approval_request.priority,
+        deadline=approval_request.deadline
+    )
+    
+    if not approval_id:
+        return {"message": "No approval required for this change"}
+    
+    return {"approval_id": approval_id, "message": "Approval request created"}
 
 
-@router.post("/change-approvals/{approval_id}/decision", response_model=Dict[str, bool])
-async def make_approval_decision(
+@router.post("/change-approvals/{approval_id}/approve")
+async def approve_change(
     approval_id: str,
-    request: ApprovalDecisionRequest,
-    current_user: Dict = Depends(get_current_user)
+    approval_notes: Optional[str] = None,
+    request: Request = None,
+    db: Session = Depends(get_db)
 ):
-    """Approve or reject a change request"""
-    try:
-        if request.decision == "approve":
-            success = change_approval_manager.approve_change(
-                approval_id=approval_id,
-                approver_id=current_user["user_id"],
-                approver_email=current_user["email"],
-                comments=request.comments
-            )
-        else:  # reject
-            if not request.comments:
-                raise HTTPException(
-                    status_code=400, 
-                    detail="Comments are required for rejection"
-                )
-            success = change_approval_manager.reject_change(
-                approval_id=approval_id,
-                approver_id=current_user["user_id"],
-                approver_email=current_user["email"],
-                comments=request.comments
-            )
-        
-        return {"success": success}
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    """Approve a change request."""
+    
+    approval_manager = ChangeApprovalManager(db)
+    
+    # Get user from request context
+    approver_id = request.headers.get("X-User-ID", "unknown")
+    
+    result = approval_manager.approve_change(approval_id, approver_id, approval_notes)
+    
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    
+    return result
+
+
+@router.post("/change-approvals/{approval_id}/reject")
+async def reject_change(
+    approval_id: str,
+    rejection_reason: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """Reject a change request."""
+    
+    approval_manager = ChangeApprovalManager(db)
+    
+    # Get user from request context
+    approver_id = request.headers.get("X-User-ID", "unknown")
+    
+    result = approval_manager.reject_change(approval_id, approver_id, rejection_reason)
+    
+    if not result["success"]:
+        raise HTTPException(status_code=400, detail=result["error"])
+    
+    return result
 
 
 @router.get("/change-approvals/pending", response_model=List[ChangeApprovalResponse])
 async def get_pending_approvals(
-    limit: int = Query(50, le=100),
-    offset: int = Query(0, ge=0),
-    current_user: Dict = Depends(get_current_user)
+    resource_type: Optional[str] = Query(None),
+    priority: Optional[str] = Query(None),
+    limit: int = Query(100, le=1000),
+    request: Request = None,
+    db: Session = Depends(get_db)
 ):
-    """Get pending approval requests"""
-    # Check permission
-    if not access_control_manager.check_permission(
-        current_user["user_id"], Permission.ADMIN_COMPLIANCE_MANAGE
-    ):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    """Get pending approval requests."""
     
-    try:
-        approvals = change_approval_manager.get_pending_approvals(
-            approver_id=current_user["user_id"],
-            limit=limit,
-            offset=offset
-        )
-        
-        return approvals
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    approval_manager = ChangeApprovalManager(db)
+    
+    # Get user from request context for filtering
+    approver_id = request.headers.get("X-User-ID")
+    
+    approvals = approval_manager.get_pending_approvals(
+        approver_id=approver_id,
+        resource_type=resource_type,
+        priority=priority,
+        limit=limit
+    )
+    
+    return approvals
 
 
 @router.get("/change-approvals/history", response_model=List[ChangeApprovalResponse])
 async def get_approval_history(
-    prompt_id: Optional[str] = Query(None),
-    requester_id: Optional[str] = Query(None),
-    approver_id: Optional[str] = Query(None),
-    status: Optional[str] = Query(None),
+    resource_type: Optional[str] = Query(None),
+    resource_id: Optional[str] = Query(None),
+    requested_by: Optional[str] = Query(None),
     limit: int = Query(100, le=1000),
-    offset: int = Query(0, ge=0),
-    current_user: Dict = Depends(get_current_user)
+    db: Session = Depends(get_db)
 ):
-    """Get approval request history"""
-    # Check permission
-    if not access_control_manager.check_permission(
-        current_user["user_id"], Permission.ADMIN_COMPLIANCE_MANAGE
-    ):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    """Get approval history."""
     
-    try:
-        status_enum = ApprovalStatus(status) if status else None
-        
-        approvals = change_approval_manager.get_approval_history(
-            prompt_id=prompt_id,
-            requester_id=requester_id,
-            approver_id=approver_id,
-            status=status_enum,
-            limit=limit,
-            offset=offset
-        )
-        
-        return approvals
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    approval_manager = ChangeApprovalManager(db)
+    
+    approvals = approval_manager.get_approval_history(
+        resource_type=resource_type,
+        resource_id=resource_id,
+        requested_by=requested_by,
+        limit=limit
+    )
+    
+    return approvals
 
 
-# Maintenance Endpoints
-@router.post("/maintenance/cleanup-expired", response_model=Dict[str, int])
-async def cleanup_expired_entries(
-    current_user: Dict = Depends(get_current_user)
+@router.get("/change-approvals/status/{resource_type}/{resource_id}")
+async def check_approval_status(
+    resource_type: str,
+    resource_id: str,
+    db: Session = Depends(get_db)
 ):
-    """Clean up expired access entries and approval requests"""
-    # Check permission
-    if not access_control_manager.check_permission(
-        current_user["user_id"], Permission.ADMIN_SYSTEM_CONFIG
-    ):
-        raise HTTPException(status_code=403, detail="Insufficient permissions")
+    """Check approval status for a resource."""
     
-    try:
-        expired_access = access_control_manager.cleanup_expired_access()
-        expired_approvals = change_approval_manager.cleanup_expired_requests()
-        
-        return {
-            "expired_access_entries": expired_access,
-            "expired_approval_requests": expired_approvals
-        }
-        
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+    approval_manager = ChangeApprovalManager(db)
+    status = approval_manager.check_approval_status(resource_type, resource_id)
+    
+    return status
+
+
+# Maintenance Routes
+@router.post("/maintenance/cleanup-expired-access")
+async def cleanup_expired_access(db: Session = Depends(get_db)):
+    """Clean up expired access controls."""
+    
+    access_manager = AccessControlManager(db)
+    count = access_manager.cleanup_expired_access()
+    
+    return {"message": f"Cleaned up {count} expired access controls"}
+
+
+@router.post("/maintenance/expire-old-approvals")
+async def expire_old_approvals(db: Session = Depends(get_db)):
+    """Expire old pending approval requests."""
+    
+    approval_manager = ChangeApprovalManager(db)
+    count = approval_manager.expire_old_approvals()
+    
+    return {"message": f"Expired {count} old approval requests"}
+
+
+# Statistics Routes
+@router.get("/statistics/access-control")
+async def get_access_control_statistics(db: Session = Depends(get_db)):
+    """Get access control statistics."""
+    
+    access_manager = AccessControlManager(db)
+    stats = access_manager.get_access_statistics()
+    
+    return stats
+
+
+@router.get("/statistics/approvals")
+async def get_approval_statistics(db: Session = Depends(get_db)):
+    """Get approval workflow statistics."""
+    
+    approval_manager = ChangeApprovalManager(db)
+    stats = approval_manager.get_approval_statistics()
+    
+    return stats

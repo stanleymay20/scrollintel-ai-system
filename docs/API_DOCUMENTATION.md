@@ -1,735 +1,756 @@
-# ScrollIntel Prompt Management API Documentation
+# Advanced Analytics Dashboard API Documentation
 
 ## Overview
 
-The ScrollIntel Prompt Management API provides comprehensive functionality for managing prompt templates, including version control, A/B testing, optimization, and real-time notifications through webhooks.
+The Advanced Analytics Dashboard API provides comprehensive access to executive analytics, ROI tracking, business intelligence, and automated insight generation. This RESTful API with GraphQL support enables developers to integrate powerful analytics capabilities into their applications.
 
 ## Base URL
 
 ```
-https://api.scrollintel.com/api/v1/prompts
+Production: https://api.scrollintel.com/v1
+Staging: https://staging-api.scrollintel.com/v1
+Development: http://localhost:8000/api/v1
 ```
 
 ## Authentication
 
-All API requests require authentication using an API key:
+The API uses API key authentication. Include your API key in the `Authorization` header:
 
 ```http
 Authorization: Bearer YOUR_API_KEY
 ```
 
+### Getting an API Key
+
+1. Sign up for a ScrollIntel account
+2. Navigate to Settings > API Keys
+3. Click "Generate New API Key"
+4. Copy and securely store your API key
+
+### API Key Tiers
+
+| Tier | Rate Limit | Features |
+|------|------------|----------|
+| **Free** | 100 requests/minute | Basic dashboards, insights |
+| **Premium** | 1,000 requests/minute | Advanced analytics, ROI tracking |
+| **Enterprise** | 10,000 requests/minute | Full feature access, webhooks |
+
 ## Rate Limiting
 
-The API implements rate limiting to ensure fair usage:
-
-- **User Rate Limit**: 100 requests per minute (burst: 150)
-- **IP Rate Limit**: 60 requests per minute
-- **Global Rate Limit**: 1000 requests per minute
-- **Concurrent Requests**: 10 per user
-
-Rate limit information is included in response headers:
+API requests are rate-limited based on your subscription tier. Rate limit information is included in response headers:
 
 ```http
-X-RateLimit-Limit: 100
-X-RateLimit-Remaining: 95
+X-RateLimit-Limit: 1000
+X-RateLimit-Remaining: 999
 X-RateLimit-Reset: 1640995200
 ```
 
-## API Versioning
-
-The API uses URL-based versioning. Current version is `v1`. Backward compatibility is maintained for at least one major version.
+When rate limits are exceeded, the API returns a `429 Too Many Requests` status with retry information.
 
 ## Response Format
 
-All API responses follow a consistent format:
+All API responses follow a consistent JSON format:
 
+### Success Response
 ```json
 {
-  "success": true,
   "data": { ... },
-  "message": "Operation completed successfully",
-  "timestamp": "2024-01-01T12:00:00Z",
-  "version": "1.0",
-  "request_id": "req_123456789",
-  "rate_limit": {
-    "user_requests_per_minute": {
-      "current": 5,
-      "limit": 100,
-      "window_seconds": 60,
-      "type": "requests_per_minute",
-      "reset_time": 1640995200
-    }
+  "meta": {
+    "timestamp": "2024-01-15T10:30:00Z",
+    "request_id": "req_123456789"
   }
 }
 ```
 
-## Error Handling
-
-Error responses include detailed information:
-
+### Error Response
 ```json
 {
-  "success": false,
-  "message": "Validation error",
-  "timestamp": "2024-01-01T12:00:00Z",
-  "request_id": "req_123456789",
-  "errors": [
-    {
+  "error": {
+    "code": "VALIDATION_ERROR",
+    "message": "Invalid dashboard configuration",
+    "details": {
       "field": "name",
-      "message": "Name is required"
+      "issue": "Name cannot be empty"
     }
-  ]
+  },
+  "meta": {
+    "timestamp": "2024-01-15T10:30:00Z",
+    "request_id": "req_123456789"
+  }
 }
 ```
-
-### HTTP Status Codes
-
-- `200` - Success
-- `400` - Bad Request (validation error)
-- `401` - Unauthorized (invalid API key)
-- `403` - Forbidden (insufficient permissions)
-- `404` - Not Found
-- `429` - Rate Limit Exceeded
-- `500` - Internal Server Error
 
 ## Endpoints
 
-### Prompt Management
+### Dashboards
 
-#### Create Prompt
-
+#### List Dashboards
 ```http
-POST /api/v1/prompts/
+GET /dashboards
 ```
 
-Create a new prompt template.
+**Parameters:**
+- `type` (optional): Filter by dashboard type (`EXECUTIVE`, `DEPARTMENT`, `PROJECT`, `CUSTOM`)
+- `owner` (optional): Filter by owner ID
+- `page` (optional): Page number (default: 1)
+- `limit` (optional): Items per page (default: 20, max: 100)
+- `sort` (optional): Sort field (`name`, `created_at`, `updated_at`)
+- `order` (optional): Sort order (`asc`, `desc`)
 
-**Request Body:**
+**Example Request:**
+```bash
+curl -H "Authorization: Bearer YOUR_API_KEY" \
+  "https://api.scrollintel.com/v1/dashboards?type=EXECUTIVE&limit=10"
+```
 
+**Example Response:**
 ```json
 {
-  "name": "Customer Support Greeting",
-  "content": "Hello {{customer_name}}, how can I help you today?",
-  "category": "customer_support",
-  "tags": ["greeting", "support"],
-  "variables": [
-    {
-      "name": "customer_name",
-      "type": "string",
-      "required": true,
-      "description": "Customer's name"
+  "data": {
+    "dashboards": [
+      {
+        "id": "dash_123456789",
+        "name": "Executive Overview",
+        "type": "EXECUTIVE",
+        "owner": "user_123456789",
+        "created_at": "2024-01-15T10:30:00Z",
+        "updated_at": "2024-01-15T15:45:00Z",
+        "widget_count": 8,
+        "is_shared": true,
+        "last_viewed": "2024-01-15T16:20:00Z"
+      }
+    ],
+    "pagination": {
+      "page": 1,
+      "limit": 10,
+      "total": 25,
+      "pages": 3
     }
-  ],
-  "description": "Standard greeting for customer support"
-}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "prompt_abc123"
-  },
-  "message": "Prompt created successfully"
-}
-```
-
-#### Get Prompt
-
-```http
-GET /api/v1/prompts/{prompt_id}
-```
-
-Retrieve a prompt template by ID.
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "id": "prompt_abc123",
-    "name": "Customer Support Greeting",
-    "content": "Hello {{customer_name}}, how can I help you today?",
-    "category": "customer_support",
-    "tags": ["greeting", "support"],
-    "variables": [
-      {
-        "name": "customer_name",
-        "type": "string",
-        "required": true,
-        "description": "Customer's name"
-      }
-    ],
-    "description": "Standard greeting for customer support",
-    "is_active": true,
-    "created_by": "user_123",
-    "created_at": "2024-01-01T12:00:00Z",
-    "updated_at": "2024-01-01T12:00:00Z"
   }
 }
 ```
 
-#### Update Prompt
-
+#### Get Dashboard
 ```http
-PUT /api/v1/prompts/{prompt_id}
+GET /dashboards/{dashboard_id}
 ```
 
-Update a prompt template and create a new version.
-
-**Request Body:**
-
+**Example Response:**
 ```json
 {
-  "name": "Updated Customer Support Greeting",
-  "content": "Hello {{customer_name}}, welcome back! How can I assist you?",
-  "changes_description": "Added welcome back message"
-}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
   "data": {
-    "id": "version_def456",
-    "prompt_id": "prompt_abc123",
-    "version": "1.0.1",
-    "content": "Hello {{customer_name}}, welcome back! How can I assist you?",
-    "changes": "Added welcome back message",
-    "created_by": "user_123",
-    "created_at": "2024-01-01T12:30:00Z"
-  }
-}
-```
-
-#### Delete Prompt
-
-```http
-DELETE /api/v1/prompts/{prompt_id}
-```
-
-Soft delete (deactivate) a prompt template.
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "message": "Prompt deleted successfully"
-}
-```
-
-#### Search Prompts
-
-```http
-POST /api/v1/prompts/search
-```
-
-Search prompt templates with filters and pagination.
-
-**Request Body:**
-
-```json
-{
-  "text": "customer support",
-  "category": "customer_support",
-  "tags": ["greeting"],
-  "created_by": "user_123",
-  "date_from": "2024-01-01T00:00:00Z",
-  "date_to": "2024-01-31T23:59:59Z",
-  "limit": 20,
-  "offset": 0
-}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "items": [
-      {
-        "id": "prompt_abc123",
-        "name": "Customer Support Greeting",
-        "content": "Hello {{customer_name}}...",
-        "category": "customer_support",
-        "tags": ["greeting", "support"],
-        "created_at": "2024-01-01T12:00:00Z"
-      }
-    ],
-    "total": 1,
-    "page": 1,
-    "page_size": 20,
-    "has_next": false,
-    "has_previous": false
-  }
-}
-```
-
-#### List Prompts
-
-```http
-GET /api/v1/prompts/?page=1&page_size=50&category=customer_support&tags=greeting,support
-```
-
-List prompts with pagination and filtering.
-
-#### Get Prompt History
-
-```http
-GET /api/v1/prompts/{prompt_id}/history
-```
-
-Get version history for a prompt template.
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "version_def456",
-      "prompt_id": "prompt_abc123",
-      "version": "1.0.1",
-      "content": "Updated content...",
-      "changes": "Added welcome back message",
-      "created_by": "user_123",
-      "created_at": "2024-01-01T12:30:00Z"
+    "id": "dash_123456789",
+    "name": "Executive Overview",
+    "type": "EXECUTIVE",
+    "owner": "user_123456789",
+    "config": {
+      "theme": "dark",
+      "auto_refresh": 300,
+      "timezone": "UTC"
     },
-    {
-      "id": "version_ghi789",
-      "prompt_id": "prompt_abc123",
-      "version": "1.0.0",
-      "content": "Original content...",
-      "changes": "Initial version",
-      "created_by": "user_123",
-      "created_at": "2024-01-01T12:00:00Z"
-    }
-  ]
-}
-```
-
-#### Get Prompt Metrics
-
-```http
-GET /api/v1/prompts/{prompt_id}/metrics
-```
-
-Get usage metrics for a prompt template.
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "prompt_id": "prompt_abc123",
-    "total_uses": 1250,
-    "unique_users": 45,
-    "avg_response_time": 0.25,
-    "success_rate": 0.98,
-    "last_used": "2024-01-01T11:45:00Z"
-  }
-}
-```
-
-#### Batch Operations
-
-```http
-POST /api/v1/prompts/batch
-```
-
-Perform batch operations on multiple prompts.
-
-**Request Body:**
-
-```json
-[
-  {
-    "type": "update",
-    "prompt_id": "prompt_abc123",
-    "changes": {
-      "name": "Updated Name",
-      "changes_description": "Batch update"
-    }
-  },
-  {
-    "type": "delete",
-    "prompt_id": "prompt_def456"
-  }
-]
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "results": [
+    "widgets": [
       {
-        "operation": 0,
-        "type": "update",
-        "prompt_id": "prompt_abc123",
-        "version": "1.0.2"
-      },
-      {
-        "operation": 1,
-        "type": "delete",
-        "prompt_id": "prompt_def456",
-        "success": true
+        "id": "widget_123456789",
+        "type": "CHART",
+        "title": "Revenue Trend",
+        "position": {"x": 0, "y": 0, "width": 6, "height": 4},
+        "config": {
+          "chart_type": "line",
+          "data_source": "revenue_data",
+          "time_range": "30d"
+        }
       }
     ],
-    "errors": []
-  },
-  "message": "Batch operation completed. 2 successful, 0 errors"
+    "permissions": [
+      {
+        "user_id": "user_987654321",
+        "role": "VIEWER",
+        "granted_at": "2024-01-15T10:30:00Z"
+      }
+    ]
+  }
 }
 ```
 
-### Webhook Management
+#### Create Dashboard
+```http
+POST /dashboards
+```
+
+**Request Body:**
+```json
+{
+  "name": "New Dashboard",
+  "type": "EXECUTIVE",
+  "description": "Executive performance dashboard",
+  "config": {
+    "theme": "light",
+    "auto_refresh": 300
+  },
+  "template_id": "template_123456789"
+}
+```
+
+#### Update Dashboard
+```http
+PUT /dashboards/{dashboard_id}
+```
+
+#### Delete Dashboard
+```http
+DELETE /dashboards/{dashboard_id}
+```
+
+### Widgets
+
+#### Add Widget to Dashboard
+```http
+POST /dashboards/{dashboard_id}/widgets
+```
+
+**Request Body:**
+```json
+{
+  "type": "CHART",
+  "title": "Sales Performance",
+  "position": {"x": 0, "y": 0, "width": 6, "height": 4},
+  "config": {
+    "chart_type": "bar",
+    "data_source": "sales_data",
+    "metrics": ["revenue", "units_sold"],
+    "time_range": "7d"
+  }
+}
+```
+
+#### Update Widget
+```http
+PUT /dashboards/{dashboard_id}/widgets/{widget_id}
+```
+
+#### Remove Widget
+```http
+DELETE /dashboards/{dashboard_id}/widgets/{widget_id}
+```
+
+### ROI Analysis
+
+#### List ROI Analyses
+```http
+GET /roi/analyses
+```
+
+**Parameters:**
+- `project_id` (optional): Filter by project ID
+- `date_range` (optional): Date range filter (`7d`, `30d`, `90d`, `1y`, or custom `YYYY-MM-DD/YYYY-MM-DD`)
+- `min_roi` (optional): Minimum ROI percentage
+- `page`, `limit`, `sort`, `order`: Pagination and sorting
+
+**Example Response:**
+```json
+{
+  "data": {
+    "analyses": [
+      {
+        "id": "roi_123456789",
+        "project_id": "proj_123456789",
+        "project_name": "AI Implementation",
+        "total_investment": 500000,
+        "total_benefits": 750000,
+        "roi_percentage": 50.0,
+        "payback_period": 18,
+        "npv": 250000,
+        "irr": 0.25,
+        "analysis_date": "2024-01-15T10:30:00Z",
+        "status": "COMPLETED"
+      }
+    ]
+  }
+}
+```
+
+#### Create ROI Analysis
+```http
+POST /roi/analyses
+```
+
+**Request Body:**
+```json
+{
+  "project_id": "proj_123456789",
+  "project_name": "AI Implementation",
+  "timeframe_months": 24,
+  "costs": {
+    "initial_investment": 300000,
+    "operational_costs": 200000,
+    "training_costs": 50000
+  },
+  "benefits": {
+    "cost_savings": 400000,
+    "revenue_increase": 350000,
+    "efficiency_gains": 100000
+  }
+}
+```
+
+#### Get ROI Analysis
+```http
+GET /roi/analyses/{analysis_id}
+```
+
+### Insights
+
+#### List Insights
+```http
+GET /insights
+```
+
+**Parameters:**
+- `type` (optional): Filter by insight type (`TREND`, `ANOMALY`, `CORRELATION`, `PREDICTION`, `RECOMMENDATION`)
+- `significance` (optional): Minimum significance score (0.0-1.0)
+- `dashboard_id` (optional): Filter by dashboard
+- `date_range` (optional): Date range filter
+
+**Example Response:**
+```json
+{
+  "data": {
+    "insights": [
+      {
+        "id": "insight_123456789",
+        "type": "ANOMALY",
+        "title": "Unusual Revenue Spike Detected",
+        "description": "Revenue increased by 45% compared to the same period last month, significantly above the normal variance of 8%.",
+        "significance": 0.92,
+        "confidence": 0.87,
+        "dashboard_id": "dash_123456789",
+        "widget_id": "widget_123456789",
+        "created_at": "2024-01-15T10:30:00Z",
+        "recommendations": [
+          "Investigate the cause of the revenue spike",
+          "Analyze customer acquisition channels",
+          "Review marketing campaign performance"
+        ],
+        "business_impact": {
+          "category": "REVENUE",
+          "magnitude": 0.45,
+          "affected_metrics": ["monthly_revenue", "customer_acquisition"]
+        }
+      }
+    ]
+  }
+}
+```
+
+#### Get Insight
+```http
+GET /insights/{insight_id}
+```
+
+### Predictive Analytics
+
+#### List Forecasts
+```http
+GET /forecasts
+```
+
+**Example Response:**
+```json
+{
+  "data": {
+    "forecasts": [
+      {
+        "id": "forecast_123456789",
+        "metric": "monthly_revenue",
+        "horizon": 12,
+        "model": "ARIMA",
+        "accuracy": 0.89,
+        "confidence": 0.85,
+        "generated_at": "2024-01-15T10:30:00Z",
+        "predictions": [
+          {
+            "period": "2024-02",
+            "value": 125000,
+            "lower_bound": 115000,
+            "upper_bound": 135000,
+            "confidence": 0.85
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+#### Create Forecast
+```http
+POST /forecasts
+```
+
+**Request Body:**
+```json
+{
+  "metric": "monthly_revenue",
+  "horizon": 12,
+  "model": "ARIMA",
+  "data_source": "revenue_data",
+  "historical_periods": 24
+}
+```
+
+### Data Sources
+
+#### List Data Sources
+```http
+GET /data-sources
+```
+
+**Example Response:**
+```json
+{
+  "data": {
+    "sources": [
+      {
+        "id": "source_123456789",
+        "name": "Salesforce CRM",
+        "type": "CRM",
+        "status": "CONNECTED",
+        "last_sync": "2024-01-15T10:30:00Z",
+        "record_count": 15420,
+        "sync_frequency": "hourly",
+        "data_quality": 0.95
+      }
+    ]
+  }
+}
+```
+
+#### Create Data Source
+```http
+POST /data-sources
+```
+
+#### Test Data Source Connection
+```http
+POST /data-sources/{source_id}/test
+```
+
+### Templates
+
+#### List Dashboard Templates
+```http
+GET /templates
+```
+
+**Parameters:**
+- `category` (optional): Filter by category (`EXECUTIVE`, `FINANCE`, `SALES`, `MARKETING`, `OPERATIONS`)
+- `industry` (optional): Filter by industry
+- `popularity` (optional): Sort by popularity
+
+**Example Response:**
+```json
+{
+  "data": {
+    "templates": [
+      {
+        "id": "template_123456789",
+        "name": "Executive KPI Dashboard",
+        "description": "Comprehensive executive dashboard with key performance indicators",
+        "category": "EXECUTIVE",
+        "industry": "Technology",
+        "popularity": 95,
+        "rating": 4.8,
+        "widget_count": 12,
+        "preview_url": "https://cdn.scrollintel.com/templates/preview/template_123456789.png"
+      }
+    ]
+  }
+}
+```
+
+### Reports
+
+#### Generate Report
+```http
+POST /reports/generate
+```
+
+**Request Body:**
+```json
+{
+  "title": "Monthly Executive Report",
+  "type": "EXECUTIVE_SUMMARY",
+  "format": "PDF",
+  "dashboard_id": "dash_123456789",
+  "date_range": "30d",
+  "sections": ["overview", "kpis", "insights", "recommendations"]
+}
+```
+
+#### Schedule Report
+```http
+POST /reports/schedule
+```
+
+**Request Body:**
+```json
+{
+  "name": "Weekly Executive Report",
+  "report_config": {
+    "title": "Weekly Executive Report",
+    "type": "EXECUTIVE_SUMMARY",
+    "format": "PDF",
+    "dashboard_id": "dash_123456789"
+  },
+  "schedule": {
+    "frequency": "WEEKLY",
+    "day_of_week": 1,
+    "time": "09:00",
+    "timezone": "UTC"
+  },
+  "delivery": {
+    "method": "EMAIL",
+    "recipients": ["ceo@company.com", "cfo@company.com"]
+  }
+}
+```
+
+### Webhooks
 
 #### Register Webhook
-
 ```http
-POST /api/v1/prompts/webhooks
+POST /webhooks
 ```
-
-Register a new webhook endpoint.
 
 **Request Body:**
-
 ```json
 {
-  "url": "https://your-app.com/webhooks/prompts",
-  "events": ["prompt.created", "prompt.updated", "prompt.deleted"],
+  "url": "https://your-app.com/webhooks/scrollintel",
+  "events": [
+    "dashboard.created",
+    "insight.generated",
+    "alert.triggered"
+  ],
   "secret": "your-webhook-secret",
-  "active": true
-}
-```
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "webhook_id": "webhook_xyz789"
-  },
-  "message": "Webhook registered successfully"
+  "headers": {
+    "X-Custom-Header": "value"
+  }
 }
 ```
 
 #### List Webhooks
-
 ```http
-GET /api/v1/prompts/webhooks
+GET /webhooks
 ```
-
-List all webhook endpoints for the user.
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": [
-    {
-      "id": "webhook_xyz789",
-      "name": "webhook_1640995200",
-      "url": "https://your-app.com/webhooks/prompts",
-      "events": ["prompt.created", "prompt.updated"],
-      "active": true,
-      "created_at": "2024-01-01T12:00:00Z",
-      "last_success": "2024-01-01T11:45:00Z",
-      "failure_count": 0
-    }
-  ]
-}
-```
-
-#### Update Webhook
-
-```http
-PUT /api/v1/prompts/webhooks/{webhook_id}
-```
-
-Update a webhook endpoint.
-
-**Request Body:**
-
-```json
-{
-  "url": "https://your-app.com/new-webhooks/prompts",
-  "events": ["prompt.created"],
-  "active": false
-}
-```
-
-#### Delete Webhook
-
-```http
-DELETE /api/v1/prompts/webhooks/{webhook_id}
-```
-
-Delete a webhook endpoint.
 
 #### Test Webhook
-
 ```http
-POST /api/v1/prompts/webhooks/{webhook_id}/test
+POST /webhooks/{webhook_id}/test
 ```
 
-Test a webhook endpoint with a test event.
+## GraphQL API
 
-**Response:**
+The API also supports GraphQL for flexible data querying.
 
-```json
-{
-  "success": true,
-  "data": {
-    "success": true,
-    "status": "delivered",
-    "response_status": 200,
-    "delivery_id": "delivery_123"
-  }
-}
+### GraphQL Endpoint
+```
+POST /graphql
 ```
 
-### Usage Analytics
-
-#### Get Usage Summary
-
-```http
-GET /api/v1/prompts/usage/summary?start_date=2024-01-01T00:00:00Z&end_date=2024-01-31T23:59:59Z
+### GraphQL Playground
+```
+GET /graphql/playground
 ```
 
-Get usage summary for the current user.
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "data": {
-    "total_requests": 5420,
-    "total_tokens": 125000,
-    "total_errors": 23,
-    "avg_response_time": 0.35,
-    "error_rate": 0.004,
-    "endpoints": {
-      "/api/v1/prompts/": 3200,
-      "/api/v1/prompts/search": 1800,
-      "/api/v1/prompts/{id}": 420
-    },
-    "status_codes": {
-      "200": 5397,
-      "400": 15,
-      "404": 8
-    },
-    "hourly_distribution": {
-      "2024-01-01 09:00": 45,
-      "2024-01-01 10:00": 67,
-      "2024-01-01 11:00": 89
-    },
-    "first_request": "2024-01-01T08:30:00Z",
-    "last_request": "2024-01-31T17:45:00Z"
-  }
-}
-```
-
-## Webhook Events
-
-When you register webhooks, you'll receive HTTP POST requests for subscribed events:
-
-### Event Types
-
-- `prompt.created` - New prompt template created
-- `prompt.updated` - Prompt template updated
-- `prompt.deleted` - Prompt template deleted
-- `prompt.version.created` - New version created
-
-### Webhook Payload
-
-```json
-{
-  "event": {
-    "id": "event_123456789",
-    "event_type": "prompt.created",
-    "resource_type": "prompt",
-    "resource_id": "prompt_abc123",
-    "action": "create",
-    "timestamp": "2024-01-01T12:00:00Z",
-    "user_id": "user_123",
-    "data": {
-      "name": "Customer Support Greeting",
-      "category": "customer_support"
+### Example GraphQL Query
+```graphql
+query GetDashboardWithInsights($dashboardId: ID!) {
+  dashboard(id: $dashboardId) {
+    id
+    name
+    type
+    widgets {
+      id
+      title
+      type
+      config
     }
-  },
-  "timestamp": "2024-01-01T12:00:00Z",
-  "delivery_id": "delivery_def456"
+    metrics {
+      totalViews
+      uniqueUsers
+      avgSessionDuration
+    }
+  }
+  
+  insights(dashboardId: $dashboardId, limit: 5) {
+    id
+    type
+    title
+    significance
+    confidence
+    recommendations
+  }
 }
 ```
 
-### Webhook Security
-
-Webhooks include a signature header for verification:
-
-```http
-X-ScrollIntel-Signature: sha256=abc123def456...
+### Example GraphQL Mutation
+```graphql
+mutation CreateDashboard($input: DashboardInput!) {
+  createDashboard(input: $input) {
+    id
+    name
+    type
+    createdAt
+  }
+}
 ```
 
-To verify the signature:
+## WebSocket API
 
-```python
-import hmac
-import hashlib
+Real-time updates are available via WebSocket connections.
 
-def verify_webhook_signature(payload, signature, secret):
-    expected_signature = hmac.new(
-        secret.encode('utf-8'),
-        payload.encode('utf-8'),
-        hashlib.sha256
-    ).hexdigest()
-    
-    return hmac.compare_digest(
-        f"sha256={expected_signature}",
-        signature
-    )
+### Dashboard Updates
+```
+wss://api.scrollintel.com/ws/dashboard/{dashboard_id}
 ```
 
-## Python SDK
+### Insights Stream
+```
+wss://api.scrollintel.com/ws/insights
+```
 
-### Installation
+### Alerts Stream
+```
+wss://api.scrollintel.com/ws/alerts
+```
 
+### Example WebSocket Usage
+```javascript
+const ws = new WebSocket('wss://api.scrollintel.com/ws/dashboard/dash_123456789');
+
+ws.onmessage = function(event) {
+  const update = JSON.parse(event.data);
+  console.log('Dashboard update:', update);
+};
+```
+
+## Error Codes
+
+| Code | Description |
+|------|-------------|
+| `400` | Bad Request - Invalid request format |
+| `401` | Unauthorized - Invalid or missing API key |
+| `403` | Forbidden - Insufficient permissions |
+| `404` | Not Found - Resource not found |
+| `422` | Unprocessable Entity - Validation error |
+| `429` | Too Many Requests - Rate limit exceeded |
+| `500` | Internal Server Error - Server error |
+
+## SDKs and Libraries
+
+### JavaScript/Node.js
 ```bash
-pip install scrollintel-sdk
+npm install @scrollintel/analytics-api
 ```
 
-### Quick Start
+```javascript
+import { ScrollIntelAPI } from '@scrollintel/analytics-api';
 
-```python
-from scrollintel.sdk import PromptClient
-from scrollintel.sdk.models import PromptVariable, SearchQuery
+const api = new ScrollIntelAPI('YOUR_API_KEY');
 
-# Initialize client
-client = PromptClient(
-    base_url="https://api.scrollintel.com",
-    api_key="your-api-key"
-)
+// List dashboards
+const dashboards = await api.dashboards.list();
 
-# Create a prompt
-variables = [
-    PromptVariable(
-        name="customer_name",
-        type="string",
-        required=True,
-        description="Customer's name"
-    )
-]
-
-prompt_id = client.create_prompt(
-    name="Customer Greeting",
-    content="Hello {{customer_name}}, how can I help?",
-    category="support",
-    tags=["greeting"],
-    variables=variables
-)
-
-# Get a prompt
-prompt = client.get_prompt(prompt_id)
-print(f"Prompt: {prompt.name}")
-
-# Search prompts
-query = SearchQuery(
-    text="customer",
-    category="support",
-    limit=10
-)
-
-results = client.search_prompts(query)
-print(f"Found {results.total} prompts")
-
-# Register webhook
-webhook_id = client.register_webhook(
-    url="https://your-app.com/webhook",
-    events=["prompt.created", "prompt.updated"],
-    secret="your-secret"
-)
-
-# Get usage summary
-summary = client.get_usage_summary()
-print(f"Total requests: {summary['total_requests']}")
+// Create dashboard
+const dashboard = await api.dashboards.create({
+  name: 'My Dashboard',
+  type: 'EXECUTIVE'
+});
 ```
 
-### Error Handling
-
-```python
-from scrollintel.sdk.exceptions import (
-    RateLimitError, ValidationError, NotFoundError
-)
-
-try:
-    prompt = client.get_prompt("invalid-id")
-except NotFoundError:
-    print("Prompt not found")
-except RateLimitError as e:
-    print(f"Rate limited. Retry after {e.retry_after} seconds")
-except ValidationError as e:
-    print(f"Validation error: {e.errors}")
+### Python
+```bash
+pip install scrollintel-analytics
 ```
 
-### Context Manager
-
 ```python
-with PromptClient(base_url="...", api_key="...") as client:
-    prompt = client.get_prompt("prompt-id")
-    # Client automatically closed when exiting context
+from scrollintel import AnalyticsAPI
+
+api = AnalyticsAPI('YOUR_API_KEY')
+
+# List dashboards
+dashboards = api.dashboards.list()
+
+# Create dashboard
+dashboard = api.dashboards.create(
+    name='My Dashboard',
+    type='EXECUTIVE'
+)
+```
+
+### cURL Examples
+
+#### Create Dashboard
+```bash
+curl -X POST https://api.scrollintel.com/v1/dashboards \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "Executive Dashboard",
+    "type": "EXECUTIVE",
+    "description": "Main executive overview"
+  }'
+```
+
+#### Get Insights
+```bash
+curl -X GET "https://api.scrollintel.com/v1/insights?type=ANOMALY&limit=10" \
+  -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
 ## Best Practices
 
-### Rate Limiting
+### 1. API Key Security
+- Never expose API keys in client-side code
+- Use environment variables to store API keys
+- Rotate API keys regularly
+- Use different keys for different environments
 
-- Implement exponential backoff for rate limit errors
-- Cache frequently accessed prompts
-- Use batch operations when possible
+### 2. Rate Limiting
+- Implement exponential backoff for retries
+- Cache responses when appropriate
+- Use webhooks instead of polling for real-time updates
 
-### Webhooks
+### 3. Error Handling
+- Always check response status codes
+- Implement proper error handling for all API calls
+- Log errors for debugging
 
-- Always verify webhook signatures
+### 4. Performance
+- Use pagination for large datasets
+- Implement request timeouts
+- Use GraphQL for complex queries to reduce over-fetching
+
+### 5. Webhooks
+- Verify webhook signatures for security
 - Implement idempotency for webhook handlers
-- Use HTTPS endpoints only
-- Handle webhook failures gracefully
-
-### Error Handling
-
-- Always check the `success` field in responses
-- Implement proper retry logic for transient errors
-- Log request IDs for debugging
-
-### Security
-
-- Keep API keys secure and rotate regularly
-- Use webhook secrets for signature verification
-- Implement proper access controls
+- Use HTTPS endpoints for webhook URLs
 
 ## Support
 
-For API support, contact: api-support@scrollintel.com
+- **Documentation**: https://docs.scrollintel.com
+- **API Status**: https://status.scrollintel.com
+- **Support Email**: api-support@scrollintel.com
+- **Community Forum**: https://community.scrollintel.com
 
 ## Changelog
 
-### v1.0.0 (2024-01-01)
+### v1.0.0 (2024-01-15)
 - Initial API release
-- Prompt CRUD operations
-- Search and filtering
-- Webhook support
-- Rate limiting
-- Usage analytics
+- Dashboard management endpoints
+- ROI analysis functionality
+- Insight generation
+- Predictive analytics
+- GraphQL support
+- WebSocket real-time updates
+- Webhook system

@@ -1,26 +1,30 @@
 @echo off
-echo ================================
-echo ScrollIntel Local Demo Launcher
-echo ================================
+echo ========================================
+echo ScrollIntel Demo Launcher
+echo ========================================
 echo.
 
-REM Set local environment variables
-set DATABASE_URL=sqlite:///./scrollintel_local.db
-set ENVIRONMENT=development
-set DEBUG=true
+echo Starting ScrollIntel Backend Server...
+start "ScrollIntel Backend" python simple_server.py
 
-echo Starting ScrollIntel components...
+echo Waiting for backend to start...
+timeout /t 3 /nobreak >nul
+
+echo Opening ScrollIntel Frontend...
+start "ScrollIntel Frontend" simple_frontend.html
+
 echo.
+echo ========================================
+echo ScrollIntel Demo is now running!
+echo ========================================
+echo.
+echo Backend API: http://127.0.0.1:8000
+echo Frontend:    simple_frontend.html (opened in browser)
+echo.
+echo Press any key to stop all services...
+pause >nul
 
-REM Start frontend in a new window
-echo Starting frontend server...
-start "ScrollIntel Frontend" cmd /k "cd frontend && npm run dev"
-
-REM Wait a moment for frontend to start
-timeout /t 3 /nobreak > nul
-
-REM Start backend
-echo Starting backend API server...
-python start_local_demo.py
-
+echo Stopping services...
+taskkill /f /im python.exe /fi "WINDOWTITLE eq ScrollIntel Backend*" 2>nul
+echo Services stopped.
 pause

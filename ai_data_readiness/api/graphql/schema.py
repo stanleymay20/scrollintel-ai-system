@@ -1,9 +1,9 @@
-"""GraphQL schema definition."""
+"""Modern GraphQL schema definition using Strawberry GraphQL."""
 
 import strawberry
-from typing import List, Optional
+from typing import List, Optional, AsyncGenerator
 from datetime import datetime
-from dataclasses import dataclass
+import asyncio
 
 from .types import (
     Dataset, QualityReport, BiasReport, AIReadinessScore,
@@ -105,33 +105,61 @@ class Mutation:
 
 @strawberry.type
 class Subscription:
-    """GraphQL Subscription root for real-time updates."""
+    """Modern GraphQL Subscription root for real-time updates."""
     
-    # Dataset subscriptions
-    dataset_updates: Dataset = strawberry.field(resolver=DatasetResolver.subscribe_dataset_updates)
+    @strawberry.subscription
+    async def dataset_updates(self, dataset_id: Optional[str] = None) -> AsyncGenerator[Dataset, None]:
+        """Subscribe to dataset updates with modern async generator pattern."""
+        async for update in DatasetResolver.subscribe_dataset_updates(dataset_id):
+            yield update
     
-    # Quality subscriptions
-    quality_updates: QualityReport = strawberry.field(resolver=QualityResolver.subscribe_quality_updates)
+    @strawberry.subscription
+    async def quality_updates(self, dataset_id: str) -> AsyncGenerator[QualityReport, None]:
+        """Subscribe to quality report updates."""
+        async for update in QualityResolver.subscribe_quality_updates(dataset_id):
+            yield update
     
-    # Processing subscriptions
-    job_status_updates: ProcessingJob = strawberry.field(resolver=ProcessingResolver.subscribe_job_updates)
+    @strawberry.subscription
+    async def job_status_updates(self, job_id: str) -> AsyncGenerator[ProcessingJob, None]:
+        """Subscribe to processing job status updates."""
+        async for update in ProcessingResolver.subscribe_job_updates(job_id):
+            yield update
     
-    # Drift subscriptions
-    drift_alerts: DriftReport = strawberry.field(resolver=DriftResolver.subscribe_drift_alerts)
+    @strawberry.subscription
+    async def drift_alerts(self, dataset_id: str) -> AsyncGenerator[DriftReport, None]:
+        """Subscribe to drift detection alerts."""
+        async for alert in DriftResolver.subscribe_drift_alerts(dataset_id):
+            yield alert
     
-    # System subscriptions
-    system_alerts: dict = strawberry.field(resolver=DatasetResolver.subscribe_system_alerts)
+    @strawberry.subscription
+    async def system_alerts(self) -> AsyncGenerator[strawberry.scalars.JSON, None]:
+        """Subscribe to system-wide alerts."""
+        async for alert in DatasetResolver.subscribe_system_alerts():
+            yield alert
     
-    # Enhanced subscriptions for real-time monitoring
-    pipeline_status_updates: dict = strawberry.field(resolver=ProcessingResolver.subscribe_pipeline_status)
-    compliance_alerts: ComplianceReport = strawberry.field(resolver=ComplianceResolver.subscribe_compliance_alerts)
-    bias_monitoring_updates: BiasReport = strawberry.field(resolver=BiasResolver.subscribe_bias_monitoring)
-    feature_performance_updates: dict = strawberry.field(resolver=FeatureResolver.subscribe_feature_performance)
+    @strawberry.subscription
+    async def pipeline_status_updates(self, pipeline_id: str) -> AsyncGenerator[strawberry.scalars.JSON, None]:
+        """Subscribe to pipeline status updates."""
+        async for update in ProcessingResolver.subscribe_pipeline_status(pipeline_id):
+            yield update
+    
+    @strawberry.subscription
+    async def compliance_alerts(self, dataset_id: str) -> AsyncGenerator[ComplianceReport, None]:
+        """Subscribe to compliance alerts."""
+        async for alert in ComplianceResolver.subscribe_compliance_alerts(dataset_id):
+            yield alert
 
 
-# Create the GraphQL schema
+# Create the modern GraphQL schema with enhanced features
 schema = strawberry.Schema(
     query=Query,
     mutation=Mutation,
-    subscription=Subscription
+    subscription=Subscription,
+    # Enable modern features
+    extensions=[
+        # Add query complexity analysis
+        strawberry.extensions.QueryDepthLimiter(max_depth=10),
+        # Add performance tracing
+        strawberry.extensions.Tracing(),
+    ]
 )

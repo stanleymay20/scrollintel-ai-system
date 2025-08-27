@@ -1,537 +1,453 @@
 """
-Template marketplace for community-contributed dashboard templates.
-"""
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
-from datetime import datetime
-from enum import Enum
-import json
-import uuid
-from sqlalchemy import Column, String, DateTime, Text, Boolean, Integer, Float
-from sqlalchemy.orm import Session
-from scrollintel.models.database import Base, get_db
-from scrollintel.core.template_engine import template_engine, IndustryType, TemplateCategory
+Template Marketplace for Community Dashboard Templates
 
+Provides marketplace functionality for sharing and discovering community templates.
+"""
+
+from typing import Dict, List, Optional, Any
+from dataclasses import dataclass, asdict
+from datetime import datetime
+import uuid
+from enum import Enum
+
+from .template_engine import DashboardTemplate, IndustryType, TemplateCategory
 
 class MarketplaceStatus(Enum):
-    PENDING = "pending"
+    DRAFT = "draft"
+    PENDING_REVIEW = "pending_review"
     APPROVED = "approved"
     REJECTED = "rejected"
     FEATURED = "featured"
     DEPRECATED = "deprecated"
 
+class LicenseType(Enum):
+    FREE = "free"
+    PREMIUM = "premium"
+    OPEN_SOURCE = "open_source"
+    COMMERCIAL = "commercial"
 
-class TemplateMarketplaceEntry(Base):
-    """Database model for marketplace template entries."""
-    __tablename__ = "marketplace_templates"
-    
-    id = Column(String, primary_key=True)
-    template_id = Column(String, nullable=False, unique=True)
-    title = Column(String, nullable=False)
-    description = Column(Text, nullable=False)
-    author_id = Column(String, nullable=False)
-    author_name = Column(String, nullable=False)
-    category = Column(String, nullable=False)
-    industry = Column(String, nullable=False)
-    tags = Column(Text, nullable=False)  # JSON array
-    version = Column(String, nullable=False)
-    status = Column(String, nullable=False, default="pending")
-    download_count = Column(Integer, default=0)
-    rating_average = Column(Float, default=0.0)
-    rating_count = Column(Integer, default=0)
-    price = Column(Float, default=0.0)  # 0 for free templates
-    license_type = Column(String, default="MIT")
-    preview_images = Column(Text, nullable=True)  # JSON array of image URLs
-    demo_url = Column(String, nullable=True)
-    documentation_url = Column(String, nullable=True)
-    source_url = Column(String, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
-    approved_at = Column(DateTime, nullable=True)
-    approved_by = Column(String, nullable=True)
-    is_featured = Column(Boolean, default=False)
-    is_active = Column(Boolean, default=True)
+@dataclass
+class TemplateRating:
+    """User rating for marketplace template"""
+    rating_id: str
+    template_id: str
+    user_id: str
+    rating: int  # 1-5 stars
+    review: Optional[str]
+    created_at: datetime
+    updated_at: Optional[datetime] = None
 
+@dataclass
+class MarketplaceTemplate:
+    """Template in marketplace with additional metadata"""
+    marketplace_id: str
+    template: DashboardTemplate
+    author_id: str
+    author_name: str
+    status: MarketplaceStatus
+    license_type: LicenseType
+    price: float = 0.0
+    download_count: int = 0
+    rating_average: float = 0.0
+    rating_count: int = 0
+    featured_order: Optional[int] = None
+    submission_date: datetime = None
+    approval_date: Optional[datetime] = None
+    last_updated: datetime = None
+    screenshots: List[str] = None
+    demo_url: Optional[str] = None
+    documentation_url: Optional[str] = None
+    support_email: Optional[str] = None
+    changelog: List[Dict[str, Any]] = None
+    requirements: List[str] = None
+    compatible_versions: List[str] = None
 
-class TemplateRating(Base):
-    """Database model for template ratings."""
-    __tablename__ = "template_ratings"
-    
-    id = Column(String, primary_key=True)
-    template_id = Column(String, nullable=False, index=True)
-    user_id = Column(String, nullable=False)
-    rating = Column(Integer, nullable=False)  # 1-5 stars
-    review = Column(Text, nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow)
-    is_active = Column(Boolean, default=True)
-
-
-class TemplateDownload(Base):
-    """Database model for template downloads."""
-    __tablename__ = "template_downloads"
-    
-    id = Column(String, primary_key=True)
-    template_id = Column(String, nullable=False, index=True)
-    user_id = Column(String, nullable=False)
-    downloaded_at = Column(DateTime, default=datetime.utcnow)
-    version = Column(String, nullable=False)
-
+@dataclass
+class MarketplaceCollection:
+    """Curated collection of templates"""
+    collection_id: str
+    name: str
+    description: str
+    curator_id: str
+    template_ids: List[str]
+    is_featured: bool = False
+    created_at: datetime = None
+    updated_at: Optional[datetime] = None
+    tags: List[str] = None
 
 class TemplateMarketplace:
-    """Manager for template marketplace operations."""
+    """Marketplace for community dashboard templates"""
     
     def __init__(self):
-        self.db_session = None
+        self.marketplace_templates: Dict[str, MarketplaceTemplate] = {}
+        self.ratings: Dict[str, List[TemplateRating]] = {}  # template_id -> ratings
+        self.collections: Dict[str, MarketplaceCollection] = {}
+        self.user_downloads: Dict[str, Set[str]] = {}  # user_id -> template_ids
+        self.featured_templates: List[str] = []
+        self._initialize_sample_templates()
     
-    def _get_db_session(self) -> Session:
-        """Get database session."""
-        if not self.db_session:
-            self.db_session = next(get_db())
-        return self.db_session
-    
-    def submit_template(
-        self,
-        template_id: str,
-        title: str,
-        description: str,
-        author_id: str,
-        author_name: str,
-        category: str,
-        industry: str,
-        tags: List[str],
-        version: str = "1.0.0",
-        price: float = 0.0,
-        license_type: str = "MIT",
-        preview_images: List[str] = None,
-        demo_url: str = None,
-        documentation_url: str = None,
-        source_url: str = None
-    ) -> str:
-        """Submit a template to the marketplace."""
-        db = self._get_db_session()
+    def _initialize_sample_templates(self):
+        """Initialize marketplace with sample templates"""
         
-        entry_id = f"marketplace_{uuid.uuid4().hex[:12]}"
+        # Sample featured template
+        from .template_engine import WidgetConfig
         
-        marketplace_entry = TemplateMarketplaceEntry(
-            id=entry_id,
-            template_id=template_id,
-            title=title,
-            description=description,
-            author_id=author_id,
-            author_name=author_name,
-            category=category,
-            industry=industry,
-            tags=json.dumps(tags),
-            version=version,
-            status=MarketplaceStatus.PENDING.value,
-            price=price,
-            license_type=license_type,
-            preview_images=json.dumps(preview_images or []),
-            demo_url=demo_url,
-            documentation_url=documentation_url,
-            source_url=source_url
-        )
-        
-        db.add(marketplace_entry)
-        db.commit()
-        
-        return entry_id
-    
-    def approve_template(self, entry_id: str, approved_by: str) -> bool:
-        """Approve a template for the marketplace."""
-        db = self._get_db_session()
-        
-        entry = db.query(TemplateMarketplaceEntry)\
-            .filter(TemplateMarketplaceEntry.id == entry_id)\
-            .first()
-        
-        if not entry:
-            return False
-        
-        entry.status = MarketplaceStatus.APPROVED.value
-        entry.approved_at = datetime.utcnow()
-        entry.approved_by = approved_by
-        entry.updated_at = datetime.utcnow()
-        
-        db.commit()
-        return True
-    
-    def reject_template(self, entry_id: str, rejected_by: str, reason: str = "") -> bool:
-        """Reject a template submission."""
-        db = self._get_db_session()
-        
-        entry = db.query(TemplateMarketplaceEntry)\
-            .filter(TemplateMarketplaceEntry.id == entry_id)\
-            .first()
-        
-        if not entry:
-            return False
-        
-        entry.status = MarketplaceStatus.REJECTED.value
-        entry.updated_at = datetime.utcnow()
-        
-        # TODO: Store rejection reason
-        
-        db.commit()
-        return True
-    
-    def feature_template(self, entry_id: str) -> bool:
-        """Feature a template in the marketplace."""
-        db = self._get_db_session()
-        
-        entry = db.query(TemplateMarketplaceEntry)\
-            .filter(TemplateMarketplaceEntry.id == entry_id)\
-            .first()
-        
-        if not entry or entry.status != MarketplaceStatus.APPROVED.value:
-            return False
-        
-        entry.is_featured = True
-        entry.status = MarketplaceStatus.FEATURED.value
-        entry.updated_at = datetime.utcnow()
-        
-        db.commit()
-        return True
-    
-    def search_templates(
-        self,
-        query: str = "",
-        category: str = None,
-        industry: str = None,
-        tags: List[str] = None,
-        min_rating: float = 0.0,
-        max_price: float = None,
-        sort_by: str = "popularity",  # popularity, rating, newest, price
-        limit: int = 20,
-        offset: int = 0
-    ) -> List[Dict[str, Any]]:
-        """Search templates in the marketplace."""
-        db = self._get_db_session()
-        
-        query_obj = db.query(TemplateMarketplaceEntry)\
-            .filter(
-                TemplateMarketplaceEntry.status.in_([
-                    MarketplaceStatus.APPROVED.value,
-                    MarketplaceStatus.FEATURED.value
-                ]),
-                TemplateMarketplaceEntry.is_active == True
+        sample_widgets = [
+            WidgetConfig(
+                id="sample_kpi_grid",
+                type="kpi_grid",
+                title="Executive KPI Overview",
+                position={"x": 0, "y": 0, "width": 12, "height": 3},
+                data_source="executive_metrics",
+                visualization_config={
+                    "kpis": ["revenue", "growth_rate", "customer_satisfaction", "team_productivity"],
+                    "layout": "grid_4x1"
+                },
+                filters=[]
             )
-        
-        # Apply filters
-        if query:
-            query_obj = query_obj.filter(
-                TemplateMarketplaceEntry.title.contains(query) |
-                TemplateMarketplaceEntry.description.contains(query)
-            )
-        
-        if category:
-            query_obj = query_obj.filter(TemplateMarketplaceEntry.category == category)
-        
-        if industry:
-            query_obj = query_obj.filter(TemplateMarketplaceEntry.industry == industry)
-        
-        if min_rating > 0:
-            query_obj = query_obj.filter(TemplateMarketplaceEntry.rating_average >= min_rating)
-        
-        if max_price is not None:
-            query_obj = query_obj.filter(TemplateMarketplaceEntry.price <= max_price)
-        
-        # Apply sorting
-        if sort_by == "popularity":
-            query_obj = query_obj.order_by(TemplateMarketplaceEntry.download_count.desc())
-        elif sort_by == "rating":
-            query_obj = query_obj.order_by(TemplateMarketplaceEntry.rating_average.desc())
-        elif sort_by == "newest":
-            query_obj = query_obj.order_by(TemplateMarketplaceEntry.created_at.desc())
-        elif sort_by == "price":
-            query_obj = query_obj.order_by(TemplateMarketplaceEntry.price.asc())
-        
-        # Apply pagination
-        templates = query_obj.limit(limit).offset(offset).all()
-        
-        return [self._format_marketplace_entry(entry) for entry in templates]
-    
-    def get_featured_templates(self, limit: int = 10) -> List[Dict[str, Any]]:
-        """Get featured templates."""
-        db = self._get_db_session()
-        
-        featured = db.query(TemplateMarketplaceEntry)\
-            .filter(
-                TemplateMarketplaceEntry.is_featured == True,
-                TemplateMarketplaceEntry.is_active == True
-            )\
-            .order_by(TemplateMarketplaceEntry.download_count.desc())\
-            .limit(limit)\
-            .all()
-        
-        return [self._format_marketplace_entry(entry) for entry in featured]
-    
-    def get_template_details(self, template_id: str) -> Optional[Dict[str, Any]]:
-        """Get detailed information about a marketplace template."""
-        db = self._get_db_session()
-        
-        entry = db.query(TemplateMarketplaceEntry)\
-            .filter(TemplateMarketplaceEntry.template_id == template_id)\
-            .first()
-        
-        if not entry:
-            return None
-        
-        # Get ratings
-        ratings = db.query(TemplateRating)\
-            .filter(
-                TemplateRating.template_id == template_id,
-                TemplateRating.is_active == True
-            )\
-            .order_by(TemplateRating.created_at.desc())\
-            .limit(10)\
-            .all()
-        
-        details = self._format_marketplace_entry(entry)
-        details["ratings"] = [
-            {
-                "id": rating.id,
-                "user_id": rating.user_id,
-                "rating": rating.rating,
-                "review": rating.review,
-                "created_at": rating.created_at.isoformat()
-            }
-            for rating in ratings
         ]
         
-        return details
-    
-    def download_template(self, template_id: str, user_id: str) -> Optional[Dict[str, Any]]:
-        """Download a template from the marketplace."""
-        db = self._get_db_session()
-        
-        entry = db.query(TemplateMarketplaceEntry)\
-            .filter(TemplateMarketplaceEntry.template_id == template_id)\
-            .first()
-        
-        if not entry or entry.status not in [MarketplaceStatus.APPROVED.value, MarketplaceStatus.FEATURED.value]:
-            return None
-        
-        # Record download
-        download_id = f"download_{uuid.uuid4().hex[:12]}"
-        download_record = TemplateDownload(
-            id=download_id,
-            template_id=template_id,
-            user_id=user_id,
-            version=entry.version
+        sample_template = DashboardTemplate(
+            id="community_executive_v1",
+            name="Community Executive Dashboard",
+            description="Popular executive dashboard template from the community",
+            industry=IndustryType.GENERIC,
+            category=TemplateCategory.EXECUTIVE,
+            widgets=sample_widgets,
+            layout_config={"grid_size": 12, "row_height": 60},
+            default_filters=[],
+            metadata={"community_contributed": True},
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+            tags=["executive", "kpi", "community"]
         )
         
-        db.add(download_record)
+        marketplace_template = MarketplaceTemplate(
+            marketplace_id="mp_" + str(uuid.uuid4()),
+            template=sample_template,
+            author_id="community_user_1",
+            author_name="Dashboard Expert",
+            status=MarketplaceStatus.FEATURED,
+            license_type=LicenseType.FREE,
+            submission_date=datetime.now(),
+            approval_date=datetime.now(),
+            last_updated=datetime.now(),
+            screenshots=["screenshot1.png", "screenshot2.png"],
+            requirements=["ScrollIntel v2.0+"],
+            compatible_versions=["2.0", "2.1", "2.2"]
+        )
         
-        # Increment download count
-        entry.download_count += 1
-        entry.updated_at = datetime.utcnow()
+        self.marketplace_templates[marketplace_template.marketplace_id] = marketplace_template
+        self.featured_templates.append(marketplace_template.marketplace_id)
+    
+    def submit_template(self, 
+                       template: DashboardTemplate,
+                       author_id: str,
+                       author_name: str,
+                       license_type: LicenseType = LicenseType.FREE,
+                       price: float = 0.0,
+                       screenshots: Optional[List[str]] = None,
+                       demo_url: Optional[str] = None,
+                       documentation_url: Optional[str] = None,
+                       support_email: Optional[str] = None,
+                       requirements: Optional[List[str]] = None) -> str:
+        """Submit template to marketplace"""
         
-        db.commit()
+        marketplace_id = "mp_" + str(uuid.uuid4())
         
-        # Get template data from template engine
-        template = template_engine.get_template(template_id)
-        if not template:
+        marketplace_template = MarketplaceTemplate(
+            marketplace_id=marketplace_id,
+            template=template,
+            author_id=author_id,
+            author_name=author_name,
+            status=MarketplaceStatus.PENDING_REVIEW,
+            license_type=license_type,
+            price=price,
+            submission_date=datetime.now(),
+            last_updated=datetime.now(),
+            screenshots=screenshots or [],
+            demo_url=demo_url,
+            documentation_url=documentation_url,
+            support_email=support_email,
+            requirements=requirements or [],
+            changelog=[{
+                "version": template.version,
+                "date": datetime.now().isoformat(),
+                "changes": ["Initial submission"]
+            }]
+        )
+        
+        self.marketplace_templates[marketplace_id] = marketplace_template
+        return marketplace_id
+    
+    def approve_template(self, marketplace_id: str, reviewer_id: str) -> bool:
+        """Approve template for marketplace"""
+        
+        template = self.marketplace_templates.get(marketplace_id)
+        if not template or template.status != MarketplaceStatus.PENDING_REVIEW:
+            return False
+        
+        template.status = MarketplaceStatus.APPROVED
+        template.approval_date = datetime.now()
+        return True
+    
+    def reject_template(self, marketplace_id: str, reviewer_id: str, reason: str) -> bool:
+        """Reject template submission"""
+        
+        template = self.marketplace_templates.get(marketplace_id)
+        if not template or template.status != MarketplaceStatus.PENDING_REVIEW:
+            return False
+        
+        template.status = MarketplaceStatus.REJECTED
+        # Store rejection reason in metadata
+        if not template.template.metadata:
+            template.template.metadata = {}
+        template.template.metadata['rejection_reason'] = reason
+        template.template.metadata['rejected_by'] = reviewer_id
+        template.template.metadata['rejected_at'] = datetime.now().isoformat()
+        
+        return True
+    
+    def feature_template(self, marketplace_id: str, featured_order: int = 0) -> bool:
+        """Feature template in marketplace"""
+        
+        template = self.marketplace_templates.get(marketplace_id)
+        if not template or template.status != MarketplaceStatus.APPROVED:
+            return False
+        
+        template.status = MarketplaceStatus.FEATURED
+        template.featured_order = featured_order
+        
+        if marketplace_id not in self.featured_templates:
+            self.featured_templates.append(marketplace_id)
+        
+        # Sort featured templates by order
+        self.featured_templates.sort(key=lambda tid: 
+            self.marketplace_templates[tid].featured_order or 999)
+        
+        return True
+    
+    def download_template(self, marketplace_id: str, user_id: str) -> Optional[DashboardTemplate]:
+        """Download template from marketplace"""
+        
+        template = self.marketplace_templates.get(marketplace_id)
+        if not template or template.status not in [MarketplaceStatus.APPROVED, MarketplaceStatus.FEATURED]:
             return None
         
-        return {
-            "template_data": template_engine.export_template(template_id),
-            "marketplace_info": self._format_marketplace_entry(entry),
-            "download_id": download_id
-        }
+        # Increment download count
+        template.download_count += 1
+        
+        # Track user download
+        if user_id not in self.user_downloads:
+            self.user_downloads[user_id] = set()
+        self.user_downloads[user_id].add(marketplace_id)
+        
+        # Return copy of template
+        return template.template
     
-    def rate_template(
-        self,
-        template_id: str,
-        user_id: str,
-        rating: int,
-        review: str = ""
-    ) -> bool:
-        """Rate a template."""
-        db = self._get_db_session()
+    def rate_template(self, 
+                     marketplace_id: str,
+                     user_id: str,
+                     rating: int,
+                     review: Optional[str] = None) -> bool:
+        """Rate marketplace template"""
         
         if rating < 1 or rating > 5:
             return False
         
-        # Check if user already rated this template
-        existing_rating = db.query(TemplateRating)\
-            .filter(
-                TemplateRating.template_id == template_id,
-                TemplateRating.user_id == user_id,
-                TemplateRating.is_active == True
-            )\
-            .first()
+        template = self.marketplace_templates.get(marketplace_id)
+        if not template:
+            return False
         
-        if existing_rating:
-            # Update existing rating
-            existing_rating.rating = rating
-            existing_rating.review = review
-            existing_rating.updated_at = datetime.utcnow()
-        else:
-            # Create new rating
-            rating_id = f"rating_{uuid.uuid4().hex[:12]}"
-            new_rating = TemplateRating(
-                id=rating_id,
-                template_id=template_id,
-                user_id=user_id,
-                rating=rating,
-                review=review
-            )
-            db.add(new_rating)
+        rating_id = str(uuid.uuid4())
         
-        db.commit()
+        template_rating = TemplateRating(
+            rating_id=rating_id,
+            template_id=marketplace_id,
+            user_id=user_id,
+            rating=rating,
+            review=review,
+            created_at=datetime.now()
+        )
         
-        # Update template rating average
-        self._update_template_rating(template_id)
+        if marketplace_id not in self.ratings:
+            self.ratings[marketplace_id] = []
+        
+        # Remove existing rating from same user
+        self.ratings[marketplace_id] = [
+            r for r in self.ratings[marketplace_id] if r.user_id != user_id
+        ]
+        
+        self.ratings[marketplace_id].append(template_rating)
+        
+        # Update template rating statistics
+        self._update_template_rating_stats(marketplace_id)
         
         return True
     
-    def _update_template_rating(self, template_id: str):
-        """Update the average rating for a template."""
-        db = self._get_db_session()
+    def search_templates(self, 
+                        query: Optional[str] = None,
+                        industry: Optional[IndustryType] = None,
+                        category: Optional[TemplateCategory] = None,
+                        license_type: Optional[LicenseType] = None,
+                        min_rating: Optional[float] = None,
+                        tags: Optional[List[str]] = None,
+                        sort_by: str = "popularity") -> List[MarketplaceTemplate]:
+        """Search marketplace templates"""
         
-        # Calculate new average
-        ratings = db.query(TemplateRating)\
-            .filter(
-                TemplateRating.template_id == template_id,
-                TemplateRating.is_active == True
-            )\
-            .all()
+        templates = [t for t in self.marketplace_templates.values() 
+                    if t.status in [MarketplaceStatus.APPROVED, MarketplaceStatus.FEATURED]]
         
-        if not ratings:
-            return
+        # Apply filters
+        if query:
+            query_lower = query.lower()
+            templates = [t for t in templates if 
+                        query_lower in t.template.name.lower() or
+                        query_lower in t.template.description.lower() or
+                        any(query_lower in tag.lower() for tag in (t.template.tags or []))]
         
-        total_rating = sum(r.rating for r in ratings)
-        average_rating = total_rating / len(ratings)
+        if industry:
+            templates = [t for t in templates if t.template.industry == industry]
         
-        # Update marketplace entry
-        entry = db.query(TemplateMarketplaceEntry)\
-            .filter(TemplateMarketplaceEntry.template_id == template_id)\
-            .first()
+        if category:
+            templates = [t for t in templates if t.template.category == category]
         
-        if entry:
-            entry.rating_average = round(average_rating, 2)
-            entry.rating_count = len(ratings)
-            entry.updated_at = datetime.utcnow()
-            db.commit()
+        if license_type:
+            templates = [t for t in templates if t.license_type == license_type]
+        
+        if min_rating:
+            templates = [t for t in templates if t.rating_average >= min_rating]
+        
+        if tags:
+            templates = [t for t in templates if 
+                        any(tag in (t.template.tags or []) for tag in tags)]
+        
+        # Sort results
+        if sort_by == "popularity":
+            templates.sort(key=lambda t: t.download_count, reverse=True)
+        elif sort_by == "rating":
+            templates.sort(key=lambda t: t.rating_average, reverse=True)
+        elif sort_by == "newest":
+            templates.sort(key=lambda t: t.submission_date, reverse=True)
+        elif sort_by == "name":
+            templates.sort(key=lambda t: t.template.name)
+        
+        return templates
     
-    def get_user_downloads(self, user_id: str) -> List[Dict[str, Any]]:
-        """Get user's download history."""
-        db = self._get_db_session()
+    def get_featured_templates(self) -> List[MarketplaceTemplate]:
+        """Get featured templates"""
+        return [self.marketplace_templates[tid] for tid in self.featured_templates 
+                if tid in self.marketplace_templates]
+    
+    def get_template_ratings(self, marketplace_id: str) -> List[TemplateRating]:
+        """Get ratings for template"""
+        return self.ratings.get(marketplace_id, [])
+    
+    def create_collection(self, 
+                         name: str,
+                         description: str,
+                         curator_id: str,
+                         template_ids: List[str],
+                         tags: Optional[List[str]] = None) -> str:
+        """Create curated collection"""
         
-        downloads = db.query(TemplateDownload)\
-            .filter(TemplateDownload.user_id == user_id)\
-            .order_by(TemplateDownload.downloaded_at.desc())\
-            .all()
+        collection_id = "col_" + str(uuid.uuid4())
         
-        return [
-            {
-                "id": download.id,
-                "template_id": download.template_id,
-                "version": download.version,
-                "downloaded_at": download.downloaded_at.isoformat()
-            }
-            for download in downloads
-        ]
+        collection = MarketplaceCollection(
+            collection_id=collection_id,
+            name=name,
+            description=description,
+            curator_id=curator_id,
+            template_ids=template_ids,
+            created_at=datetime.now(),
+            tags=tags or []
+        )
+        
+        self.collections[collection_id] = collection
+        return collection_id
+    
+    def get_collections(self, featured_only: bool = False) -> List[MarketplaceCollection]:
+        """Get collections"""
+        collections = list(self.collections.values())
+        
+        if featured_only:
+            collections = [c for c in collections if c.is_featured]
+        
+        return collections
+    
+    def get_user_downloads(self, user_id: str) -> List[MarketplaceTemplate]:
+        """Get templates downloaded by user"""
+        downloaded_ids = self.user_downloads.get(user_id, set())
+        return [self.marketplace_templates[tid] for tid in downloaded_ids 
+                if tid in self.marketplace_templates]
+    
+    def get_author_templates(self, author_id: str) -> List[MarketplaceTemplate]:
+        """Get templates by author"""
+        return [t for t in self.marketplace_templates.values() 
+                if t.author_id == author_id]
+    
+    def update_template(self, 
+                       marketplace_id: str,
+                       template: DashboardTemplate,
+                       changelog_entry: str) -> bool:
+        """Update existing marketplace template"""
+        
+        marketplace_template = self.marketplace_templates.get(marketplace_id)
+        if not marketplace_template:
+            return False
+        
+        # Update template
+        marketplace_template.template = template
+        marketplace_template.last_updated = datetime.now()
+        
+        # Add changelog entry
+        if not marketplace_template.changelog:
+            marketplace_template.changelog = []
+        
+        marketplace_template.changelog.append({
+            "version": template.version,
+            "date": datetime.now().isoformat(),
+            "changes": [changelog_entry]
+        })
+        
+        return True
     
     def get_marketplace_stats(self) -> Dict[str, Any]:
-        """Get marketplace statistics."""
-        db = self._get_db_session()
+        """Get marketplace statistics"""
         
-        total_templates = db.query(TemplateMarketplaceEntry)\
-            .filter(TemplateMarketplaceEntry.is_active == True)\
-            .count()
+        total_templates = len(self.marketplace_templates)
+        approved_templates = len([t for t in self.marketplace_templates.values() 
+                                 if t.status in [MarketplaceStatus.APPROVED, MarketplaceStatus.FEATURED]])
+        featured_templates = len([t for t in self.marketplace_templates.values() 
+                                if t.status == MarketplaceStatus.FEATURED])
         
-        approved_templates = db.query(TemplateMarketplaceEntry)\
-            .filter(
-                TemplateMarketplaceEntry.status.in_([
-                    MarketplaceStatus.APPROVED.value,
-                    MarketplaceStatus.FEATURED.value
-                ]),
-                TemplateMarketplaceEntry.is_active == True
-            )\
-            .count()
+        total_downloads = sum(t.download_count for t in self.marketplace_templates.values())
         
-        total_downloads = db.query(TemplateDownload).count()
+        # Industry distribution
+        industry_stats = {}
+        for template in self.marketplace_templates.values():
+            industry = template.template.industry.value
+            industry_stats[industry] = industry_stats.get(industry, 0) + 1
         
         return {
             "total_templates": total_templates,
             "approved_templates": approved_templates,
-            "pending_templates": total_templates - approved_templates,
+            "featured_templates": featured_templates,
             "total_downloads": total_downloads,
-            "categories": self._get_category_stats(),
-            "industries": self._get_industry_stats()
+            "industry_distribution": industry_stats,
+            "total_collections": len(self.collections),
+            "total_ratings": sum(len(ratings) for ratings in self.ratings.values())
         }
     
-    def _get_category_stats(self) -> Dict[str, int]:
-        """Get template count by category."""
-        db = self._get_db_session()
+    def _update_template_rating_stats(self, marketplace_id: str):
+        """Update template rating statistics"""
         
-        categories = {}
-        for category in TemplateCategory:
-            count = db.query(TemplateMarketplaceEntry)\
-                .filter(
-                    TemplateMarketplaceEntry.category == category.value,
-                    TemplateMarketplaceEntry.status.in_([
-                        MarketplaceStatus.APPROVED.value,
-                        MarketplaceStatus.FEATURED.value
-                    ]),
-                    TemplateMarketplaceEntry.is_active == True
-                )\
-                .count()
-            categories[category.value] = count
+        template = self.marketplace_templates.get(marketplace_id)
+        ratings = self.ratings.get(marketplace_id, [])
         
-        return categories
-    
-    def _get_industry_stats(self) -> Dict[str, int]:
-        """Get template count by industry."""
-        db = self._get_db_session()
+        if not template or not ratings:
+            return
         
-        industries = {}
-        for industry in IndustryType:
-            count = db.query(TemplateMarketplaceEntry)\
-                .filter(
-                    TemplateMarketplaceEntry.industry == industry.value,
-                    TemplateMarketplaceEntry.status.in_([
-                        MarketplaceStatus.APPROVED.value,
-                        MarketplaceStatus.FEATURED.value
-                    ]),
-                    TemplateMarketplaceEntry.is_active == True
-                )\
-                .count()
-            industries[industry.value] = count
-        
-        return industries
-    
-    def _format_marketplace_entry(self, entry: TemplateMarketplaceEntry) -> Dict[str, Any]:
-        """Format marketplace entry for API response."""
-        return {
-            "id": entry.id,
-            "template_id": entry.template_id,
-            "title": entry.title,
-            "description": entry.description,
-            "author_id": entry.author_id,
-            "author_name": entry.author_name,
-            "category": entry.category,
-            "industry": entry.industry,
-            "tags": json.loads(entry.tags),
-            "version": entry.version,
-            "status": entry.status,
-            "download_count": entry.download_count,
-            "rating_average": entry.rating_average,
-            "rating_count": entry.rating_count,
-            "price": entry.price,
-            "license_type": entry.license_type,
-            "preview_images": json.loads(entry.preview_images or "[]"),
-            "demo_url": entry.demo_url,
-            "documentation_url": entry.documentation_url,
-            "source_url": entry.source_url,
-            "created_at": entry.created_at.isoformat(),
-            "updated_at": entry.updated_at.isoformat(),
-            "is_featured": entry.is_featured
-        }
-
-
-# Global marketplace instance
-marketplace = TemplateMarketplace()
+        total_rating = sum(r.rating for r in ratings)
+        template.rating_average = total_rating / len(ratings)
+        template.rating_count = len(ratings)

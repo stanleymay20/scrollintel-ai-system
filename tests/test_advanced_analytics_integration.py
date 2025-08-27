@@ -1,520 +1,901 @@
 """
-Integration Tests for Advanced Analytics System
+End-to-End Integration Tests for Advanced Analytics and Reporting
 
-This module tests the complete advanced analytics system including all engines
-and their integration with the unified coordinator.
+This module provides comprehensive tests for the complete reporting workflows
+including report generation, scheduling, statistical analysis, and interactive reports.
 """
 
 import pytest
 import asyncio
+import json
+import pandas as pd
 from datetime import datetime, timedelta
-from typing import List, Dict, Any
+from typing import Dict, List, Any
+import tempfile
+import os
 
-from scrollintel.models.advanced_analytics_models import (
-    AdvancedAnalyticsRequest, AnalyticsType,
-    GraphAnalysisRequest, SemanticQuery, PatternRecognitionRequest, 
-    PredictiveAnalyticsRequest, PatternType, PredictionType
+from scrollintel.engines.comprehensive_reporting_engine import (
+    ComprehensiveReportingEngine, ReportConfig, ReportType, ReportFormat
 )
-from scrollintel.engines.advanced_analytics_engine import AdvancedAnalyticsEngine
-from scrollintel.engines.graph_analytics_engine import GraphAnalyticsEngine
-from scrollintel.engines.semantic_search_engine import SemanticSearchEngine
-from scrollintel.engines.pattern_recognition_engine import PatternRecognitionEngine
-from scrollintel.engines.predictive_analytics_engine import PredictiveAnalyticsEngine
+from scrollintel.core.automated_report_scheduler import (
+    AutomatedReportScheduler, ReportSchedule, ScheduleConfig, DeliveryConfig,
+    ScheduleFrequency, DeliveryMethod, ScheduleStatus
+)
+from scrollintel.engines.advanced_statistical_analytics import (
+    AdvancedStatisticalAnalytics, AnalysisConfig, AnalysisType
+)
+from scrollintel.engines.executive_summary_generator import (
+    ExecutiveSummaryGenerator, SummaryType
+)
+from scrollintel.engines.interactive_report_builder import (
+    InteractiveReportBuilder, ComponentType, ChartType, LayoutType,
+    ComponentConfig, ChartConfig
+)
 
 
 class TestAdvancedAnalyticsIntegration:
-    """Test suite for advanced analytics integration."""
+    """Integration tests for advanced analytics and reporting system"""
+    
+    @pytest.fixture
+    def sample_data(self):
+        """Create sample data for testing"""
+        return pd.DataFrame({
+            'date': pd.date_range('2024-01-01', periods=100, freq='D'),
+            'revenue': [1000 + i * 10 + (i % 7) * 50 for i in range(100)],
+            'users': [500 + i * 5 + (i % 3) * 20 for i in range(100)],
+            'conversion_rate': [0.02 + (i % 10) * 0.001 for i in range(100)],
+            'cost': [800 + i * 8 + (i % 5) * 30 for i in range(100)]
+        })
+    
+    @pytest.fixture
+    def reporting_engine(self):
+        """Create reporting engine instance"""
+        return ComprehensiveReportingEngine()
+    
+    @pytest.fixture
+    def scheduler(self, reporting_engine):
+        """Create scheduler instance"""
+        return AutomatedReportScheduler(reporting_engine)
     
     @pytest.fixture
     def analytics_engine(self):
-        """Create analytics engine instance for testing."""
-        return AdvancedAnalyticsEngine()
+        """Create analytics engine instance"""
+        return AdvancedStatisticalAnalytics()
     
     @pytest.fixture
-    def sample_data_sources(self):
-        """Sample data sources for testing."""
-        return ["sales_data", "customer_data", "financial_data", "operational_data"]
+    def summary_generator(self):
+        """Create summary generator instance"""
+        return ExecutiveSummaryGenerator()
+    
+    @pytest.fixture
+    def report_builder(self):
+        """Create report builder instance"""
+        return InteractiveReportBuilder()
     
     @pytest.mark.asyncio
-    async def test_unified_analytics_execution(self, analytics_engine):
-        """Test unified analytics execution through main coordinator."""
-        # Test graph analytics
-        graph_request = AdvancedAnalyticsRequest(
-            analytics_type=AnalyticsType.GRAPH_ANALYSIS,
-            parameters={
-                "data_sources": ["sales_data", "customer_data"],
-                "analysis_type": "centrality_analysis"
-            },
-            requester_id="test_user"
+    async def test_comprehensive_report_generation_workflow(self, reporting_engine, sample_data):
+        """Test complete report generation workflow"""
+        
+        # Test PDF report generation
+        pdf_config = ReportConfig(
+            report_type=ReportType.EXECUTIVE_SUMMARY,
+            format=ReportFormat.PDF,
+            title="Executive Summary Report",
+            description="Comprehensive executive summary with key metrics",
+            data_sources=["sample_data"],
+            filters={"date_range": "last_30_days"},
+            date_range={
+                "start": datetime.utcnow() - timedelta(days=30),
+                "end": datetime.utcnow()
+            }
         )
         
-        graph_result = await analytics_engine.execute_analytics(graph_request)
+        pdf_report = await reporting_engine.generate_report(pdf_config)
         
-        assert graph_result.analytics_type == AnalyticsType.GRAPH_ANALYSIS
-        assert graph_result.status == "completed"
-        assert len(graph_result.insights) > 0
-        assert graph_result.execution_metrics["execution_time_ms"] > 0
+        assert pdf_report is not None
+        assert pdf_report.report_id is not None
+        assert pdf_report.format == ReportFormat.PDF
+        assert len(pdf_report.content) > 0
+        assert pdf_report.file_size > 0
         
-        # Test pattern recognition
-        pattern_request = AdvancedAnalyticsRequest(
-            analytics_type=AnalyticsType.PATTERN_RECOGNITION,
-            parameters={
-                "data_sources": ["sales_data"],
-                "pattern_types": ["trend", "anomaly"]
-            },
-            requester_id="test_user"
+        # Test Excel report generation
+        excel_config = ReportConfig(
+            report_type=ReportType.DETAILED_ANALYTICS,
+            format=ReportFormat.EXCEL,
+            title="Detailed Analytics Report",
+            description="Comprehensive analytics with detailed breakdowns",
+            data_sources=["sample_data"],
+            filters={},
+            date_range={
+                "start": datetime.utcnow() - timedelta(days=30),
+                "end": datetime.utcnow()
+            }
         )
         
-        pattern_result = await analytics_engine.execute_analytics(pattern_request)
+        excel_report = await reporting_engine.generate_report(excel_config)
         
-        assert pattern_result.analytics_type == AnalyticsType.PATTERN_RECOGNITION
-        assert pattern_result.status == "completed"
-        assert len(pattern_result.insights) > 0
+        assert excel_report is not None
+        assert excel_report.format == ReportFormat.EXCEL
+        assert len(excel_report.content) > 0
         
-        # Test predictive analytics
-        predictive_request = AdvancedAnalyticsRequest(
-            analytics_type=AnalyticsType.PREDICTIVE_ANALYTICS,
-            parameters={
-                "data_sources": ["sales_data", "financial_data"],
-                "prediction_types": ["revenue_forecast"]
-            },
-            requester_id="test_user"
+        # Test Web report generation
+        web_config = ReportConfig(
+            report_type=ReportType.PERFORMANCE_METRICS,
+            format=ReportFormat.WEB,
+            title="Performance Metrics Dashboard",
+            description="Interactive web-based performance metrics",
+            data_sources=["sample_data"],
+            filters={},
+            date_range={
+                "start": datetime.utcnow() - timedelta(days=7),
+                "end": datetime.utcnow()
+            }
         )
         
-        predictive_result = await analytics_engine.execute_analytics(predictive_request)
+        web_report = await reporting_engine.generate_report(web_config)
         
-        assert predictive_result.analytics_type == AnalyticsType.PREDICTIVE_ANALYTICS
-        assert predictive_result.status == "completed"
-        assert len(predictive_result.insights) > 0
+        assert web_report is not None
+        assert web_report.format == ReportFormat.WEB
+        assert b"<!DOCTYPE html>" in web_report.content
+        
+        # Test JSON report generation
+        json_config = ReportConfig(
+            report_type=ReportType.ROI_ANALYSIS,
+            format=ReportFormat.JSON,
+            title="ROI Analysis Report",
+            description="Return on investment analysis in JSON format",
+            data_sources=["sample_data"],
+            filters={},
+            date_range={
+                "start": datetime.utcnow() - timedelta(days=90),
+                "end": datetime.utcnow()
+            }
+        )
+        
+        json_report = await reporting_engine.generate_report(json_config)
+        
+        assert json_report is not None
+        assert json_report.format == ReportFormat.JSON
+        
+        # Validate JSON content
+        json_content = json.loads(json_report.content.decode('utf-8'))
+        assert "title" in json_content
+        assert "sections" in json_content
+        
+        # Test report retrieval
+        retrieved_report = await reporting_engine.get_report(pdf_report.report_id)
+        assert retrieved_report is not None
+        assert retrieved_report.report_id == pdf_report.report_id
+        
+        # Test report listing
+        reports = await reporting_engine.list_reports()
+        assert len(reports) >= 4  # At least the 4 reports we created
     
     @pytest.mark.asyncio
-    async def test_comprehensive_analysis(self, analytics_engine, sample_data_sources):
-        """Test comprehensive analysis across all engines."""
-        business_context = {
-            "industry": "technology",
-            "focus_areas": ["revenue", "efficiency", "growth"]
+    async def test_automated_scheduling_workflow(self, scheduler):
+        """Test complete automated scheduling workflow"""
+        
+        # Configure SMTP for testing (mock)
+        scheduler.configure_smtp(
+            host="localhost",
+            port=587,
+            username="test@example.com",
+            password="password",
+            use_tls=True
+        )
+        
+        # Create schedule configuration
+        schedule_config = ScheduleConfig(
+            frequency=ScheduleFrequency.DAILY,
+            start_date=datetime.utcnow(),
+            end_date=datetime.utcnow() + timedelta(days=30),
+            time_of_day="09:00",
+            timezone="UTC"
+        )
+        
+        # Create delivery configuration
+        delivery_config = DeliveryConfig(
+            method=DeliveryMethod.EMAIL,
+            recipients=["test@example.com", "manager@example.com"],
+            settings={
+                "subject_template": "Daily Report - {date}",
+                "body_template": "Please find attached the daily report."
+            }
+        )
+        
+        # Create report schedule
+        schedule = ReportSchedule(
+            schedule_id="test_schedule_1",
+            name="Daily Executive Report",
+            description="Automated daily executive summary report",
+            report_config={
+                "report_type": "executive_summary",
+                "format": "pdf",
+                "title": "Daily Executive Summary",
+                "description": "Automated daily summary of key metrics",
+                "data_sources": ["daily_metrics"],
+                "filters": {"date_range": "yesterday"},
+                "date_range": {
+                    "start": datetime.utcnow() - timedelta(days=1),
+                    "end": datetime.utcnow()
+                }
+            },
+            schedule_config=schedule_config,
+            delivery_config=delivery_config,
+            status=ScheduleStatus.ACTIVE,
+            created_at=datetime.utcnow()
+        )
+        
+        # Create schedule
+        schedule_id = await scheduler.create_schedule(schedule)
+        assert schedule_id is not None
+        
+        # Test schedule retrieval
+        retrieved_schedule = await scheduler.get_schedule(schedule_id)
+        assert retrieved_schedule is not None
+        assert retrieved_schedule.name == "Daily Executive Report"
+        assert retrieved_schedule.status == ScheduleStatus.ACTIVE
+        
+        # Test schedule listing
+        schedules = await scheduler.list_schedules()
+        assert len(schedules) >= 1
+        
+        # Test schedule pause/resume
+        pause_result = await scheduler.pause_schedule(schedule_id)
+        assert pause_result is True
+        
+        paused_schedule = await scheduler.get_schedule(schedule_id)
+        assert paused_schedule.status == ScheduleStatus.PAUSED
+        
+        resume_result = await scheduler.resume_schedule(schedule_id)
+        assert resume_result is True
+        
+        resumed_schedule = await scheduler.get_schedule(schedule_id)
+        assert resumed_schedule.status == ScheduleStatus.ACTIVE
+        
+        # Test execution history
+        executions = await scheduler.get_execution_history(schedule_id)
+        assert isinstance(executions, list)
+        
+        # Test schedule deletion
+        delete_result = await scheduler.delete_schedule(schedule_id)
+        assert delete_result is True
+        
+        deleted_schedule = await scheduler.get_schedule(schedule_id)
+        assert deleted_schedule is None
+    
+    @pytest.mark.asyncio
+    async def test_statistical_analysis_workflow(self, analytics_engine, sample_data):
+        """Test complete statistical analysis workflow"""
+        
+        # Create analysis configuration
+        config = AnalysisConfig(
+            analysis_types=[
+                AnalysisType.DESCRIPTIVE,
+                AnalysisType.CORRELATION,
+                AnalysisType.TREND_ANALYSIS,
+                AnalysisType.ANOMALY_DETECTION
+            ],
+            confidence_level=0.95,
+            significance_threshold=0.05,
+            min_data_points=30
+        )
+        
+        # Perform comprehensive analysis
+        results = await analytics_engine.perform_comprehensive_analysis(sample_data, config)
+        
+        # Validate results structure
+        assert isinstance(results, dict)
+        assert "descriptive" in results
+        assert "correlation" in results
+        assert "trend_analysis" in results
+        
+        # Validate descriptive analysis
+        descriptive_results = results["descriptive"]
+        assert len(descriptive_results) > 0
+        
+        for result in descriptive_results:
+            assert result.analysis_type == AnalysisType.DESCRIPTIVE
+            assert "mean" in result.result
+            assert "std" in result.result
+            assert "min" in result.result
+            assert "max" in result.result
+            assert result.confidence_level == 0.95
+        
+        # Validate correlation analysis
+        correlation_results = results["correlation"]
+        assert len(correlation_results) > 0
+        
+        for result in correlation_results:
+            assert result.analysis_type == AnalysisType.CORRELATION
+            assert "correlation" in result.result
+            assert abs(result.result["correlation"]) <= 1.0
+        
+        # Generate ML insights
+        ml_insights = await analytics_engine.generate_ml_insights(sample_data, results)
+        
+        assert isinstance(ml_insights, list)
+        assert len(ml_insights) > 0
+        
+        for insight in ml_insights:
+            assert hasattr(insight, 'title')
+            assert hasattr(insight, 'description')
+            assert hasattr(insight, 'confidence_score')
+            assert hasattr(insight, 'impact_score')
+            assert 0 <= insight.confidence_score <= 1
+            assert 0 <= insight.impact_score <= 1
+    
+    @pytest.mark.asyncio
+    async def test_executive_summary_workflow(self, summary_generator):
+        """Test complete executive summary generation workflow"""
+        
+        # Create sample analytics data
+        analytics_data = {
+            "statistical_analysis": {
+                "correlation": [
+                    {
+                        "metric_name": "Revenue vs Users",
+                        "result": {"correlation": 0.85, "strength": "strong"},
+                        "confidence_level": 0.95,
+                        "p_value": 0.001,
+                        "interpretation": "Strong positive correlation"
+                    }
+                ],
+                "trend_analysis": [
+                    {
+                        "metric_name": "Revenue",
+                        "result": {
+                            "trend_direction": "increasing",
+                            "trend_strength": 0.78
+                        },
+                        "confidence_level": 0.90,
+                        "p_value": 0.02
+                    }
+                ]
+            },
+            "ml_insights": [
+                {
+                    "title": "Revenue Growth Acceleration",
+                    "description": "Revenue growth is accelerating beyond historical trends",
+                    "confidence_score": 0.88,
+                    "impact_score": 0.92,
+                    "action_items": ["Scale marketing efforts", "Increase inventory"]
+                }
+            ],
+            "roi_analysis": {
+                "total_roi": 0.25,
+                "total_investment": 100000,
+                "total_returns": 125000
+            },
+            "dashboard_metrics": {
+                "kpis": {
+                    "Monthly Revenue": {
+                        "current_value": 125000,
+                        "target_value": 120000,
+                        "previous_value": 115000
+                    }
+                }
+            }
         }
         
-        result = await analytics_engine.execute_comprehensive_analysis(
-            sample_data_sources, business_context
+        # Generate executive summary
+        summary = await summary_generator.generate_executive_summary(
+            data=analytics_data,
+            summary_type=SummaryType.PERFORMANCE_OVERVIEW,
+            target_audience="executive",
+            custom_focus=["revenue", "growth"]
         )
         
-        assert "execution_summary" in result
-        assert result["execution_summary"]["engines_executed"] >= 2
-        assert result["execution_summary"]["total_insights"] > 0
-        assert len(result["combined_insights"]) > 0
-        assert len(result["business_opportunities"]) > 0
+        # Validate summary structure
+        assert summary is not None
+        assert summary.title is not None
+        assert summary.executive_overview is not None
+        assert isinstance(summary.key_highlights, list)
+        assert isinstance(summary.critical_insights, list)
+        assert isinstance(summary.performance_metrics, dict)
+        assert isinstance(summary.trends_and_patterns, list)
+        assert isinstance(summary.risks_and_opportunities, dict)
+        assert isinstance(summary.strategic_recommendations, list)
+        assert isinstance(summary.next_steps, list)
+        assert 0 <= summary.confidence_score <= 1
         
-        # Check that multiple engines were executed
-        engines_executed = 0
-        if result.get("graph_analytics"):
-            engines_executed += 1
-        if result.get("pattern_recognition"):
-            engines_executed += 1
-        if result.get("predictive_analytics"):
-            engines_executed += 1
+        # Validate insights
+        assert len(summary.critical_insights) > 0
         
-        assert engines_executed >= 2
-    
-    @pytest.mark.asyncio
-    async def test_business_intelligence_summary(self, analytics_engine):
-        """Test business intelligence summary generation."""
-        summary = await analytics_engine.get_business_intelligence_summary(30)
+        for insight in summary.critical_insights:
+            assert insight.title is not None
+            assert insight.summary is not None
+            assert insight.detailed_explanation is not None
+            assert isinstance(insight.key_metrics, dict)
+            assert insight.urgency is not None
+            assert 0 <= insight.confidence_level <= 1
+            assert insight.business_impact is not None
+            assert isinstance(insight.recommended_actions, list)
         
-        assert "executive_summary" in summary
-        assert "performance_metrics" in summary
-        assert "trend_analysis" in summary
-        assert "recommendations" in summary
-        
-        # Check executive summary structure
-        exec_summary = summary["executive_summary"]
-        assert "key_insights" in exec_summary
-        assert "critical_actions" in exec_summary
-        assert "risk_indicators" in exec_summary
-        
-        # Check performance metrics
-        perf_metrics = summary["performance_metrics"]
-        assert "analytics_executed" in perf_metrics
-        assert "insights_generated" in perf_metrics
-        assert "business_impact_score" in perf_metrics
-    
-    @pytest.mark.asyncio
-    async def test_performance_tracking(self, analytics_engine):
-        """Test performance metrics tracking."""
-        # Execute some analytics to generate metrics
-        request = AdvancedAnalyticsRequest(
-            analytics_type=AnalyticsType.PATTERN_RECOGNITION,
-            parameters={
-                "data_sources": ["sales_data"],
-                "pattern_types": ["trend"]
-            },
-            requester_id="test_user"
+        # Test different summary types
+        financial_summary = await summary_generator.generate_executive_summary(
+            data=analytics_data,
+            summary_type=SummaryType.FINANCIAL_SUMMARY,
+            target_audience="board"
         )
         
-        await analytics_engine.execute_analytics(request)
-        
-        # Get performance summary
-        performance_summary = await analytics_engine.get_performance_summary()
-        
-        assert "total_operations" in performance_summary
-        assert "avg_execution_time_ms" in performance_summary
-        assert "by_engine" in performance_summary
-        
-        if performance_summary["total_operations"] > 0:
-            assert performance_summary["avg_execution_time_ms"] > 0
-
-
-class TestGraphAnalyticsEngine:
-    """Test suite for graph analytics engine."""
-    
-    @pytest.fixture
-    def graph_engine(self):
-        """Create graph analytics engine for testing."""
-        return GraphAnalyticsEngine()
+        assert financial_summary.title != summary.title
+        assert "Financial" in financial_summary.title or "Board" in financial_summary.title
     
     @pytest.mark.asyncio
-    async def test_enterprise_graph_building(self, graph_engine):
-        """Test enterprise graph construction."""
-        data_sources = ["crm_data", "erp_data", "financial_data"]
+    async def test_interactive_report_builder_workflow(self, report_builder):
+        """Test complete interactive report builder workflow"""
         
-        result = await graph_engine.build_enterprise_graph(data_sources)
-        
-        assert "nodes_count" in result
-        assert "edges_count" in result
-        assert "execution_time_ms" in result
-        assert result["nodes_count"] > 0
-        assert result["edges_count"] > 0
-        assert result["execution_time_ms"] > 0
-    
-    @pytest.mark.asyncio
-    async def test_relationship_analysis(self, graph_engine):
-        """Test complex relationship analysis."""
-        # Build graph first
-        await graph_engine.build_enterprise_graph(["crm_data", "erp_data"])
-        
-        # Test different analysis types
-        analysis_types = [
-            "centrality_analysis",
-            "community_detection", 
-            "path_analysis",
-            "influence_analysis",
-            "anomaly_detection"
-        ]
-        
-        for analysis_type in analysis_types:
-            request = GraphAnalysisRequest(
-                analysis_type=analysis_type,
-                max_depth=3,
-                min_confidence=0.5
-            )
-            
-            result = await graph_engine.analyze_complex_relationships(request)
-            
-            assert result.analysis_type == analysis_type
-            assert result.confidence_score > 0
-            assert len(result.insights) > 0
-            assert result.execution_time_ms > 0
-    
-    @pytest.mark.asyncio
-    async def test_business_opportunity_detection(self, graph_engine):
-        """Test business opportunity detection through graph analysis."""
-        # Build graph first
-        await graph_engine.build_enterprise_graph(["crm_data", "financial_data"])
-        
-        business_context = {
-            "focus_areas": ["growth", "efficiency"],
-            "industry": "technology"
-        }
-        
-        opportunities = await graph_engine.detect_business_opportunities(business_context)
-        
-        assert isinstance(opportunities, list)
-        # Should detect at least some opportunities with sample data
-        if len(opportunities) > 0:
-            opportunity = opportunities[0]
-            assert hasattr(opportunity, 'title')
-            assert hasattr(opportunity, 'confidence')
-            assert hasattr(opportunity, 'business_impact')
-
-
-class TestSemanticSearchEngine:
-    """Test suite for semantic search engine."""
-    
-    @pytest.fixture
-    def search_engine(self):
-        """Create semantic search engine for testing."""
-        return SemanticSearchEngine()
-    
-    @pytest.mark.asyncio
-    async def test_data_indexing(self, search_engine):
-        """Test enterprise data indexing."""
-        data_sources = ["knowledge_base", "customer_communications", "financial_reports"]
-        
-        result = await search_engine.index_enterprise_data(data_sources)
-        
-        assert "documents_indexed" in result
-        assert "execution_time_ms" in result
-        assert result["documents_indexed"] > 0
-        assert result["execution_time_ms"] > 0
-    
-    @pytest.mark.asyncio
-    async def test_semantic_search(self, search_engine):
-        """Test semantic search functionality."""
-        # Index some data first
-        await search_engine.index_enterprise_data(["knowledge_base", "customer_communications"])
-        
-        # Test search query
-        query = SemanticQuery(
-            query_text="customer satisfaction and product quality",
-            max_results=10,
-            similarity_threshold=0.5
+        # Create interactive report
+        report_id = await report_builder.create_report(
+            name="Sales Performance Dashboard",
+            description="Interactive dashboard for sales performance metrics",
+            created_by="test_user",
+            layout_type=LayoutType.TWO_COLUMN
         )
         
-        result = await search_engine.semantic_search(query)
+        assert report_id is not None
         
-        assert result.query.query_text == query.query_text
-        assert result.total_results >= 0
-        assert result.execution_time_ms > 0
-        assert len(result.search_insights) > 0
-        
-        # Check result structure if results found
-        if len(result.results) > 0:
-            search_result = result.results[0]
-            assert hasattr(search_result, 'content')
-            assert hasattr(search_result, 'relevance_score')
-            assert hasattr(search_result, 'source')
-    
-    @pytest.mark.asyncio
-    async def test_related_content_discovery(self, search_engine):
-        """Test related content discovery."""
-        # Index some data first
-        await search_engine.index_enterprise_data(["knowledge_base"])
-        
-        # Test with a content ID (would exist after indexing)
-        if search_engine.document_metadata:
-            content_id = list(search_engine.document_metadata.keys())[0]
-            
-            related_items = await search_engine.discover_related_content(content_id, 5)
-            
-            assert isinstance(related_items, list)
-            # Related items depend on content similarity
-            for item in related_items:
-                assert hasattr(item, 'relevance_score')
-                assert item.relevance_score > 0
-
-
-class TestPatternRecognitionEngine:
-    """Test suite for pattern recognition engine."""
-    
-    @pytest.fixture
-    def pattern_engine(self):
-        """Create pattern recognition engine for testing."""
-        return PatternRecognitionEngine()
-    
-    @pytest.mark.asyncio
-    async def test_pattern_recognition(self, pattern_engine):
-        """Test pattern recognition across different types."""
-        request = PatternRecognitionRequest(
-            data_source="sales_data",
-            pattern_types=[PatternType.TREND, PatternType.ANOMALY, PatternType.CORRELATION],
-            sensitivity=0.7,
-            min_pattern_strength=0.5
+        # Add text component
+        text_component_id = await report_builder.add_component(
+            report_id=report_id,
+            component_type=ComponentType.TEXT,
+            title="Executive Summary",
+            position={"x": 0, "y": 0, "width": 600, "height": 200},
+            properties={
+                "content": "This dashboard provides key insights into sales performance.",
+                "font_size": 16,
+                "text_align": "left"
+            }
         )
         
-        result = await pattern_engine.recognize_patterns(request)
+        assert text_component_id is not None
         
-        assert result.request.data_source == "sales_data"
-        assert len(result.patterns) >= 0
-        assert len(result.summary_insights) > 0
-        assert result.execution_time_ms > 0
-        
-        # Check pattern structure if patterns found
-        for pattern in result.patterns:
-            assert pattern.strength >= request.min_pattern_strength
-            assert pattern.confidence >= request.sensitivity
-            assert len(pattern.recommended_actions) > 0
-    
-    @pytest.mark.asyncio
-    async def test_emerging_opportunities_detection(self, pattern_engine):
-        """Test emerging opportunities detection."""
-        data_sources = ["sales_data", "customer_behavior", "market_data"]
-        
-        opportunities = await pattern_engine.detect_emerging_opportunities(data_sources, 90)
-        
-        assert isinstance(opportunities, list)
-        # Should detect opportunities with sample data
-        for opportunity in opportunities:
-            assert hasattr(opportunity, 'title')
-            assert hasattr(opportunity, 'confidence')
-            assert hasattr(opportunity, 'priority')
-    
-    @pytest.mark.asyncio
-    async def test_pattern_monitoring(self, pattern_engine):
-        """Test pattern change monitoring."""
-        # Create baseline patterns
-        baseline_request = PatternRecognitionRequest(
-            data_source="sales_data",
-            pattern_types=[PatternType.TREND],
-            sensitivity=0.6
+        # Add chart component
+        chart_config = ChartConfig(
+            chart_type=ChartType.LINE,
+            data_columns={"x": "date", "y": "revenue"},
+            aggregation="sum",
+            color_scheme="blue",
+            show_legend=True,
+            show_grid=True,
+            animation=True
         )
         
-        baseline_result = await pattern_engine.recognize_patterns(baseline_request)
-        baseline_patterns = baseline_result.patterns
-        
-        # Monitor changes
-        changes = await pattern_engine.monitor_pattern_changes(
-            baseline_patterns, "sales_data"
+        chart_component_id = await report_builder.create_chart_component(
+            report_id=report_id,
+            title="Revenue Trend",
+            position={"x": 0, "y": 220, "width": 600, "height": 400},
+            chart_config=chart_config,
+            data_source="sales_data"
         )
         
-        assert "new_patterns" in changes
-        assert "disappeared_patterns" in changes
-        assert "change_summary" in changes
-        assert len(changes["change_summary"]) > 0
-
-
-class TestPredictiveAnalyticsEngine:
-    """Test suite for predictive analytics engine."""
-    
-    @pytest.fixture
-    def predictive_engine(self):
-        """Create predictive analytics engine for testing."""
-        return PredictiveAnalyticsEngine()
+        assert chart_component_id is not None
+        
+        # Add metric component
+        metric_component_id = await report_builder.add_component(
+            report_id=report_id,
+            component_type=ComponentType.METRIC,
+            title="Total Revenue",
+            position={"x": 620, "y": 0, "width": 300, "height": 150},
+            properties={
+                "value_column": "revenue",
+                "format": "currency",
+                "show_trend": True,
+                "trend_period": "previous_month"
+            }
+        )
+        
+        assert metric_component_id is not None
+        
+        # Add table component
+        table_component_id = await report_builder.add_component(
+            report_id=report_id,
+            component_type=ComponentType.TABLE,
+            title="Top Products",
+            position={"x": 620, "y": 170, "width": 300, "height": 300},
+            properties={
+                "columns": ["Product", "Revenue", "Units Sold"],
+                "sortable": True,
+                "filterable": True,
+                "paginated": True,
+                "page_size": 10
+            }
+        )
+        
+        assert table_component_id is not None
+        
+        # Add data source
+        data_source_result = await report_builder.add_data_source(
+            report_id=report_id,
+            source_name="sales_data",
+            source_config={
+                "type": "database",
+                "connection": "sales_db",
+                "query": "SELECT * FROM sales_metrics WHERE date >= '2024-01-01'"
+            }
+        )
+        
+        assert data_source_result is True
+        
+        # Add filter
+        filter_result = await report_builder.add_filter(
+            report_id=report_id,
+            filter_config={
+                "name": "Date Range",
+                "type": "date_range",
+                "column": "date",
+                "default_value": "last_30_days"
+            }
+        )
+        
+        assert filter_result is True
+        
+        # Update component
+        update_result = await report_builder.update_component(
+            report_id=report_id,
+            component_id=text_component_id,
+            updates={
+                "properties": {
+                    "content": "Updated executive summary with latest insights.",
+                    "font_size": 18,
+                    "font_weight": "bold"
+                }
+            }
+        )
+        
+        assert update_result is True
+        
+        # Update layout
+        layout_update_result = await report_builder.update_layout(
+            report_id=report_id,
+            layout_updates={
+                "global_styling": {
+                    "background_color": "#f8f9fa",
+                    "font_family": "Helvetica, Arial, sans-serif"
+                }
+            }
+        )
+        
+        assert layout_update_result is True
+        
+        # Generate HTML
+        html_content = await report_builder.generate_report_html(report_id)
+        
+        assert html_content is not None
+        assert "<!DOCTYPE html>" in html_content
+        assert "Sales Performance Dashboard" in html_content
+        
+        # Generate JSON
+        json_content = await report_builder.generate_report_json(report_id)
+        
+        assert json_content is not None
+        assert "report_id" in json_content
+        assert "components" in json_content
+        assert len(json_content["components"]) == 4  # 4 components added
+        
+        # Clone report
+        cloned_report_id = await report_builder.clone_report(
+            report_id=report_id,
+            new_name="Cloned Sales Dashboard",
+            created_by="test_user"
+        )
+        
+        assert cloned_report_id is not None
+        assert cloned_report_id != report_id
+        
+        # Save as template
+        template_id = await report_builder.save_as_template(
+            report_id=report_id,
+            template_name="Sales Dashboard Template",
+            template_description="Template for sales performance dashboards"
+        )
+        
+        assert template_id is not None
+        
+        # List reports
+        reports = await report_builder.list_reports(created_by="test_user")
+        
+        assert len(reports) >= 2  # Original and cloned report
+        
+        # List templates
+        templates = await report_builder.list_templates()
+        
+        assert len(templates) >= 1
+        
+        # Remove component
+        remove_result = await report_builder.remove_component(
+            report_id=report_id,
+            component_id=table_component_id
+        )
+        
+        assert remove_result is True
+        
+        # Verify component removal
+        updated_report = await report_builder.get_report(report_id)
+        assert len(updated_report.components) == 3  # One component removed
+        
+        # Delete cloned report
+        delete_result = await report_builder.delete_report(cloned_report_id)
+        assert delete_result is True
     
     @pytest.mark.asyncio
-    async def test_business_outcome_prediction(self, predictive_engine):
-        """Test business outcome predictions."""
-        request = PredictiveAnalyticsRequest(
-            prediction_type=PredictionType.REVENUE_FORECAST,
-            data_sources=["sales_data", "financial_data"],
-            target_variable="revenue",
-            prediction_horizon=90,
+    async def test_end_to_end_workflow_integration(
+        self, 
+        reporting_engine, 
+        scheduler, 
+        analytics_engine, 
+        summary_generator, 
+        report_builder,
+        sample_data
+    ):
+        """Test complete end-to-end workflow integration"""
+        
+        # Step 1: Perform statistical analysis
+        analysis_config = AnalysisConfig(
+            analysis_types=[
+                AnalysisType.DESCRIPTIVE,
+                AnalysisType.CORRELATION,
+                AnalysisType.TREND_ANALYSIS
+            ],
             confidence_level=0.95
         )
         
-        result = await predictive_engine.predict_business_outcomes(request)
-        
-        assert result.request.prediction_type == PredictionType.REVENUE_FORECAST
-        assert len(result.predictions) > 0
-        assert len(result.business_insights) > 0
-        assert len(result.recommended_actions) > 0
-        assert result.execution_time_ms > 0
-        
-        # Check prediction structure
-        prediction = result.predictions[0]
-        assert prediction.prediction_type == PredictionType.REVENUE_FORECAST
-        assert "lower" in prediction.confidence_interval
-        assert "upper" in prediction.confidence_interval
-        assert len(prediction.scenarios) > 0
-    
-    @pytest.mark.asyncio
-    async def test_revenue_forecasting(self, predictive_engine):
-        """Test specific revenue forecasting."""
-        data_sources = ["sales_data", "financial_data"]
-        
-        prediction = await predictive_engine.forecast_revenue(data_sources, 60)
-        
-        assert prediction.prediction_type == PredictionType.REVENUE_FORECAST
-        assert prediction.base_prediction is not None
-        assert "lower" in prediction.confidence_interval
-        assert "upper" in prediction.confidence_interval
-        assert len(prediction.key_drivers) > 0
-    
-    @pytest.mark.asyncio
-    async def test_churn_prediction(self, predictive_engine):
-        """Test customer churn prediction."""
-        predictions = await predictive_engine.predict_customer_churn("customer_data")
-        
-        assert isinstance(predictions, list)
-        # Check prediction structure if predictions exist
-        for prediction in predictions:
-            assert "churn_probability" in prediction
-            assert "confidence_interval" in prediction
-            assert "risk_factors" in prediction
-    
-    @pytest.mark.asyncio
-    async def test_growth_opportunity_identification(self, predictive_engine):
-        """Test growth opportunity identification."""
-        data_sources = ["sales_data", "market_data", "customer_data"]
-        
-        opportunities = await predictive_engine.identify_growth_opportunities(data_sources)
-        
-        assert isinstance(opportunities, list)
-        # Should identify opportunities with sample data
-        for opportunity in opportunities:
-            assert hasattr(opportunity, 'title')
-            assert hasattr(opportunity, 'confidence')
-            assert hasattr(opportunity, 'business_impact')
-
-
-class TestAdvancedAnalyticsAPI:
-    """Test suite for advanced analytics API integration."""
-    
-    @pytest.mark.asyncio
-    async def test_api_request_processing(self):
-        """Test API request processing and response format."""
-        engine = AdvancedAnalyticsEngine()
-        
-        # Test graph analytics request
-        request = AdvancedAnalyticsRequest(
-            analytics_type=AnalyticsType.GRAPH_ANALYSIS,
-            parameters={
-                "data_sources": ["test_data"],
-                "analysis_type": "centrality_analysis"
-            },
-            requester_id="api_test_user"
+        statistical_results = await analytics_engine.perform_comprehensive_analysis(
+            sample_data, analysis_config
         )
         
-        response = await engine.execute_analytics(request)
+        # Step 2: Generate ML insights
+        ml_insights = await analytics_engine.generate_ml_insights(
+            sample_data, statistical_results
+        )
         
-        # Validate response structure
-        assert response.request_id == request.request_id
-        assert response.analytics_type == request.analytics_type
-        assert response.status == "completed"
-        assert "execution_time_ms" in response.execution_metrics
-        assert isinstance(response.insights, list)
-        assert isinstance(response.business_opportunities, list)
-    
-    @pytest.mark.asyncio
-    async def test_error_handling(self):
-        """Test error handling in analytics execution."""
-        engine = AdvancedAnalyticsEngine()
+        # Step 3: Create comprehensive analytics data
+        analytics_data = {
+            "statistical_analysis": statistical_results,
+            "ml_insights": [
+                {
+                    "title": insight.title,
+                    "description": insight.description,
+                    "confidence_score": insight.confidence_score,
+                    "impact_score": insight.impact_score,
+                    "action_items": insight.action_items or []
+                }
+                for insight in ml_insights
+            ],
+            "roi_analysis": {
+                "total_roi": 0.18,
+                "total_investment": 150000,
+                "total_returns": 177000
+            },
+            "dashboard_metrics": {
+                "kpis": {
+                    "Revenue": {"current_value": 125000, "target_value": 120000},
+                    "Users": {"current_value": 850, "target_value": 800}
+                }
+            }
+        }
         
-        # Test with invalid analytics type (should be handled gracefully)
-        try:
-            request = AdvancedAnalyticsRequest(
-                analytics_type="invalid_type",  # This should cause validation error
-                parameters={},
-                requester_id="test_user"
+        # Step 4: Generate executive summary
+        executive_summary = await summary_generator.generate_executive_summary(
+            data=analytics_data,
+            summary_type=SummaryType.PERFORMANCE_OVERVIEW,
+            target_audience="executive"
+        )
+        
+        # Step 5: Create comprehensive report with summary
+        report_config = ReportConfig(
+            report_type=ReportType.EXECUTIVE_SUMMARY,
+            format=ReportFormat.PDF,
+            title="Comprehensive Analytics Report",
+            description="Complete analytics report with statistical analysis and executive summary",
+            data_sources=["analytics_data"],
+            filters={},
+            date_range={
+                "start": datetime.utcnow() - timedelta(days=30),
+                "end": datetime.utcnow()
+            }
+        )
+        
+        comprehensive_report = await reporting_engine.generate_report(report_config)
+        
+        # Step 6: Create interactive dashboard
+        dashboard_id = await report_builder.create_report(
+            name="Executive Analytics Dashboard",
+            description="Interactive dashboard with comprehensive analytics",
+            created_by="system",
+            layout_type=LayoutType.GRID
+        )
+        
+        # Add summary component
+        await report_builder.add_component(
+            report_id=dashboard_id,
+            component_type=ComponentType.TEXT,
+            title="Executive Summary",
+            position={"x": 0, "y": 0, "width": 800, "height": 200},
+            properties={"content": executive_summary.executive_overview}
+        )
+        
+        # Add insights components
+        y_position = 220
+        for i, insight in enumerate(executive_summary.critical_insights[:3]):
+            await report_builder.add_component(
+                report_id=dashboard_id,
+                component_type=ComponentType.TEXT,
+                title=insight.title,
+                position={"x": 0, "y": y_position, "width": 800, "height": 150},
+                properties={
+                    "content": f"{insight.summary}\n\nRecommended Actions: {', '.join(insight.recommended_actions)}"
+                }
             )
-            # This should fail at the model validation level
-            assert False, "Should have raised validation error"
-        except Exception:
-            # Expected validation error
-            pass
-    
-    @pytest.mark.asyncio
-    async def test_caching_functionality(self):
-        """Test analytics result caching."""
-        engine = AdvancedAnalyticsEngine()
+            y_position += 170
         
-        request = AdvancedAnalyticsRequest(
-            analytics_type=AnalyticsType.PATTERN_RECOGNITION,
-            parameters={
-                "data_sources": ["test_data"],
-                "pattern_types": ["trend"]
-            },
-            requester_id="cache_test_user"
+        # Step 7: Schedule automated report generation
+        schedule_config = ScheduleConfig(
+            frequency=ScheduleFrequency.WEEKLY,
+            start_date=datetime.utcnow(),
+            day_of_week=1,  # Monday
+            time_of_day="09:00"
         )
         
-        # Execute analytics
-        response = await engine.execute_analytics(request)
+        delivery_config = DeliveryConfig(
+            method=DeliveryMethod.EMAIL,
+            recipients=["executive@company.com"],
+            settings={"subject": "Weekly Analytics Report"}
+        )
         
-        # Check if result is cached
-        assert response.response_id in engine.analytics_cache
-        cached_response = engine.analytics_cache[response.response_id]
-        assert cached_response.request_id == request.request_id
+        schedule = ReportSchedule(
+            schedule_id="weekly_analytics",
+            name="Weekly Analytics Report",
+            description="Automated weekly comprehensive analytics report",
+            report_config={
+                "report_type": "executive_summary",
+                "format": "pdf",
+                "title": "Weekly Analytics Summary",
+                "description": "Automated weekly analytics report",
+                "data_sources": ["weekly_data"],
+                "filters": {},
+                "date_range": {
+                    "start": datetime.utcnow() - timedelta(days=7),
+                    "end": datetime.utcnow()
+                }
+            },
+            schedule_config=schedule_config,
+            delivery_config=delivery_config,
+            status=ScheduleStatus.ACTIVE,
+            created_at=datetime.utcnow()
+        )
+        
+        schedule_id = await scheduler.create_schedule(schedule)
+        
+        # Validate end-to-end workflow
+        assert statistical_results is not None
+        assert len(ml_insights) > 0
+        assert executive_summary is not None
+        assert comprehensive_report is not None
+        assert dashboard_id is not None
+        assert schedule_id is not None
+        
+        # Verify data flow integrity
+        assert len(executive_summary.critical_insights) > 0
+        assert executive_summary.confidence_score > 0
+        assert comprehensive_report.file_size > 0
+        
+        # Verify dashboard creation
+        dashboard = await report_builder.get_report(dashboard_id)
+        assert dashboard is not None
+        assert len(dashboard.components) >= 4  # Summary + 3 insights
+        
+        # Verify schedule creation
+        created_schedule = await scheduler.get_schedule(schedule_id)
+        assert created_schedule is not None
+        assert created_schedule.status == ScheduleStatus.ACTIVE
+        
+        # Clean up
+        await report_builder.delete_report(dashboard_id)
+        await scheduler.delete_schedule(schedule_id)
+    
+    @pytest.mark.asyncio
+    async def test_error_handling_and_recovery(self, reporting_engine, analytics_engine):
+        """Test error handling and recovery mechanisms"""
+        
+        # Test invalid report configuration
+        with pytest.raises(Exception):
+            invalid_config = ReportConfig(
+                report_type=ReportType.EXECUTIVE_SUMMARY,
+                format=ReportFormat.PDF,
+                title="",  # Invalid empty title
+                description="Test report",
+                data_sources=[],
+                filters={},
+                date_range={}
+            )
+            await reporting_engine.generate_report(invalid_config)
+        
+        # Test analysis with insufficient data
+        small_data = pd.DataFrame({
+            'value': [1, 2, 3]  # Only 3 data points
+        })
+        
+        config = AnalysisConfig(
+            analysis_types=[AnalysisType.DESCRIPTIVE],
+            min_data_points=30
+        )
+        
+        with pytest.raises(Exception):
+            await analytics_engine.perform_comprehensive_analysis(small_data, config)
+        
+        # Test recovery with valid data
+        valid_data = pd.DataFrame({
+            'value': list(range(50))  # 50 data points
+        })
+        
+        results = await analytics_engine.perform_comprehensive_analysis(valid_data, config)
+        assert results is not None
+        assert "descriptive" in results
+    
+    @pytest.mark.asyncio
+    async def test_performance_and_scalability(self, reporting_engine, sample_data):
+        """Test performance and scalability of the system"""
+        
+        # Test concurrent report generation
+        tasks = []
+        for i in range(5):
+            config = ReportConfig(
+                report_type=ReportType.PERFORMANCE_METRICS,
+                format=ReportFormat.JSON,
+                title=f"Performance Report {i}",
+                description=f"Test report {i}",
+                data_sources=["test_data"],
+                filters={},
+                date_range={
+                    "start": datetime.utcnow() - timedelta(days=1),
+                    "end": datetime.utcnow()
+                }
+            )
+            tasks.append(reporting_engine.generate_report(config))
+        
+        # Execute concurrent report generation
+        start_time = datetime.utcnow()
+        reports = await asyncio.gather(*tasks)
+        end_time = datetime.utcnow()
+        
+        # Validate all reports were generated
+        assert len(reports) == 5
+        for report in reports:
+            assert report is not None
+            assert report.report_id is not None
+        
+        # Check performance (should complete within reasonable time)
+        execution_time = (end_time - start_time).total_seconds()
+        assert execution_time < 30  # Should complete within 30 seconds
+        
+        # Test large dataset analysis
+        large_data = pd.DataFrame({
+            'date': pd.date_range('2020-01-01', periods=1000, freq='D'),
+            'metric1': [i + (i % 10) * 5 for i in range(1000)],
+            'metric2': [i * 2 + (i % 7) * 3 for i in range(1000)],
+            'metric3': [i * 0.5 + (i % 5) * 2 for i in range(1000)]
+        })
+        
+        config = AnalysisConfig(
+            analysis_types=[AnalysisType.DESCRIPTIVE, AnalysisType.CORRELATION],
+            confidence_level=0.95
+        )
+        
+        start_time = datetime.utcnow()
+        results = await analytics_engine.perform_comprehensive_analysis(large_data, config)
+        end_time = datetime.utcnow()
+        
+        # Validate results
+        assert results is not None
+        assert "descriptive" in results
+        assert "correlation" in results
+        
+        # Check performance for large dataset
+        analysis_time = (end_time - start_time).total_seconds()
+        assert analysis_time < 60  # Should complete within 60 seconds
 
 
 if __name__ == "__main__":
-    # Run tests
     pytest.main([__file__, "-v"])

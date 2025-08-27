@@ -117,7 +117,7 @@ variable "monitoring_config" {
   })
   default = {
     prometheus_retention_days = 15
-    grafana_admin_password   = "change-me-in-production"
+    grafana_admin_password   = var.grafana_admin_password
     log_retention_days       = 30
     enable_detailed_monitoring = true
   }

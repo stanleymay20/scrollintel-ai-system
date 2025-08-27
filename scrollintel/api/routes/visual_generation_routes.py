@@ -20,6 +20,7 @@ from ...engines.visual_generation.base import ImageGenerationRequest as Internal
 from ...engines.visual_generation.production_config import get_production_config
 from ...engines.visual_generation.exceptions import VisualGenerationError
 from ...security.auth import get_current_user
+from ...core.permissions import require_permissions, require_visual_generation
 from ...core.rate_limiter import RateLimiter
 
 # Set up logging
@@ -51,8 +52,7 @@ async def get_authenticated_user(credentials: HTTPAuthorizationCredentials = Dep
 
 async def check_visual_generation_permissions(user = Depends(get_authenticated_user)):
     """Check if user has permissions for visual generation"""
-    await require_permissions(user, ["visual_generation"])
-    return user
+    return await require_permissions(user, ["visual_generation"])
 
 async def apply_visual_rate_limit(request: Request, user = Depends(get_authenticated_user)):
     """Apply rate limiting for visual generation requests"""

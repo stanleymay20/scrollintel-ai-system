@@ -9,13 +9,21 @@ from datetime import datetime
 import aiohttp
 import json
 
-from ..core.data_connector import BaseDataConnector, DataRecord, ConnectionStatus
+from ..core.data_connector import (
+    BaseDataConnector, DataRecord, ConnectionStatus,
+    ConnectorError, ConnectionError, AuthenticationError, 
+    DataFetchError, TimeoutError, retry_on_failure
+)
 
 logger = logging.getLogger(__name__)
 
 
 class SalesforceConnector(BaseDataConnector):
     """Connector for Salesforce CRM"""
+    
+    def get_required_params(self) -> List[str]:
+        """Get required Salesforce connection parameters"""
+        return ['instance_url', 'client_id', 'client_secret', 'username', 'password']
     
     async def connect(self) -> bool:
         """Connect to Salesforce"""
@@ -165,6 +173,21 @@ class SalesforceConnector(BaseDataConnector):
 
 class HubSpotConnector(BaseDataConnector):
     """Connector for HubSpot CRM"""
+    
+    def get_required_params(self) -> List[str]:
+        """Get required HubSpot connection parameters"""
+        # Either api_key or access_token is required
+        return []  # Custom validation in connect method
+    
+    async def validate_connection_params(self) -> bool:
+        """Custom validation for HubSpot parameters"""
+        api_key = self.config.connection_params.get('api_key')
+        access_token = self.config.connection_params.get('access_token')
+        
+        if not (api_key or access_token):
+            raise ValueError("Either api_key or access_token is required for HubSpot")
+        
+        return True
     
     async def connect(self) -> bool:
         """Connect to HubSpot"""
@@ -323,6 +346,10 @@ class HubSpotConnector(BaseDataConnector):
 
 class MicrosoftCRMConnector(BaseDataConnector):
     """Connector for Microsoft Dynamics 365 CRM"""
+    
+    def get_required_params(self) -> List[str]:
+        """Get required Microsoft CRM connection parameters"""
+        return ['org_url', 'client_id', 'client_secret', 'tenant_id']
     
     async def connect(self) -> bool:
         """Connect to Microsoft CRM"""

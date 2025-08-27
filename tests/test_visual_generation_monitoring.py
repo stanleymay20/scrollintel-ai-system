@@ -1,552 +1,492 @@
 """
-Tests for visual generation monitoring system.
+Tests for visual generation monitoring and observability system.
 """
 
 import pytest
 import asyncio
-import time
+from datetime import datetime, timedelta
 from unittest.mock import Mock, AsyncMock, patch
-from fastapi.testclient import TestClient
 
-from scrollintel.engines.visual_generation.utils.metrics_collector import (
-    MetricsCollector, SystemMetrics, GenerationMetrics, AlertRule
+from scrollintel.engines.visual_generation.monitoring import (
+    MetricsCollector,
+    DistributedTracer,
+    VisualGenerationObservabilityDashboard,
+    MetricType,
+    SpanKind,
+    SpanStatus,
+    AlertSeverity
 )
-from scrollintel.engines.visual_generation.utils.alerting_system import (
-    AlertingSystem, NotificationChannel, AlertNotification
-)
-from scrollintel.engines.visual_generation.utils.monitoring_dashboard import (
-    MonitoringDashboard, create_monitoring_app
-)
-from scrollintel.engines.visual_generation.config import InfrastructureConfig
-
-
-@pytest.fixture
-def mock_config():
-    """Create mock configuration for testing."""
-    config = InfrastructureConfig()
-    config.cache_enabled = True
-    config.redis_url = None  # Use local for tests
-    config.semantic_similarity_enabled = False
-    return config
-
-
-@pytest.fixture
-def metrics_collector(mock_config):
-    """Create metrics collector for testing."""
-    return MetricsCollector(mock_config)
-
-
-@pytest.fixture
-def alerting_system(mock_config):
-    """Create alerting system for testing."""
-    return AlertingSystem(mock_config)
 
 
 class TestMetricsCollector:
     """Test metrics collection functionality."""
     
-    @pytest.mark.asyncio
-    async def test_system_metrics_collection(self, metrics_collector):
-        """Test system metrics collection."""
-        # Mock psutil functions
-        with patch('psutil.cpu_percent', return_value=75.0), \
-             patch('psutil.virtual_memory') as mock_memory, \
-             patch('psutil.disk_usage') as mock_disk, \
-             patch('psutil.net_io_counters') as mock_network:
-            
-            # Setup mocks
-            mock_memory.return_value = Mock(percent=60.0, available=8*1024**3)
-            mock_disk.return_value = Mock(used=50*1024**3, total=100*1024**3, free=50*1024**3)
-            mock_network.return_value = Mock(bytes_sent=1000000, bytes_recv=2000000)
-            
-            # Collect metrics
-            system_metrics = await metrics_collector._collect_system_metrics()
-            
-            assert system_metrics.cpu_usage_percent == 75.0
-            assert system_metrics.memory_usage_percent == 60.0
-            assert system_metrics.disk_usage_percent == 50.0
-            assert system_metrics.network_bytes_sent == 1000000
-            assert system_metrics.network_bytes_recv == 2000000
+    @pytest.fixture
+    async def metrics_collector(self):
+        """Create metrics collector for testing."""
+        collector = MetricsCollector(collection_interval=1)
+        await collector.start()
+        yield collector
+        await collector.stop()
     
-    @pytest.mark.asyncio
-    async def test_generation_metrics_collection(self, metrics_collector):
-        """Test generation metrics collection."""
-        # Mock Redis client
-        metrics_collector.redis_client = AsyncMock()
-        metrics_collector.redis_client.get.side_effect = lambda key: {
-            'metrics:total_requests': '100',
-            'metrics:completed_requests': '95',
-            'metrics:failed_requests': '5'
-        }.get(key, '0')
-        metrics_collector.redis_client.llen.return_value = 10
-        metrics_collector.redis_client.lrange.return_value = ['5.0', '3.2', '7.1']
-        metrics_collector.redis_client.keys.return_value = ['metrics:model_usage:dalle3']
+    async def test_counter_metrics(self, metrics_collector):
+        """Test counter metric recording."""
+        # Record counter metrics
+        metrics_collector.increment_counter("test_counter", 1.0, {"type": "test"})
+        metrics_collector.increment_counter("test_counter", 2.0, {"type": "test"})
         
-        generation_metrics = await metrics_collector._collect_generation_metrics()
+        # Check counter value
+        key = "test_counter[type=test]"
+        assert metrics_collector.counters[key] == 3.0
         
-        assert generation_metrics.total_requests == 100
-        assert generation_metrics.completed_requests == 95
-        assert generation_metrics.failed_requests == 5
-        assert generation_metrics.queue_length == 10
-        assert generation_metrics.success_rate == 0.95
-        assert generation_metrics.error_rate == 0.05
+        # Check metrics buffer
+        assert len(metrics_collector.metrics_buffer) >= 2
     
-    @pytest.mark.asyncio
+    async def test_gauge_metrics(self, metrics_collector):
+        """Test gauge metric recording."""
+        # Set gauge metrics
+        metrics_collector.set_gauge("test_gauge", 42.0, {"component": "test"})
+        metrics_collector.set_gauge("test_gauge", 84.0, {"component": "test"})
+        
+        # Check gauge value (should be latest)
+        key = "test_gauge[component=test]"
+        assert metrics_collector.gauges[key] == 84.0
+    
+    async def test_histogram_metrics(self, metrics_collector):
+        """Test histogram metric recording."""
+        # Record histogram values
+        values = [1.0, 2.0, 3.0, 4.0, 5.0]
+        for value in values:
+            metrics_collector.record_histogram("test_histogram", value)
+        
+        # Check histogram values
+        assert "test_histogram" in metrics_collector.histograms
+        assert len(metrics_collector.histograms["test_histogram"]) == 5
+        assert sum(metrics_collector.histograms["test_histogram"]) == 15.0
+    
+    async def test_timer_metrics(self, metrics_collector):
+        """Test timer functionality."""
+        # Start timer
+        timer_key = metrics_collector.start_timer("test_operation", "req_123")
+        assert timer_key in metrics_collector.active_requests
+        
+        # Simulate some work
+        await asyncio.sleep(0.1)
+        
+        # End timer
+        duration = metrics_collector.end_timer(timer_key)
+        assert duration is not None
+        assert duration >= 0.1
+        assert timer_key not in metrics_collector.active_requests
+    
     async def test_request_tracking(self, metrics_collector):
-        """Test request start and completion tracking."""
-        request_id = "test-request-1"
-        model_name = "test-model"
+        """Test request tracking functionality."""
+        request_id = "test_request_123"
+        request_type = "image"
         
         # Record request start
-        await metrics_collector.record_request_start(request_id, model_name)
+        metrics_collector.record_request_start(request_id, request_type, "user123")
         
-        assert request_id in metrics_collector.request_start_times
-        assert metrics_collector.model_usage_counters[model_name] == 1
+        # Simulate processing time
+        await asyncio.sleep(0.05)
         
-        # Record request completion
-        await metrics_collector.record_request_completion(request_id, model_name, True, 0.9)
-        
-        assert request_id not in metrics_collector.request_start_times
-    
-    @pytest.mark.asyncio
-    async def test_alert_rule_evaluation(self, metrics_collector):
-        """Test alert rule evaluation."""
-        # Add test alert rule
-        test_rule = AlertRule(
-            name="Test High CPU",
-            metric_path="system.cpu_usage_percent",
-            threshold=80.0,
-            comparison="gt",
-            duration=60,
-            severity="warning"
+        # Record completion
+        metrics_collector.record_request_completion(
+            request_id, request_type, True, quality_score=0.95
         )
-        metrics_collector.alert_rules.append(test_rule)
         
-        # Create test metrics
-        system_metrics = SystemMetrics(cpu_usage_percent=85.0)
-        generation_metrics = GenerationMetrics()
+        # Check completed requests
+        assert len(metrics_collector.completed_requests) >= 1
         
-        # Test metric value extraction
-        metric_value = metrics_collector._get_metric_value(
-            "system.cpu_usage_percent", 
-            system_metrics, 
-            generation_metrics
-        )
-        assert metric_value == 85.0
-        
-        # Test condition evaluation
-        condition_met = metrics_collector._evaluate_condition(85.0, 80.0, "gt")
-        assert condition_met is True
-        
-        condition_not_met = metrics_collector._evaluate_condition(75.0, 80.0, "gt")
-        assert condition_not_met is False
+        completed_request = metrics_collector.completed_requests[-1]
+        assert completed_request["request_id"] == request_id
+        assert completed_request["success"] is True
+        assert completed_request["quality_score"] == 0.95
     
-    @pytest.mark.asyncio
-    async def test_metrics_cleanup(self, metrics_collector):
-        """Test metrics history cleanup."""
-        # Add old metrics
-        old_time = time.time() - 90000  # 25 hours ago
-        old_system_metrics = SystemMetrics(timestamp=old_time)
-        old_generation_metrics = GenerationMetrics(timestamp=old_time)
+    async def test_performance_metrics_calculation(self, metrics_collector):
+        """Test performance metrics calculation."""
+        # Record some test requests
+        for i in range(10):
+            request_id = f"test_request_{i}"
+            metrics_collector.record_request_start(request_id, "image")
+            await asyncio.sleep(0.01)
+            
+            success = i < 8  # 80% success rate
+            quality_score = 0.9 if success else None
+            error_type = None if success else "test_error"
+            
+            metrics_collector.record_request_completion(
+                request_id, "image", success, quality_score, error_type
+            )
         
-        metrics_collector.system_metrics_history.append(old_system_metrics)
-        metrics_collector.generation_metrics_history.append(old_generation_metrics)
+        # Get performance metrics
+        performance = metrics_collector.get_performance_metrics()
         
-        # Add recent metrics
-        recent_system_metrics = SystemMetrics()
-        recent_generation_metrics = GenerationMetrics()
-        
-        metrics_collector.system_metrics_history.append(recent_system_metrics)
-        metrics_collector.generation_metrics_history.append(recent_generation_metrics)
-        
-        # Cleanup old metrics
-        await metrics_collector._cleanup_old_metrics()
-        
-        # Should only have recent metrics
-        assert len(metrics_collector.system_metrics_history) == 1
-        assert len(metrics_collector.generation_metrics_history) == 1
-        assert metrics_collector.system_metrics_history[0].timestamp > old_time
+        assert performance.total_requests >= 10
+        assert performance.successful_requests >= 8
+        assert performance.failed_requests >= 2
+        assert 0.0 <= performance.error_rate <= 1.0
+        assert performance.average_response_time > 0.0
     
-    @pytest.mark.asyncio
-    async def test_monitoring_lifecycle(self, metrics_collector):
-        """Test monitoring start and stop."""
-        # Start monitoring
-        await metrics_collector.start_monitoring()
+    async def test_cache_operation_tracking(self, metrics_collector):
+        """Test cache operation tracking."""
+        # Record cache operations
+        metrics_collector.record_cache_operation("get", True, "image")  # Hit
+        metrics_collector.record_cache_operation("get", False, "image")  # Miss
+        metrics_collector.record_cache_operation("put", True, "video")  # Store
         
-        assert metrics_collector.collection_task is not None
-        assert metrics_collector.alert_task is not None
+        # Check counters
+        hit_key = "visual_generation_cache_operations[content_type=image,operation=get,status=hit]"
+        miss_key = "visual_generation_cache_operations[content_type=image,operation=get,status=miss]"
         
-        # Stop monitoring
-        await metrics_collector.stop_monitoring()
-        
-        assert metrics_collector.collection_task is None
-        assert metrics_collector.alert_task is None
-
-
-class TestAlertingSystem:
-    """Test alerting system functionality."""
+        assert metrics_collector.counters[hit_key] == 1.0
+        assert metrics_collector.counters[miss_key] == 1.0
     
-    @pytest.mark.asyncio
-    async def test_alert_notification_creation(self, alerting_system):
-        """Test alert notification creation and sending."""
-        # Mock HTTP session
-        alerting_system.http_session = AsyncMock()
-        
-        # Add test notification channel
-        test_channel = NotificationChannel(
-            name='test_webhook',
-            type='webhook',
-            config={'webhook_url': 'https://example.com/webhook'},
-            severity_filter=['critical', 'warning']
-        )
-        alerting_system.notification_channels.append(test_channel)
-        
-        # Create test alert
-        alert_data = {
-            'rule_name': 'Test Alert',
-            'severity': 'warning',
-            'metric_path': 'test.metric',
-            'current_value': 90.0,
-            'threshold': 80.0,
-            'timestamp': time.time(),
-            'message': 'Test alert message'
+    async def test_worker_metrics_recording(self, metrics_collector):
+        """Test worker metrics recording."""
+        worker_id = "worker_123"
+        worker_metrics = {
+            "gpu_utilization": 0.75,
+            "memory_usage": 0.60,
+            "cpu_usage": 0.45,
+            "active_jobs": 3,
+            "queue_length": 5
         }
         
-        # Send alert
-        await alerting_system.send_alert(alert_data)
+        metrics_collector.record_worker_metrics(worker_id, worker_metrics)
         
-        # Verify alert was stored
-        assert len(alerting_system.alert_history) == 1
-        assert alerting_system.alert_history[0].rule_name == 'Test Alert'
-    
-    @pytest.mark.asyncio
-    async def test_alert_deduplication(self, alerting_system):
-        """Test alert deduplication."""
-        # Create test alert
-        alert_data = {
-            'rule_name': 'Duplicate Alert',
-            'severity': 'warning',
-            'metric_path': 'test.metric',
-            'current_value': 90.0,
-            'threshold': 80.0,
-            'timestamp': time.time(),
-            'message': 'Test alert message'
-        }
+        # Check gauge metrics
+        gpu_key = f"visual_generation_worker_gpu_utilization[worker_id={worker_id}]"
+        memory_key = f"visual_generation_worker_memory_usage[worker_id={worker_id}]"
         
-        # Send first alert
-        await alerting_system.send_alert(alert_data)
-        assert len(alerting_system.alert_history) == 1
-        
-        # Send duplicate alert immediately
-        alert_data['timestamp'] = time.time()
-        await alerting_system.send_alert(alert_data)
-        
-        # Should still only have one alert due to deduplication
-        assert len(alerting_system.alert_history) == 1
-    
-    @pytest.mark.asyncio
-    async def test_slack_notification(self, alerting_system):
-        """Test Slack notification formatting."""
-        # Mock HTTP session
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        alerting_system.http_session = AsyncMock()
-        alerting_system.http_session.post.return_value.__aenter__.return_value = mock_response
-        
-        # Create test notification
-        notification = AlertNotification(
-            alert_id='test-alert',
-            rule_name='Test Alert',
-            severity='critical',
-            metric_path='test.metric',
-            current_value=95.0,
-            threshold=80.0,
-            timestamp=time.time(),
-            message='Test critical alert'
-        )
-        
-        # Create Slack channel
-        slack_channel = NotificationChannel(
-            name='slack',
-            type='slack',
-            config={'webhook_url': 'https://hooks.slack.com/test'},
-            severity_filter=['critical']
-        )
-        
-        # Send notification
-        await alerting_system._send_slack_notification(notification, slack_channel)
-        
-        # Verify HTTP call was made
-        alerting_system.http_session.post.assert_called_once()
-    
-    @pytest.mark.asyncio
-    async def test_email_notification_formatting(self, alerting_system):
-        """Test email notification HTML formatting."""
-        notification = AlertNotification(
-            alert_id='test-alert',
-            rule_name='Test Alert',
-            severity='warning',
-            metric_path='system.cpu_usage_percent',
-            current_value=85.0,
-            threshold=80.0,
-            timestamp=time.time(),
-            message='CPU usage is high'
-        )
-        
-        html_body = alerting_system._create_email_body(notification)
-        
-        # Verify HTML contains expected content
-        assert 'Test Alert' in html_body
-        assert 'WARNING' in html_body
-        assert 'system.cpu_usage_percent' in html_body
-        assert '85.0' in html_body
-        assert '80.0' in html_body
-        assert 'CPU usage is high' in html_body
-    
-    @pytest.mark.asyncio
-    async def test_notification_channel_management(self, alerting_system):
-        """Test notification channel management."""
-        # Add channel
-        test_channel = NotificationChannel(
-            name='test_channel',
-            type='webhook',
-            config={'webhook_url': 'https://example.com'},
-            enabled=True
-        )
-        
-        alerting_system.add_notification_channel(test_channel)
-        assert len(alerting_system.notification_channels) > 0
-        
-        # Disable channel
-        alerting_system.disable_channel('test_channel')
-        channel = next(c for c in alerting_system.notification_channels if c.name == 'test_channel')
-        assert channel.enabled is False
-        
-        # Enable channel
-        alerting_system.enable_channel('test_channel')
-        channel = next(c for c in alerting_system.notification_channels if c.name == 'test_channel')
-        assert channel.enabled is True
-        
-        # Remove channel
-        alerting_system.remove_notification_channel('test_channel')
-        test_channels = [c for c in alerting_system.notification_channels if c.name == 'test_channel']
-        assert len(test_channels) == 0
-    
-    @pytest.mark.asyncio
-    async def test_alert_statistics(self, alerting_system):
-        """Test alert statistics calculation."""
-        # Add test alerts
-        current_time = time.time()
-        test_alerts = [
-            {
-                'alert_id': 'alert1',
-                'rule_name': 'High CPU',
-                'severity': 'critical',
-                'timestamp': current_time - 3600  # 1 hour ago
-            },
-            {
-                'alert_id': 'alert2',
-                'rule_name': 'High Memory',
-                'severity': 'warning',
-                'timestamp': current_time - 1800  # 30 minutes ago
-            },
-            {
-                'alert_id': 'alert3',
-                'rule_name': 'High CPU',
-                'severity': 'critical',
-                'timestamp': current_time - 900   # 15 minutes ago
-            }
-        ]
-        
-        # Mock get_recent_alerts to return test data
-        alerting_system.get_recent_alerts = AsyncMock(return_value=test_alerts)
-        
-        # Get statistics
-        stats = await alerting_system.get_alert_statistics(24)
-        
-        assert stats['total_alerts'] == 3
-        assert stats['by_severity']['critical'] == 2
-        assert stats['by_severity']['warning'] == 1
-        assert stats['by_rule']['High CPU'] == 2
-        assert stats['by_rule']['High Memory'] == 1
-        assert stats['alert_rate'] == 3 / 24  # 3 alerts in 24 hours
+        assert metrics_collector.gauges[gpu_key] == 0.75
+        assert metrics_collector.gauges[memory_key] == 0.60
 
 
-class TestMonitoringDashboard:
-    """Test monitoring dashboard functionality."""
+class TestDistributedTracer:
+    """Test distributed tracing functionality."""
     
     @pytest.fixture
-    def monitoring_app(self, mock_config, metrics_collector, alerting_system):
-        """Create monitoring app for testing."""
-        dashboard = MonitoringDashboard(
-            config=mock_config,
-            metrics_collector=metrics_collector,
-            alerting_system=alerting_system
-        )
-        return TestClient(dashboard.app)
+    async def tracer(self):
+        """Create tracer for testing."""
+        tracer = DistributedTracer("test_service")
+        await tracer.start()
+        yield tracer
+        await tracer.stop()
     
-    def test_health_check_endpoint(self, monitoring_app):
-        """Test health check endpoint."""
-        response = monitoring_app.get("/health")
-        assert response.status_code == 200
+    async def test_trace_creation(self, tracer):
+        """Test trace and span creation."""
+        # Start a new trace
+        context = tracer.start_trace("test_operation", user_id="123", request_type="image")
         
-        data = response.json()
-        assert 'status' in data
-        assert 'timestamp' in data
-        assert 'version' in data
-        assert 'uptime_seconds' in data
-        assert 'components' in data
+        assert context.trace_id is not None
+        assert context.span_id is not None
+        assert context.parent_span_id is None
+        
+        # Get current span
+        current_span = tracer._get_current_span()
+        assert current_span is not None
+        assert current_span.operation_name == "test_operation"
+        assert current_span.tags["user_id"] == "123"
     
-    def test_liveness_probe(self, monitoring_app):
-        """Test Kubernetes liveness probe."""
-        response = monitoring_app.get("/health/live")
-        assert response.status_code == 200
+    async def test_child_span_creation(self, tracer):
+        """Test child span creation."""
+        # Start parent trace
+        parent_context = tracer.start_trace("parent_operation")
         
-        data = response.json()
-        assert data['status'] == 'alive'
-        assert 'timestamp' in data
+        # Start child span
+        child_context = tracer.start_span("child_operation", parent_context)
+        
+        assert child_context.trace_id == parent_context.trace_id
+        assert child_context.parent_span_id == parent_context.span_id
+        assert child_context.span_id != parent_context.span_id
     
-    def test_readiness_probe(self, monitoring_app):
-        """Test Kubernetes readiness probe."""
-        response = monitoring_app.get("/health/ready")
-        assert response.status_code == 200
+    async def test_span_finishing(self, tracer):
+        """Test span finishing and recording."""
+        # Start trace
+        context = tracer.start_trace("test_operation")
         
-        data = response.json()
-        assert 'status' in data
+        # Simulate some work
+        await asyncio.sleep(0.05)
+        
+        # Finish span
+        tracer.finish_span(context)
+        
+        # Check that span was recorded
+        spans = tracer.collector.get_trace(context.trace_id)
+        assert len(spans) == 1
+        
+        span = spans[0]
+        assert span.operation_name == "test_operation"
+        assert span.duration is not None
+        assert span.duration >= 0.05
+        assert span.status == SpanStatus.OK
     
-    def test_metrics_endpoint(self, monitoring_app):
-        """Test metrics endpoint."""
-        response = monitoring_app.get("/metrics")
-        assert response.status_code == 200
+    async def test_span_error_handling(self, tracer):
+        """Test span error handling."""
+        context = tracer.start_trace("error_operation")
         
-        data = response.json()
-        assert 'timestamp' in data
-        assert 'system' in data
-        assert 'generation' in data
+        # Simulate error
+        test_error = ValueError("Test error")
+        tracer.finish_span(context, SpanStatus.ERROR, test_error)
+        
+        # Check error recording
+        spans = tracer.collector.get_trace(context.trace_id)
+        span = spans[0]
+        
+        assert span.status == SpanStatus.ERROR
+        assert span.error == "Test error"
+        assert span.tags["error"] is True
+        assert span.tags["error.type"] == "ValueError"
     
-    def test_metrics_history_endpoint(self, monitoring_app):
-        """Test metrics history endpoint."""
-        response = monitoring_app.get("/metrics/history?hours=1")
-        assert response.status_code == 200
+    async def test_context_propagation(self, tracer):
+        """Test context propagation through headers."""
+        # Create context
+        context = tracer.start_trace("test_operation")
+        context.baggage["user_id"] = "123"
         
-        data = response.json()
-        assert 'time_period_hours' in data
-        assert 'system_metrics' in data
-        assert 'generation_metrics' in data
-        assert data['time_period_hours'] == 1
+        # Inject into headers
+        headers = tracer.inject_context(context)
+        
+        assert "X-Trace-Id" in headers
+        assert "X-Span-Id" in headers
+        assert headers["X-Trace-Id"] == context.trace_id
+        
+        # Extract from headers
+        extracted_context = tracer.extract_context(headers)
+        
+        assert extracted_context is not None
+        assert extracted_context.trace_id == context.trace_id
+        assert extracted_context.baggage["user_id"] == "123"
     
-    def test_alerts_endpoint(self, monitoring_app):
-        """Test alerts endpoint."""
-        response = monitoring_app.get("/alerts")
-        assert response.status_code == 200
+    async def test_trace_context_manager(self, tracer):
+        """Test trace context manager."""
+        trace_id = None
         
-        data = response.json()
-        assert 'total_alerts' in data
-        assert 'active_alerts' in data
-        assert 'alert_statistics' in data
+        async with tracer.trace("context_manager_operation") as span:
+            trace_id = span.context.trace_id
+            span.set_tag("test_tag", "test_value")
+            span.log("Test log message")
+            
+            # Simulate some work
+            await asyncio.sleep(0.01)
+        
+        # Check recorded span
+        spans = tracer.collector.get_trace(trace_id)
+        assert len(spans) == 1
+        
+        span = spans[0]
+        assert span.operation_name == "context_manager_operation"
+        assert span.tags["test_tag"] == "test_value"
+        assert len(span.logs) >= 1
+        assert span.status == SpanStatus.OK
     
-    def test_dashboard_html_endpoint(self, monitoring_app):
-        """Test dashboard HTML endpoint."""
-        response = monitoring_app.get("/dashboard")
-        assert response.status_code == 200
-        assert 'text/html' in response.headers['content-type']
+    async def test_trace_search(self, tracer):
+        """Test trace search functionality."""
+        # Create multiple traces
+        for i in range(5):
+            context = tracer.start_trace(f"operation_{i}", service="test_service")
+            
+            if i % 2 == 0:
+                # Make some traces have errors
+                tracer.finish_span(context, SpanStatus.ERROR, ValueError("Test error"))
+            else:
+                tracer.finish_span(context, SpanStatus.OK)
         
-        # Check for key HTML elements
-        html_content = response.text
-        assert '<title>ScrollIntel Visual Generation Monitoring</title>' in html_content
-        assert 'System Health' in html_content
-        assert 'CPU Usage' in html_content
-    
-    def test_dashboard_data_endpoint(self, monitoring_app):
-        """Test dashboard data endpoint."""
-        response = monitoring_app.get("/dashboard/data")
-        assert response.status_code == 200
+        # Search for error traces
+        error_traces = tracer.collector.search_traces(has_errors=True, limit=10)
+        assert len(error_traces) >= 2  # Should find error traces
         
-        data = response.json()
-        assert 'timestamp' in data
-        assert 'health' in data
-        assert 'metrics' in data
-        assert 'alerts' in data
-        assert 'uptime_seconds' in data
+        # Search by service name
+        service_traces = tracer.collector.search_traces(service_name="test_service", limit=10)
+        assert len(service_traces) >= 5
 
 
-class TestMonitoringIntegration:
-    """Test integration between monitoring components."""
+class TestObservabilityDashboard:
+    """Test observability dashboard functionality."""
     
-    @pytest.mark.asyncio
-    async def test_end_to_end_monitoring_flow(self, mock_config):
-        """Test complete monitoring flow from metrics to alerts to dashboard."""
-        # Initialize components
-        metrics_collector = MetricsCollector(mock_config)
-        alerting_system = AlertingSystem(mock_config)
+    @pytest.fixture
+    async def dashboard(self):
+        """Create dashboard for testing."""
+        metrics_collector = MetricsCollector(collection_interval=1)
+        tracer = DistributedTracer("test_service")
         
-        await alerting_system.initialize()
+        await metrics_collector.start()
+        await tracer.start()
         
-        # Add alert callback to connect metrics to alerting
-        async def alert_callback(alert_data):
-            await alerting_system.send_alert(alert_data)
+        dashboard = VisualGenerationObservabilityDashboard(metrics_collector, tracer)
+        await dashboard.initialize()
         
-        metrics_collector.add_alert_callback(alert_callback)
+        yield dashboard
         
-        # Create monitoring dashboard
-        dashboard = MonitoringDashboard(
-            config=mock_config,
-            metrics_collector=metrics_collector,
-            alerting_system=alerting_system
+        await dashboard.shutdown()
+        await tracer.stop()
+        await metrics_collector.stop()
+    
+    async def test_dashboard_data_collection(self, dashboard):
+        """Test dashboard data collection."""
+        # Generate some test data
+        dashboard.metrics_collector.increment_counter("test_requests", 10)
+        dashboard.metrics_collector.set_gauge("test_cpu", 75.0)
+        
+        # Get dashboard data
+        data = await dashboard.get_dashboard_data()
+        
+        assert "timestamp" in data
+        assert "performance" in data
+        assert "system_overview" in data
+        assert "active_alerts" in data
+        assert "health_status" in data
+    
+    async def test_alert_rule_management(self, dashboard):
+        """Test alert rule management."""
+        # Add custom alert rule
+        dashboard.add_alert_rule(
+            "test_alert",
+            "error_rate",
+            0.1,  # 10%
+            AlertSeverity.WARNING,
+            "Test alert description"
         )
         
-        # Simulate high CPU usage that should trigger alert
-        with patch.object(metrics_collector, '_collect_system_metrics') as mock_collect:
-            mock_collect.return_value = SystemMetrics(cpu_usage_percent=95.0)
-            
-            # Collect metrics
-            system_metrics = await metrics_collector._collect_system_metrics()
-            assert system_metrics.cpu_usage_percent == 95.0
-            
-            # Check if alert would be triggered
-            high_cpu_rule = next(
-                (rule for rule in metrics_collector.alert_rules if 'CPU' in rule.name),
-                None
+        assert "test_alert" in dashboard.alert_rules
+        
+        rule = dashboard.alert_rules["test_alert"]
+        assert rule["metric_name"] == "error_rate"
+        assert rule["threshold"] == 0.1
+        assert rule["severity"] == AlertSeverity.WARNING
+    
+    async def test_health_check_registration(self, dashboard):
+        """Test health check registration."""
+        async def test_health_check():
+            from scrollintel.engines.visual_generation.monitoring.observability_dashboard import HealthCheck
+            return HealthCheck(
+                component="test_component",
+                status="healthy",
+                message="Test component is healthy",
+                timestamp=datetime.now()
             )
-            
-            if high_cpu_rule:
-                condition_met = metrics_collector._evaluate_condition(
-                    95.0, high_cpu_rule.threshold, high_cpu_rule.comparison
-                )
-                assert condition_met is True
         
-        # Test dashboard health check
-        health_check = await dashboard._perform_health_check()
-        assert health_check.status in ['healthy', 'degraded', 'unhealthy']
+        dashboard.add_health_check("test_component", test_health_check)
         
-        # Cleanup
-        await alerting_system.cleanup()
-        await metrics_collector.cleanup()
+        assert "test_component" in dashboard.health_checks
+        
+        # Run health checks
+        await dashboard._run_health_checks()
+        
+        assert "test_component" in dashboard.health_status
+        health_check = dashboard.health_status["test_component"]
+        assert health_check.status == "healthy"
     
-    @pytest.mark.asyncio
-    async def test_monitoring_performance_under_load(self, mock_config):
-        """Test monitoring system performance under load."""
-        metrics_collector = MetricsCollector(mock_config)
+    async def test_capacity_planning(self, dashboard):
+        """Test capacity planning functionality."""
+        # Set up some performance data
+        dashboard.metrics_collector.set_gauge("cpu_usage", 70.0)
+        dashboard.metrics_collector.set_gauge("memory_usage", 60.0)
+        dashboard.metrics_collector.increment_counter("requests_total", 100)
         
-        # Simulate multiple concurrent metric collections
-        async def collect_metrics_task():
-            return await metrics_collector._collect_system_metrics()
+        # Get capacity planning data
+        capacity_data = await dashboard.get_capacity_planning_data()
         
-        # Run multiple collections concurrently
-        start_time = time.time()
-        tasks = [collect_metrics_task() for _ in range(10)]
-        results = await asyncio.gather(*tasks)
-        end_time = time.time()
+        assert "current_metrics" in capacity_data
+        assert "capacity_estimates" in capacity_data
+        assert "recommendations" in capacity_data
         
-        # Verify all collections completed
-        assert len(results) == 10
-        assert all(isinstance(result, SystemMetrics) for result in results)
+        current = capacity_data["current_metrics"]
+        assert "cpu_usage_percent" in current
+        assert "memory_usage_percent" in current
+    
+    async def test_error_analysis(self, dashboard):
+        """Test error analysis functionality."""
+        # Create some error traces
+        for i in range(3):
+            context = dashboard.tracer.start_trace(f"error_operation_{i}")
+            error = ValueError(f"Test error {i}")
+            dashboard.tracer.finish_span(context, SpanStatus.ERROR, error)
         
-        # Verify performance (should complete within reasonable time)
-        total_time = end_time - start_time
-        assert total_time < 5.0  # Should complete within 5 seconds
+        # Get error analysis
+        error_analysis = await dashboard.get_error_analysis(hours=1)
         
-        await metrics_collector.cleanup()
+        assert "total_error_traces" in error_analysis
+        assert "error_patterns" in error_analysis
+        assert "errors_by_service" in error_analysis
+        assert error_analysis["total_error_traces"] >= 3
+    
+    async def test_trace_analysis(self, dashboard):
+        """Test individual trace analysis."""
+        # Create a test trace with multiple spans
+        parent_context = dashboard.tracer.start_trace("parent_operation")
+        
+        child_context = dashboard.tracer.start_span("child_operation", parent_context)
+        dashboard.tracer.finish_span(child_context)
+        
+        dashboard.tracer.finish_span(parent_context)
+        
+        # Analyze the trace
+        analysis = await dashboard.get_trace_analysis(parent_context.trace_id)
+        
+        assert analysis is not None
+        assert analysis["trace_id"] == parent_context.trace_id
+        assert analysis["total_spans"] == 2
+        assert len(analysis["spans"]) == 2
+        assert "critical_path" in analysis
+
+
+@pytest.mark.asyncio
+async def test_monitoring_integration():
+    """Test integration between monitoring components."""
+    # Initialize all components
+    metrics_collector = MetricsCollector(collection_interval=1)
+    tracer = DistributedTracer("integration_test")
+    dashboard = VisualGenerationObservabilityDashboard(metrics_collector, tracer)
+    
+    await metrics_collector.start()
+    await tracer.start()
+    await dashboard.initialize()
+    
+    try:
+        # Simulate a complete request workflow
+        request_id = "integration_test_request"
+        
+        # Start trace
+        context = tracer.start_trace("image_generation_request", 
+                                   request_id=request_id, 
+                                   user_id="test_user")
+        
+        # Record metrics
+        metrics_collector.record_request_start(request_id, "image", "test_user")
+        
+        # Simulate processing with child spans
+        async with tracer.trace("prompt_enhancement") as span:
+            span.set_tag("original_prompt", "test prompt")
+            await asyncio.sleep(0.01)
+        
+        async with tracer.trace("model_inference") as span:
+            span.set_tag("model", "stable_diffusion_xl")
+            await asyncio.sleep(0.02)
+        
+        async with tracer.trace("post_processing") as span:
+            span.set_tag("enhancement", "upscaling")
+            await asyncio.sleep(0.01)
+        
+        # Complete request
+        tracer.finish_span(context)
+        metrics_collector.record_request_completion(request_id, "image", True, 0.95)
+        
+        # Verify integration
+        dashboard_data = await dashboard.get_dashboard_data()
+        
+        assert dashboard_data["performance"]["total_requests"] >= 1
+        assert len(dashboard_data["recent_traces"]) >= 1
+        
+        # Verify trace was recorded
+        spans = tracer.collector.get_trace(context.trace_id)
+        assert len(spans) == 4  # Parent + 3 child spans
+        
+    finally:
+        await dashboard.shutdown()
+        await tracer.stop()
+        await metrics_collector.stop()
 
 
 if __name__ == "__main__":

@@ -1,509 +1,721 @@
 """
-Demo Script for ScrollIntel Audit Logging and Compliance System
-
-Demonstrates comprehensive audit logging, compliance reporting, data retention,
-and audit trail export capabilities for the Launch MVP.
+Demo script for audit and compliance system.
 """
-
-import asyncio
-import json
+import os
+import sys
+import uuid
 from datetime import datetime, timedelta
-from pathlib import Path
-from uuid import uuid4
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+from unittest.mock import patch
 
-from scrollintel.core.audit_system import (
-    audit_system, AuditAction, ComplianceLevel, RetentionPolicy
-)
-from scrollintel.core.compliance_manager import (
-    compliance_manager, ComplianceFramework, DataClassification
-)
+# Add the project root to the path
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+
+from scrollintel.models.audit_models import Base, AuditAction, ComplianceRuleCreate
+from scrollintel.core.audit_logger import AuditLogger
+from scrollintel.core.compliance_manager import ComplianceManager
+from scrollintel.core.access_control import AccessControlManager
+from scrollintel.core.change_approval import ChangeApprovalManager
 
 
-async def demo_basic_audit_logging():
-    """Demonstrate basic audit logging functionality"""
-    print("\n🔍 Basic Audit Logging Demo")
-    print("=" * 40)
+def setup_demo_database():
+    """Set up demo database."""
+    engine = create_engine("sqlite:///demo_audit_compliance.db")
+    Base.metadata.create_all(engine)
     
-    # Sample user data
-    user_id = str(uuid4())
-    user_email = "demo@scrollintel.com"
-    session_id = "demo_session_123"
-    ip_address = "192.168.1.100"
+    SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+    return SessionLocal()
+
+
+def demo_audit_logging(session):
+    """Demonstrate audit logging functionality."""
+    print("\n" + "="*60)
+    print("🔍 AUDIT LOGGING DEMO")
+    print("="*60)
     
-    print(f"👤 Demo User: {user_email}")
-    print(f"🔗 Session ID: {session_id}")
-    print(f"🌐 IP Address: {ip_address}")
+    audit_logger = AuditLogger(session)
     
-    # Log various user actions
-    actions_to_log = [
-        {
-            "action": AuditAction.LOGIN_SUCCESS,
-            "resource_type": "authentication",
-            "details": {"login_method": "password", "mfa_enabled": True}
+    # Demo 1: Basic audit logging
+    print("\n1. Basic Audit Logging")
+    print("-" * 30)
+    
+    audit_id = audit_logger.log_action(
+        user_id="user123",
+        user_email="john.doe@company.com",
+        action=AuditAction.CREATE,
+        resource_type="prompt",
+        resource_id="prompt_001",
+        resource_name="Customer Service Prompt",
+        new_values={
+            "content": "How can I help you today?",
+            "category": "customer_service",
+            "tags": ["greeting", "support"]
         },
-        {
-            "action": AuditAction.DATA_UPLOAD,
-            "resource_type": "dataset",
-            "resource_id": "dataset_123",
-            "resource_name": "Customer_Data.csv",
-            "details": {"file_size": 2048000, "rows": 10000, "columns": 15}
-        },
-        {
-            "action": AuditAction.DASHBOARD_CREATE,
-            "resource_type": "dashboard",
-            "resource_id": "dashboard_456",
-            "resource_name": "Sales Analytics Dashboard",
-            "details": {"chart_count": 5, "data_sources": 2}
-        },
-        {
-            "action": AuditAction.MODEL_TRAIN,
-            "resource_type": "ml_model",
-            "resource_id": "model_789",
-            "resource_name": "Customer Churn Predictor",
-            "details": {"algorithm": "random_forest", "accuracy": 0.92, "training_time": 300}
-        },
-        {
-            "action": AuditAction.API_REQUEST,
-            "resource_type": "api_endpoint",
-            "resource_id": "/api/predictions",
-            "details": {"method": "POST", "response_time": 0.15, "status_code": 200}
-        }
-    ]
+        ip_address="192.168.1.100",
+        user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+        metadata={"department": "customer_support"}
+    )
     
-    print(f"\n📝 Logging {len(actions_to_log)} audit events...")
+    print(f"✅ Created audit log: {audit_id}")
     
-    event_ids = []
-    for action_data in actions_to_log:
-        event_id = await audit_system.log_user_action(
-            user_id=user_id,
-            user_email=user_email,
-            session_id=session_id,
-            ip_address=ip_address,
-            user_agent="ScrollIntel Demo Client v1.0",
-            **action_data
+    # Demo 2: Change tracking
+    print("\n2. Change Tracking")
+    print("-" * 20)
+    
+    old_values = {
+        "content": "How can I help you today?",
+        "tags": ["greeting", "support"]
+    }
+    
+    new_values = {
+        "content": "Hello! How may I assist you today?",
+        "tags": ["greeting", "support", "polite"]
+    }
+    
+    audit_logger.log_action(
+        user_id="user456",
+        user_email="jane.smith@company.com",
+        action=AuditAction.UPDATE,
+        resource_type="prompt",
+        resource_id="prompt_001",
+        resource_name="Customer Service Prompt",
+        old_values=old_values,
+        new_values=new_values
+    )
+    
+    print("✅ Logged prompt update with change tracking")
+    
+    # Demo 3: High-risk action
+    print("\n3. High-Risk Action Logging")
+    print("-" * 30)
+    
+    audit_logger.log_action(
+        user_id="admin789",
+        user_email="admin@company.com",
+        action=AuditAction.DELETE,
+        resource_type="production_prompt",
+        resource_id="prompt_001",
+        resource_name="Customer Service Prompt",
+        old_values=new_values,
+        compliance_tags=["production", "critical"]
+    )
+    
+    print("✅ Logged high-risk deletion")
+    
+    # Demo 4: Get audit trail
+    print("\n4. Audit Trail Retrieval")
+    print("-" * 30)
+    
+    logs = audit_logger.get_audit_trail(resource_id="prompt_001", limit=10)
+    
+    print(f"Found {len(logs)} audit entries for prompt_001:")
+    for log in logs:
+        print(f"  • {log.timestamp.strftime('%Y-%m-%d %H:%M:%S')} - {log.action} by {log.user_email} (Risk: {log.risk_level})")
+    
+    # Demo 5: Search functionality
+    print("\n5. Audit Search")
+    print("-" * 20)
+    
+    search_results = audit_logger.search_audit_logs("Customer Service")
+    print(f"Found {len(search_results)} entries matching 'Customer Service'")
+    
+    # Demo 6: Statistics
+    print("\n6. Audit Statistics")
+    print("-" * 25)
+    
+    stats = audit_logger.get_audit_statistics()
+    print(f"Total actions: {stats['total_actions']}")
+    print("Action breakdown:")
+    for action, count in stats['action_counts'].items():
+        print(f"  • {action}: {count}")
+    
+    print("Risk level distribution:")
+    for risk, count in stats['risk_counts'].items():
+        print(f"  • {risk}: {count}")
+
+
+def demo_compliance_management(session):
+    """Demonstrate compliance management functionality."""
+    print("\n" + "="*60)
+    print("⚖️  COMPLIANCE MANAGEMENT DEMO")
+    print("="*60)
+    
+    compliance_manager = ComplianceManager(session)
+    
+    # Demo 1: Create custom compliance rule
+    print("\n1. Creating Custom Compliance Rule")
+    print("-" * 40)
+    
+    custom_rule = ComplianceRuleCreate(
+        name="PII Detection Rule",
+        description="Detect personally identifiable information in prompts",
+        rule_type="content",
+        conditions={
+            "patterns": [
+                r"\b\d{3}-\d{2}-\d{4}\b",  # SSN
+                r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b",  # Email
+                r"\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b"  # Credit card
+            ],
+            "keywords": ["social security", "credit card", "driver license"]
+        },
+        actions={
+            "block": True,
+            "alert": True,
+            "require_approval": True
+        },
+        severity="critical"
+    )
+    
+    rule = compliance_manager.create_rule(custom_rule, "compliance_officer")
+    print(f"✅ Created compliance rule: {rule.name}")
+    
+    # Demo 2: Test compliance with clean content
+    print("\n2. Testing Compliant Content")
+    print("-" * 35)
+    
+    clean_resource = {
+        "content": "Welcome to our service! How can we help you today?",
+        "category": "greeting",
+        "tags": ["customer_service"]
+    }
+    
+    result = compliance_manager.check_compliance(
+        resource_type="prompt",
+        resource_data=clean_resource,
+        action="create",
+        user_context={"user_id": "user123", "department": "support"}
+    )
+    
+    print(f"Compliance check result: {'✅ COMPLIANT' if result['compliant'] else '❌ NON-COMPLIANT'}")
+    print(f"Risk level: {result['risk_level']}")
+    
+    # Demo 3: Test compliance with sensitive content
+    print("\n3. Testing Non-Compliant Content")
+    print("-" * 40)
+    
+    sensitive_resource = {
+        "content": "Please provide your social security number 123-45-6789 for verification",
+        "category": "verification",
+        "tags": ["identity"]
+    }
+    
+    result = compliance_manager.check_compliance(
+        resource_type="prompt",
+        resource_data=sensitive_resource,
+        action="create",
+        user_context={"user_id": "user456"}
+    )
+    
+    print(f"Compliance check result: {'✅ COMPLIANT' if result['compliant'] else '❌ NON-COMPLIANT'}")
+    print(f"Risk level: {result['risk_level']}")
+    print(f"Violations found: {len(result['violations'])}")
+    
+    for violation in result['violations']:
+        print(f"  • {violation['violation_type']}: {violation['description']}")
+    
+    print(f"Required actions: {', '.join(result['actions_required'])}")
+    
+    # Record the violation
+    if result['violations']:
+        violation_id = compliance_manager.record_violation(
+            result['violations'][0], "prompt", "prompt_sensitive"
         )
-        event_ids.append(event_id)
-        print(f"  ✅ {action_data['action'].value} -> {event_id[:8]}...")
+        print(f"✅ Recorded violation: {violation_id}")
     
-    # Wait for background processing
-    await asyncio.sleep(0.5)
+    # Demo 4: Test production approval requirement
+    print("\n4. Testing Production Approval Requirement")
+    print("-" * 50)
     
-    print(f"\n✨ Successfully logged {len(event_ids)} audit events!")
-    return user_id, event_ids
-
-
-async def demo_audit_log_search():
-    """Demonstrate audit log search and filtering"""
-    print("\n🔍 Audit Log Search Demo")
-    print("=" * 40)
+    production_resource = {
+        "content": "Updated customer greeting message",
+        "tags": ["production", "customer_service"],
+        "environment": "production"
+    }
     
-    # Search with various filters
-    search_scenarios = [
-        {
-            "name": "All Recent Logs",
-            "filters": {
-                "start_date": datetime.utcnow() - timedelta(hours=1),
-                "limit": 10
-            }
-        },
-        {
-            "name": "Authentication Events",
-            "filters": {
-                "action": AuditAction.LOGIN_SUCCESS.value,
-                "resource_type": "authentication",
-                "limit": 5
-            }
-        },
-        {
-            "name": "Data Operations",
-            "filters": {
-                "resource_type": "dataset",
-                "start_date": datetime.utcnow() - timedelta(hours=1),
-                "limit": 5
-            }
-        },
-        {
-            "name": "Failed Operations",
-            "filters": {
-                "success": False,
-                "start_date": datetime.utcnow() - timedelta(days=1),
-                "limit": 5
-            }
-        }
-    ]
+    result = compliance_manager.check_compliance(
+        resource_type="prompt",
+        resource_data=production_resource,
+        action="update",
+        user_context={"user_id": "user789"}
+    )
     
-    for scenario in search_scenarios:
-        print(f"\n🔎 Searching: {scenario['name']}")
-        
-        try:
-            logs = await audit_system.search_audit_logs(**scenario['filters'])
-            print(f"  📊 Found {len(logs)} matching logs")
-            
-            for log in logs[:3]:  # Show first 3
-                timestamp = datetime.fromisoformat(log['timestamp']).strftime("%H:%M:%S")
-                print(f"    • {timestamp}: {log['action']} on {log['resource_type']}")
-                
-        except Exception as e:
-            print(f"  ❌ Search failed: {e}")
+    print(f"Compliance check result: {'✅ COMPLIANT' if result['compliant'] else '❌ REQUIRES APPROVAL'}")
     
-    print("\n✨ Audit log search completed!")
-
-
-async def demo_compliance_reporting():
-    """Demonstrate compliance reporting functionality"""
-    print("\n📋 Compliance Reporting Demo")
-    print("=" * 40)
+    if not result['compliant']:
+        approval_violations = [v for v in result['violations'] if v['violation_type'] == 'approval_required']
+        if approval_violations:
+            print("  • Production changes require approval")
     
-    # Generate compliance report
+    # Demo 5: Get compliance violations
+    print("\n5. Compliance Violations Report")
+    print("-" * 40)
+    
+    violations = compliance_manager.get_violations(limit=10)
+    print(f"Found {len(violations)} compliance violations:")
+    
+    for violation in violations:
+        print(f"  • {violation.violation_type} - {violation.severity} - {violation.status}")
+    
+    # Demo 6: Generate compliance report
+    print("\n6. Compliance Report Generation")
+    print("-" * 40)
+    
     start_date = datetime.utcnow() - timedelta(days=7)
     end_date = datetime.utcnow()
     
-    print(f"📅 Report Period: {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+    report = compliance_manager.generate_compliance_report(start_date, end_date)
     
-    try:
-        report = await audit_system.generate_compliance_report(
-            start_date=start_date,
-            end_date=end_date,
-            report_type="comprehensive"
-        )
-        
-        print(f"\n📊 Compliance Report Generated:")
-        print(f"  🔢 Total Events: {report.total_events}")
-        print(f"  ✅ Successful Events: {report.successful_events}")
-        print(f"  ❌ Failed Events: {report.failed_events}")
-        print(f"  🔒 Security Events: {report.security_events}")
-        print(f"  ⚠️  Compliance Violations: {len(report.compliance_violations)}")
-        
-        if report.compliance_violations:
-            print(f"\n⚠️  Recent Violations:")
-            for violation in report.compliance_violations[:3]:
-                print(f"    • {violation['action']} - {violation.get('error_message', 'Unknown error')}")
-        
-        print(f"\n👥 User Activity Summary:")
-        for user_id, count in list(report.user_activity_summary.items())[:5]:
-            print(f"    • User {user_id[:8]}...: {count} actions")
-        
-        print(f"\n📁 Resource Access Summary:")
-        for resource_type, count in list(report.resource_access_summary.items())[:5]:
-            print(f"    • {resource_type}: {count} accesses")
-        
-        print(f"\n💡 Recommendations:")
+    print(f"Compliance Report (Last 7 days):")
+    print(f"  • Total actions: {report.total_actions}")
+    print(f"  • Violations: {report.violations_count}")
+    print(f"  • Compliance score: {report.compliance_score:.1f}%")
+    print(f"  • Risk summary: {report.risk_summary}")
+    
+    if report.recommendations:
+        print("  • Recommendations:")
         for rec in report.recommendations:
-            print(f"    • {rec}")
-        
-    except Exception as e:
-        print(f"❌ Report generation failed: {e}")
-    
-    print("\n✨ Compliance reporting completed!")
+            print(f"    - {rec}")
 
 
-async def demo_compliance_framework_analysis():
-    """Demonstrate compliance framework-specific analysis"""
-    print("\n🏛️ Compliance Framework Analysis Demo")
-    print("=" * 40)
+def demo_access_control(session):
+    """Demonstrate access control functionality."""
+    print("\n" + "="*60)
+    print("🔐 ACCESS CONTROL DEMO")
+    print("="*60)
     
-    frameworks_to_test = [
-        ComplianceFramework.GDPR,
-        ComplianceFramework.SOX,
-        ComplianceFramework.ISO_27001
-    ]
+    access_manager = AccessControlManager(session)
     
-    start_date = datetime.utcnow() - timedelta(days=30)
-    end_date = datetime.utcnow()
+    # Demo 1: Grant basic access
+    print("\n1. Granting Basic Access")
+    print("-" * 30)
     
-    for framework in frameworks_to_test:
-        print(f"\n🔍 Analyzing {framework.value.upper()} Compliance...")
-        
-        try:
-            report = await compliance_manager.generate_compliance_report(
-                framework=framework,
-                start_date=start_date,
-                end_date=end_date
-            )
-            
-            print(f"  📊 Events Analyzed: {report['summary']['total_events_analyzed']}")
-            print(f"  ⚠️  Violations Found: {report['summary']['total_violations']}")
-            print(f"  📈 Compliance Rate: {report['summary']['compliance_rate']:.1f}%")
-            print(f"  📋 Rules Evaluated: {report['summary']['rules_evaluated']}")
-            
-            if report['recommendations']:
-                print(f"  💡 Top Recommendation: {report['recommendations'][0]}")
-            
-        except Exception as e:
-            print(f"  ❌ Analysis failed: {e}")
+    access_id = access_manager.grant_access(
+        resource_type="prompt",
+        resource_id="prompt_001",
+        granted_by="admin",
+        user_id="user123",
+        permissions=["read", "write"]
+    )
     
-    print("\n✨ Framework analysis completed!")
-
-
-async def demo_data_retention_policies():
-    """Demonstrate data retention policy management"""
-    print("\n🗂️ Data Retention Policies Demo")
-    print("=" * 40)
+    print(f"✅ Granted access: {access_id}")
     
-    # Show current retention policies
-    policies = compliance_manager.retention_policies
+    # Demo 2: Check permissions
+    print("\n2. Checking Permissions")
+    print("-" * 30)
     
-    print(f"📋 Active Retention Policies ({len(policies)}):")
-    for policy_id, policy in policies.items():
-        print(f"\n  📁 {policy.name}")
-        print(f"    • ID: {policy_id}")
-        print(f"    • Data Types: {', '.join(policy.data_types)}")
-        print(f"    • Retention Period: {policy.retention_period.value}")
-        print(f"    • Deletion Method: {policy.deletion_method}")
-        print(f"    • Auto Cleanup: {'✅' if policy.auto_cleanup else '❌'}")
-        print(f"    • Frameworks: {', '.join([f.value for f in policy.compliance_frameworks])}")
+    # Test read permission
+    result = access_manager.check_permission(
+        user_id="user123",
+        resource_type="prompt",
+        resource_id="prompt_001",
+        permission="read"
+    )
     
-    # Simulate retention policy application
-    print(f"\n🧹 Applying Retention Policies...")
+    print(f"Read permission: {'✅ ALLOWED' if result['allowed'] else '❌ DENIED'}")
     
-    try:
-        cleanup_results = await compliance_manager.apply_retention_policies()
-        
-        print(f"📊 Cleanup Results:")
-        total_cleaned = 0
-        for policy_id, count in cleanup_results.items():
-            if count >= 0:
-                print(f"  • {policy_id}: {count} records cleaned")
-                total_cleaned += count
-            else:
-                print(f"  • {policy_id}: ❌ Error during cleanup")
-        
-        print(f"\n✨ Total Records Cleaned: {total_cleaned}")
-        
-    except Exception as e:
-        print(f"❌ Retention policy application failed: {e}")
+    # Test delete permission (not granted)
+    result = access_manager.check_permission(
+        user_id="user123",
+        resource_type="prompt",
+        resource_id="prompt_001",
+        permission="delete"
+    )
     
-    print("\n✨ Data retention demo completed!")
-
-
-async def demo_audit_export():
-    """Demonstrate audit log export functionality"""
-    print("\n📤 Audit Log Export Demo")
-    print("=" * 40)
+    print(f"Delete permission: {'✅ ALLOWED' if result['allowed'] else '❌ DENIED'}")
     
-    start_date = datetime.utcnow() - timedelta(days=7)
-    end_date = datetime.utcnow()
+    # Demo 3: Role-based access
+    print("\n3. Role-Based Access Control")
+    print("-" * 40)
     
-    export_formats = ["json", "csv"]
+    # Grant access to editor role
+    access_manager.grant_access(
+        resource_type="template",
+        resource_id="template_001",
+        granted_by="admin",
+        role="editor",
+        permissions=["read", "write", "approve"]
+    )
     
-    for format_type in export_formats:
-        print(f"\n📄 Exporting audit logs as {format_type.upper()}...")
-        
-        try:
-            file_path = await audit_system.export_audit_logs(
-                start_date=start_date,
-                end_date=end_date,
-                format=format_type,
-                action=AuditAction.DATA_UPLOAD.value  # Filter for data upload events
-            )
-            
-            export_file = Path(file_path)
-            if export_file.exists():
-                file_size = export_file.stat().st_size
-                print(f"  ✅ Export successful!")
-                print(f"  📁 File: {export_file.name}")
-                print(f"  📊 Size: {file_size:,} bytes")
-                
-                # Show sample content for JSON
-                if format_type == "json" and file_size < 10000:  # Only for small files
-                    with open(export_file, 'r') as f:
-                        data = json.load(f)
-                        print(f"  📋 Records: {len(data.get('audit_logs', []))}")
-                        print(f"  📅 Date Range: {data['export_metadata']['date_range_start']} to {data['export_metadata']['date_range_end']}")
-                
-                # Cleanup demo files
-                export_file.unlink()
-                print(f"  🧹 Demo file cleaned up")
-            else:
-                print(f"  ❌ Export file not found")
-                
-        except Exception as e:
-            print(f"  ❌ Export failed: {e}")
+    # Check permission with role
+    result = access_manager.check_permission(
+        user_id="user456",
+        resource_type="template",
+        resource_id="template_001",
+        permission="approve",
+        user_roles=["editor", "reviewer"]
+    )
     
-    print("\n✨ Audit export demo completed!")
-
-
-async def demo_compliance_violation_detection():
-    """Demonstrate compliance violation detection"""
-    print("\n⚠️ Compliance Violation Detection Demo")
-    print("=" * 40)
+    print(f"Approve permission (editor role): {'✅ ALLOWED' if result['allowed'] else '❌ DENIED'}")
     
-    # Simulate various scenarios that might trigger violations
-    test_scenarios = [
-        {
-            "name": "GDPR Personal Data Access",
-            "action": "access",
-            "resource_type": "personal_data",
-            "resource_id": "user_profile_123",
-            "user_id": "user_456",
-            "data_classification": DataClassification.CONFIDENTIAL
-        },
-        {
-            "name": "SOX Financial Data Modification",
-            "action": "modify",
-            "resource_type": "financial_data",
-            "resource_id": "billing_record_789",
-            "user_id": "user_789",
-            "data_classification": DataClassification.RESTRICTED
-        },
-        {
-            "name": "Regular Dashboard Access",
-            "action": "view",
-            "resource_type": "dashboard",
-            "resource_id": "dashboard_123",
-            "user_id": "user_456",
-            "data_classification": DataClassification.INTERNAL
+    # Demo 4: Time-based access
+    print("\n4. Time-Based Access Control")
+    print("-" * 40)
+    
+    # Grant access with business hours restriction
+    conditions = {
+        "time_restrictions": {
+            "allowed_hours": list(range(9, 17)),  # 9 AM to 5 PM
+            "allowed_days": [0, 1, 2, 3, 4]  # Monday to Friday
         }
-    ]
+    }
     
-    for scenario in test_scenarios:
-        print(f"\n🧪 Testing: {scenario['name']}")
+    access_manager.grant_access(
+        resource_type="sensitive_prompt",
+        resource_id="prompt_sensitive",
+        granted_by="admin",
+        user_id="user789",
+        permissions=["read"],
+        conditions=conditions
+    )
+    
+    print("✅ Granted time-restricted access (business hours only)")
+    
+    # Demo 5: Temporary access
+    print("\n5. Temporary Access Control")
+    print("-" * 40)
+    
+    # Grant access that expires in 1 hour
+    expires_at = datetime.utcnow() + timedelta(hours=1)
+    
+    temp_access_id = access_manager.grant_access(
+        resource_type="experiment",
+        resource_id="exp_001",
+        granted_by="admin",
+        user_id="contractor123",
+        permissions=["read"],
+        expires_at=expires_at
+    )
+    
+    print(f"✅ Granted temporary access (expires in 1 hour): {temp_access_id}")
+    
+    # Demo 6: Get user permissions
+    print("\n6. User Permissions Summary")
+    print("-" * 40)
+    
+    permissions = access_manager.get_user_permissions("user123")
+    print(f"User123 has {len(permissions)} access grants:")
+    
+    for perm in permissions:
+        print(f"  • {perm['resource_type']}:{perm['resource_id']} - {perm['permissions']}")
+    
+    # Demo 7: Access statistics
+    print("\n7. Access Control Statistics")
+    print("-" * 40)
+    
+    stats = access_manager.get_access_statistics()
+    print(f"Total access controls: {stats['total_access_controls']}")
+    print(f"Active access controls: {stats['active_access_controls']}")
+    print(f"Expired access controls: {stats['expired_access_controls']}")
+    
+    print("Permission distribution:")
+    for perm, count in stats['permission_distribution'].items():
+        print(f"  • {perm}: {count}")
+
+
+def demo_change_approval(session):
+    """Demonstrate change approval workflow."""
+    print("\n" + "="*60)
+    print("📋 CHANGE APPROVAL WORKFLOW DEMO")
+    print("="*60)
+    
+    approval_manager = ChangeApprovalManager(session)
+    
+    # Demo 1: Request approval for production change
+    print("\n1. Requesting Production Change Approval")
+    print("-" * 50)
+    
+    approval_id = approval_manager.request_approval(
+        resource_type="production_prompt",
+        resource_id="prompt_prod_001",
+        change_description="Update customer greeting to be more friendly",
+        proposed_changes={
+            "content": {
+                "old": "Hello. How can I help?",
+                "new": "Hi there! How can I help you today? 😊"
+            },
+            "tone": {
+                "old": "formal",
+                "new": "friendly"
+            }
+        },
+        requested_by="user123",
+        priority="normal"
+    )
+    
+    if approval_id:
+        print(f"✅ Approval request created: {approval_id}")
+    else:
+        print("ℹ️  No approval required for this change")
+    
+    # Demo 2: Request urgent approval
+    print("\n2. Requesting Urgent Approval")
+    print("-" * 35)
+    
+    urgent_approval_id = approval_manager.request_approval(
+        resource_type="production_prompt",
+        resource_id="prompt_urgent_001",
+        change_description="Fix critical bug in payment prompt",
+        proposed_changes={
+            "content": {
+                "old": "Payment failed. Try again.",
+                "new": "Payment processing failed. Please check your payment method and try again."
+            }
+        },
+        requested_by="user456",
+        priority="urgent",
+        deadline=datetime.utcnow() + timedelta(hours=2)
+    )
+    
+    if urgent_approval_id:
+        print(f"✅ Urgent approval request created: {urgent_approval_id}")
+    
+    # Demo 3: Get pending approvals
+    print("\n3. Pending Approvals Dashboard")
+    print("-" * 40)
+    
+    pending = approval_manager.get_pending_approvals()
+    print(f"Found {len(pending)} pending approvals:")
+    
+    for approval in pending:
+        print(f"  • {approval.resource_type}:{approval.resource_id}")
+        print(f"    Priority: {approval.priority}")
+        print(f"    Requested by: {approval.requested_by}")
+        print(f"    Description: {approval.change_description}")
+        if approval.deadline:
+            print(f"    Deadline: {approval.deadline.strftime('%Y-%m-%d %H:%M:%S')}")
+        print()
+    
+    # Demo 4: Approve a change (mock approval permissions)
+    if pending:
+        print("4. Approving a Change Request")
+        print("-" * 40)
         
-        try:
-            violations = await compliance_manager.check_compliance(
-                action=scenario["action"],
-                resource_type=scenario["resource_type"],
-                resource_id=scenario["resource_id"],
-                user_id=scenario["user_id"],
-                data_classification=scenario["data_classification"]
+        # Mock the permission check to allow approval
+        with patch.object(approval_manager, '_can_approve', return_value=True):
+            result = approval_manager.approve_change(
+                approval_id=pending[0].id,
+                approver_id="approver123",
+                approval_notes="Change looks good. Approved for deployment."
             )
-            
-            if violations:
-                print(f"  ⚠️  {len(violations)} violation(s) detected:")
-                for violation in violations:
-                    print(f"    • Rule: {violation.rule_id}")
-                    print(f"    • Severity: {violation.severity}")
-                    print(f"    • Description: {violation.description}")
-            else:
-                print(f"  ✅ No violations detected")
-                
-        except Exception as e:
-            print(f"  ❌ Violation check failed: {e}")
-    
-    # Wait for background processing
-    await asyncio.sleep(0.5)
-    
-    print("\n✨ Violation detection demo completed!")
-
-
-async def demo_system_statistics():
-    """Demonstrate audit system statistics and metrics"""
-    print("\n📊 System Statistics Demo")
-    print("=" * 40)
-    
-    # Generate some sample statistics
-    start_date = datetime.utcnow() - timedelta(days=30)
-    end_date = datetime.utcnow()
-    
-    try:
-        # Generate a compliance report for statistics
-        report = await audit_system.generate_compliance_report(
-            start_date=start_date,
-            end_date=end_date,
-            report_type="statistics"
-        )
         
-        print(f"📈 System Statistics (Last 30 Days):")
-        print(f"  🔢 Total Events: {report.total_events:,}")
-        print(f"  ✅ Success Rate: {(report.successful_events / report.total_events * 100):.1f}%" if report.total_events > 0 else "  ✅ Success Rate: N/A")
-        print(f"  ❌ Failed Events: {report.failed_events:,}")
-        print(f"  🔒 Security Events: {report.security_events:,}")
-        print(f"  ⚠️  Violations: {len(report.compliance_violations):,}")
-        
-        print(f"\n👥 User Activity:")
-        print(f"  🏃 Active Users: {len(report.user_activity_summary)}")
-        
-        print(f"\n📁 Resource Access:")
-        print(f"  📊 Resource Types: {len(report.resource_access_summary)}")
-        
-        if report.resource_access_summary:
-            top_resources = sorted(
-                report.resource_access_summary.items(),
-                key=lambda x: x[1],
-                reverse=True
-            )[:5]
-            
-            print(f"  🔝 Top Resources:")
-            for resource_type, count in top_resources:
-                print(f"    • {resource_type}: {count:,} accesses")
-        
-        print(f"\n💡 System Health:")
-        if report.recommendations:
-            for rec in report.recommendations[:3]:
-                print(f"  • {rec}")
+        if result["success"]:
+            print(f"✅ Change approved: {result['approval_id']}")
         else:
-            print(f"  ✅ All systems operating normally")
-        
-    except Exception as e:
-        print(f"❌ Statistics generation failed: {e}")
+            print(f"❌ Approval failed: {result['error']}")
     
-    print("\n✨ Statistics demo completed!")
+    # Demo 5: Check approval status
+    print("\n5. Checking Approval Status")
+    print("-" * 35)
+    
+    status = approval_manager.check_approval_status("production_prompt", "prompt_prod_001")
+    
+    if status["has_pending"]:
+        print("⏳ Resource has pending approval")
+        print(f"   Approval ID: {status['approval_id']}")
+    elif status.get("recently_approved"):
+        print("✅ Resource was recently approved")
+        print(f"   Approved at: {status['approved_at']}")
+    else:
+        print("ℹ️  No pending or recent approvals")
+    
+    # Demo 6: Approval statistics
+    print("\n6. Approval Workflow Statistics")
+    print("-" * 40)
+    
+    stats = approval_manager.get_approval_statistics()
+    print(f"Total approval requests: {stats['total_requests']}")
+    print(f"Approval rate: {stats['approval_rate']:.1f}%")
+    print(f"Average approval time: {stats['average_approval_time_hours']:.1f} hours")
+    
+    print("Status distribution:")
+    for status, count in stats['status_distribution'].items():
+        print(f"  • {status}: {count}")
 
 
-async def main():
-    """Run the complete audit and compliance demo"""
-    print("🚀 ScrollIntel Audit Logging & Compliance System Demo")
+def demo_integration_scenarios(session):
+    """Demonstrate integration scenarios."""
+    print("\n" + "="*60)
+    print("🔗 INTEGRATION SCENARIOS DEMO")
+    print("="*60)
+    
+    audit_logger = AuditLogger(session)
+    compliance_manager = ComplianceManager(session)
+    access_manager = AccessControlManager(session)
+    approval_manager = ChangeApprovalManager(session)
+    
+    # Scenario 1: Complete workflow for sensitive prompt creation
+    print("\n1. Sensitive Prompt Creation Workflow")
+    print("-" * 50)
+    
+    user_id = "data_scientist_001"
+    resource_data = {
+        "content": "Please enter your email address user@company.com for verification",
+        "category": "data_collection",
+        "tags": ["sensitive", "pii"]
+    }
+    
+    # Step 1: Check compliance
+    print("Step 1: Checking compliance...")
+    compliance_result = compliance_manager.check_compliance(
+        resource_type="prompt",
+        resource_data=resource_data,
+        action="create",
+        user_context={"user_id": user_id}
+    )
+    
+    print(f"Compliance: {'✅ PASS' if compliance_result['compliant'] else '❌ FAIL'}")
+    
+    if not compliance_result['compliant']:
+        print("Violations detected:")
+        for violation in compliance_result['violations']:
+            print(f"  • {violation['description']}")
+        
+        # Step 2: Request approval if required
+        if "require_approval" in compliance_result['actions_required']:
+            print("\nStep 2: Requesting approval...")
+            approval_id = approval_manager.request_approval(
+                resource_type="prompt",
+                resource_id="prompt_sensitive_001",
+                change_description="Create prompt with PII collection",
+                proposed_changes={"content": resource_data},
+                requested_by=user_id,
+                priority="high"
+            )
+            print(f"Approval requested: {approval_id}")
+    
+    # Step 3: Log the action
+    print("\nStep 3: Logging audit trail...")
+    audit_logger.log_action(
+        user_id=user_id,
+        user_email="scientist@company.com",
+        action=AuditAction.CREATE,
+        resource_type="prompt",
+        resource_id="prompt_sensitive_001",
+        new_values=resource_data,
+        compliance_tags=["pii_detected", "approval_required"],
+        metadata={
+            "compliance_violations": compliance_result['violations'],
+            "workflow_step": "creation_attempt",
+            "compliance_risk_level": compliance_result['risk_level']
+        }
+    )
+    print("✅ Audit trail logged")
+    
+    # Scenario 2: Access control with audit
+    print("\n2. Access Control with Audit Trail")
+    print("-" * 45)
+    
+    # Grant access
+    print("Granting access to sensitive resource...")
+    access_id = access_manager.grant_access(
+        resource_type="sensitive_prompt",
+        resource_id="prompt_sensitive_001",
+        granted_by="security_admin",
+        user_id="analyst_001",
+        permissions=["read"],
+        conditions={
+            "time_restrictions": {
+                "allowed_hours": list(range(9, 17))
+            }
+        }
+    )
+    
+    # Check permission with audit
+    print("Checking permission (with audit)...")
+    result = access_manager.validate_permission_request(
+        user_id="analyst_001",
+        resource_type="sensitive_prompt",
+        resource_id="prompt_sensitive_001",
+        permission="read",
+        context={
+            "user_email": "analyst@company.com",
+            "ip_address": "192.168.1.50"
+        }
+    )
+    
+    print(f"Access: {'✅ GRANTED' if result['allowed'] else '❌ DENIED'}")
+    
+    # Scenario 3: Compliance violation handling
+    print("\n3. Compliance Violation Handling")
+    print("-" * 45)
+    
+    # Simulate bulk operation that triggers violation
+    print("Simulating bulk operations...")
+    for i in range(12):  # Exceed bulk threshold
+        audit_logger.log_action(
+            user_id="bulk_user_001",
+            user_email="bulk@company.com",
+            action=AuditAction.CREATE,
+            resource_type="prompt",
+            resource_id=f"bulk_prompt_{i}",
+            metadata={"batch_operation": True}
+        )
+    
+    # Check compliance for next operation
+    compliance_result = compliance_manager.check_compliance(
+        resource_type="prompt",
+        resource_data={"content": "Another prompt"},
+        action="create",
+        user_context={"user_id": "bulk_user_001"}
+    )
+    
+    if not compliance_result['compliant']:
+        bulk_violations = [v for v in compliance_result['violations'] if v['violation_type'] == 'bulk_operation']
+        if bulk_violations:
+            print("⚠️  Bulk operation violation detected")
+            violation_id = compliance_manager.record_violation(
+                bulk_violations[0], "prompt", "bulk_operation_001"
+            )
+            print(f"Violation recorded: {violation_id}")
+
+
+def main():
+    """Run the complete audit and compliance demo."""
+    print("🚀 AUDIT AND COMPLIANCE SYSTEM DEMO")
     print("=" * 60)
-    print("Demonstrating comprehensive audit logging, compliance reporting,")
-    print("data retention policies, and audit trail export capabilities.")
-    print("=" * 60)
+    print("This demo showcases the comprehensive audit and compliance")
+    print("system for prompt management, including:")
+    print("• Audit logging and trail management")
+    print("• Compliance rule enforcement")
+    print("• Access control and permissions")
+    print("• Change approval workflows")
+    print("• Integration scenarios")
+    
+    # Set up demo database
+    session = setup_demo_database()
     
     try:
-        # Start the audit and compliance systems
-        await audit_system.start()
-        await compliance_manager.start()
-        
         # Run all demos
-        await demo_basic_audit_logging()
-        await demo_audit_log_search()
-        await demo_compliance_reporting()
-        await demo_compliance_framework_analysis()
-        await demo_data_retention_policies()
-        await demo_audit_export()
-        await demo_compliance_violation_detection()
-        await demo_system_statistics()
+        demo_audit_logging(session)
+        demo_compliance_management(session)
+        demo_access_control(session)
+        demo_change_approval(session)
+        demo_integration_scenarios(session)
         
-        print("\n" + "=" * 60)
-        print("🎉 Demo Completed Successfully!")
-        print("=" * 60)
+        print("\n" + "="*60)
+        print("✅ DEMO COMPLETED SUCCESSFULLY!")
+        print("="*60)
+        print("\nKey Features Demonstrated:")
+        print("• ✅ Comprehensive audit logging with change tracking")
+        print("• ✅ Automated compliance checking and violation detection")
+        print("• ✅ Flexible access control with time/condition-based restrictions")
+        print("• ✅ Change approval workflow for sensitive operations")
+        print("• ✅ Integration between all audit and compliance components")
+        print("• ✅ Reporting and analytics capabilities")
         
-        print("\n📋 Key Features Demonstrated:")
-        print("  ✅ Comprehensive audit logging for all user actions")
-        print("  ✅ Advanced audit log search and filtering")
-        print("  ✅ Compliance reporting with multiple frameworks")
-        print("  ✅ Data retention policies and automated cleanup")
-        print("  ✅ Audit trail export in JSON and CSV formats")
-        print("  ✅ Real-time compliance violation detection")
-        print("  ✅ System statistics and health monitoring")
-        
-        print("\n🔒 Compliance Frameworks Supported:")
-        print("  • GDPR (General Data Protection Regulation)")
-        print("  • SOX (Sarbanes-Oxley Act)")
-        print("  • ISO 27001 (Information Security Management)")
-        print("  • HIPAA (Health Insurance Portability)")
-        print("  • PCI DSS (Payment Card Industry)")
-        print("  • NIST (National Institute of Standards)")
-        
-        print("\n📊 Production Ready Features:")
-        print("  • Background processing for high performance")
-        print("  • Structured logging with JSON format")
-        print("  • Automated data retention and cleanup")
-        print("  • Real-time violation detection and alerting")
-        print("  • Comprehensive API endpoints for integration")
-        print("  • Export capabilities for compliance audits")
-        
-        print("\n🚀 The system is ready for production deployment!")
+        print(f"\nDemo database created: demo_audit_compliance.db")
+        print("You can examine the database to see all the audit trails,")
+        print("compliance rules, access controls, and approval records.")
         
     except Exception as e:
-        print(f"\n❌ Demo failed: {e}")
+        print(f"\n❌ Demo failed with error: {e}")
         import traceback
         traceback.print_exc()
-        
+    
     finally:
-        # Stop the systems
-        await audit_system.stop()
-        await compliance_manager.stop()
+        session.close()
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

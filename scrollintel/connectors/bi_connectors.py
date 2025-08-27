@@ -9,13 +9,21 @@ from datetime import datetime
 import aiohttp
 import json
 
-from ..core.data_connector import BaseDataConnector, DataRecord, ConnectionStatus
+from ..core.data_connector import (
+    BaseDataConnector, DataRecord, ConnectionStatus,
+    ConnectorError, ConnectionError, AuthenticationError, 
+    DataFetchError, TimeoutError, retry_on_failure
+)
 
 logger = logging.getLogger(__name__)
 
 
 class TableauConnector(BaseDataConnector):
     """Connector for Tableau Server/Online"""
+    
+    def get_required_params(self) -> List[str]:
+        """Get required Tableau connection parameters"""
+        return ['server_url', 'username', 'password']
     
     async def connect(self) -> bool:
         """Connect to Tableau"""
@@ -178,6 +186,10 @@ class TableauConnector(BaseDataConnector):
 class PowerBIConnector(BaseDataConnector):
     """Connector for Microsoft Power BI"""
     
+    def get_required_params(self) -> List[str]:
+        """Get required Power BI connection parameters"""
+        return ['client_id', 'client_secret', 'tenant_id']
+    
     async def connect(self) -> bool:
         """Connect to Power BI"""
         try:
@@ -334,6 +346,10 @@ class PowerBIConnector(BaseDataConnector):
 
 class LookerConnector(BaseDataConnector):
     """Connector for Looker"""
+    
+    def get_required_params(self) -> List[str]:
+        """Get required Looker connection parameters"""
+        return ['base_url', 'client_id', 'client_secret']
     
     async def connect(self) -> bool:
         """Connect to Looker"""
@@ -498,6 +514,10 @@ class LookerConnector(BaseDataConnector):
 
 class QlikConnector(BaseDataConnector):
     """Connector for Qlik Sense"""
+    
+    def get_required_params(self) -> List[str]:
+        """Get required Qlik connection parameters"""
+        return ['server_url', 'username', 'password']
     
     async def connect(self) -> bool:
         """Connect to Qlik Sense"""

@@ -1,0 +1,178 @@
+# ScrollIntel Visual Generation Monitoring and Alerting Configuration
+
+groups:
+  - name: visual_generation_alerts
+    rules:
+      # Performance Alerts
+      - alert: VisualGenerationHighLatency
+        expr: visual_generation_request_duration_seconds > 300
+        for: 5m
+        labels:
+          severity: warning
+          component: visual_generation
+        annotations:
+          summary: "Visual generation requests taking too long"
+          description: "Visual generation requests are taking more than 5 minutes on average"
+          
+      - alert: VisualGenerationQueueBacklog
+        expr: visual_generation_queue_length > 100
+        for: 2m
+        labels:
+          severity: critical
+          component: visual_generation
+        annotations:
+          summary: "Visual generation queue is backing up"
+          description: "More than 100 requests are queued for visual generation"
+          
+      # Quality Alerts
+      - alert: VisualGenerationLowQuality
+        expr: visual_generation_quality_score < 0.8
+        for: 10m
+        labels:
+          severity: warning
+          component: visual_generation
+        annotations:
+          summary: "Visual generation quality is below threshold"
+          description: "Average quality score has been below 0.8 for 10 minutes"
+          
+      # Resource Alerts
+      - alert: VisualGenerationGPUMemoryHigh
+        expr: visual_generation_gpu_memory_usage > 0.9
+        for: 5m
+        labels:
+          severity: critical
+          component: visual_generation
+        annotations:
+          summary: "GPU memory usage is critically high"
+          description: "GPU memory usage is above 90% for visual generation"
+          
+      - alert: VisualGenerationDiskSpaceLow
+        expr: visual_generation_disk_usage > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          component: visual_generation
+        annotations:
+          summary: "Disk space is running low"
+          description: "Generated content storage is above 85% capacity"
+          
+      # Error Rate Alerts
+      - alert: VisualGenerationHighErrorRate
+        expr: rate(visual_generation_errors_total[5m]) > 0.1
+        for: 2m
+        labels:
+          severity: critical
+          component: visual_generation
+        annotations:
+          summary: "High error rate in visual generation"
+          description: "Error rate is above 10% for visual generation requests"
+          
+      # Model Availability Alerts
+      - alert: VisualGenerationModelUnavailable
+        expr: visual_generation_model_available == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: visual_generation
+        annotations:
+          summary: "Visual generation model is unavailable"
+          description: "One or more visual generation models are not responding"
+          
+      # Cost Alerts
+      - alert: VisualGenerationHighCosts
+        expr: visual_generation_daily_cost > 1000
+        for: 1m
+        labels:
+          severity: warning
+          component: visual_generation
+        annotations:
+          summary: "Daily visual generation costs are high"
+          description: "Daily costs for visual generation have exceeded $1000"
+          
+      # Competitive Advantage Alerts
+      - alert: ScrollIntelPerformanceAdvantage
+        expr: scrollintel_generation_speed / competitor_average_speed > 10
+        for: 1m
+        labels:
+          severity: info
+          component: competitive_advantage
+        annotations:
+          summary: "ScrollIntel maintains 10x speed advantage"
+          description: "ScrollIntel is generating content 10x faster than competitors"
+          
+      - alert: ScrollIntelQualityAdvantage
+        expr: scrollintel_quality_score > 0.95 and competitor_average_quality < 0.8
+        for: 5m
+        labels:
+          severity: info
+          component: competitive_advantage
+        annotations:
+          summary: "ScrollIntel maintains quality superiority"
+          description: "ScrollIntel quality (>95%) significantly exceeds competitor average (<80%)"
+
+  - name: visual_generation_business_metrics
+    rules:
+      # Business Impact Alerts
+      - alert: VisualGenerationHighUsage
+        expr: rate(visual_generation_requests_total[1h]) > 1000
+        for: 5m
+        labels:
+          severity: info
+          component: business_metrics
+        annotations:
+          summary: "High visual generation usage detected"
+          description: "Visual generation requests are above 1000 per hour"
+          
+      - alert: VisualGenerationUserGrowth
+        expr: increase(visual_generation_unique_users[24h]) > 100
+        for: 1m
+        labels:
+          severity: info
+          component: business_metrics
+        annotations:
+          summary: "Strong user growth in visual generation"
+          description: "More than 100 new users started using visual generation in the last 24 hours"
+          
+      # Competitive Monitoring
+      - alert: CompetitorPricingChange
+        expr: competitor_pricing_change_detected == 1
+        for: 1m
+        labels:
+          severity: info
+          component: competitive_intelligence
+        annotations:
+          summary: "Competitor pricing change detected"
+          description: "A competitor has changed their pricing - review ScrollIntel's competitive position"
+
+# Notification Channels
+notification_channels:
+  - name: visual_generation_team
+    webhook_url: "https://hooks.slack.com/services/YOUR/SLACK/WEBHOOK"
+    channel: "#visual-generation-alerts"
+    
+  - name: executive_team
+    webhook_url: "https://hooks.slack.com/services/YOUR/EXECUTIVE/WEBHOOK"
+    channel: "#executive-alerts"
+    
+  - name: competitive_intelligence
+    webhook_url: "https://hooks.slack.com/services/YOUR/COMPETITIVE/WEBHOOK"
+    channel: "#competitive-intelligence"
+
+# Alert Routing
+routing:
+  - match:
+      severity: critical
+    receiver: visual_generation_team
+    continue: true
+    
+  - match:
+      severity: critical
+    receiver: executive_team
+    
+  - match:
+      component: competitive_advantage
+    receiver: competitive_intelligence
+    
+  - match:
+      component: business_metrics
+    receiver: executive_team

@@ -27,16 +27,18 @@ export function ImageGenerationPanel({ onGenerate }: ImageGenerationPanelProps) 
   const [seed, setSeed] = useState('')
 
   const handleGenerate = () => {
+    const [width, height] = resolution.split('x').map(Number)
+    
     onGenerate('image', {
       prompt,
-      negativePrompt,
+      negative_prompt: negativePrompt || undefined,
       style,
-      resolution,
-      aspectRatio,
-      numImages: numImages[0],
-      guidanceScale: guidanceScale[0],
-      steps: steps[0],
-      seed: seed || undefined
+      resolution: [width, height],
+      num_images: numImages[0],
+      quality: 'high',
+      seed: seed ? parseInt(seed) : undefined,
+      guidance_scale: guidanceScale[0],
+      steps: steps[0]
     })
   }
 

@@ -8,7 +8,7 @@ and comprehensive middleware for the Data Product Registry.
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from graphene import Schema
+# from graphene import Schema  # Temporarily disabled for Docker build
 from starlette.graphql import GraphQLApp
 from starlette.middleware.sessions import SessionMiddleware
 import logging

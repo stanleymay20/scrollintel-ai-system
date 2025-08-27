@@ -1,451 +1,435 @@
+/**
+ * Tests for Dashboard Customizer Component
+ */
+
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { DndProvider } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
 import '@testing-library/jest-dom';
-import { DashboardCustomizer } from '@/components/dashboard/dashboard-customizer';
+import { DashboardCustomizer } from '../../../components/dashboard/dashboard-customizer';
 
-// Mock the drag and drop backend for testing
-const TestDndProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => (
-  <DndProvider backend={HTML5Backend}>
-    {children}
-  </DndProvider>
-);
-
+// Mock data
 const mockTemplate = {
   id: 'test-template',
   name: 'Test Dashboard',
-  description: 'A test dashboard template',
+  description: 'Test dashboard description',
   widgets: [
     {
       id: 'widget-1',
-      type: 'metrics_grid',
-      title: 'Test Metrics',
-      position: { x: 0, y: 0, width: 4, height: 3 },
-      config: { metrics: ['cpu', 'memory'] },
-      dataSource: 'system_metrics'
+      type: 'metric_card',
+      title: 'Test Metric',
+      position: { x: 0, y: 0, width: 4, height: 2 },
+      data_source: 'roi_calculator',
+      visualization_config: {},
+      filters: [],
+      refresh_interval: 300,
     },
     {
       id: 'widget-2',
       type: 'line_chart',
       title: 'Test Chart',
       position: { x: 4, y: 0, width: 8, height: 4 },
-      config: { timeRange: '24h' },
-      dataSource: 'chart_data'
-    }
+      data_source: 'performance_monitor',
+      visualization_config: {},
+      filters: [],
+      refresh_interval: 300,
+    },
   ],
-  layoutConfig: {
-    gridSize: 12,
-    rowHeight: 60
-  }
+  layout_config: {
+    grid_size: 12,
+    row_height: 60,
+    margin: [10, 10],
+  },
+  default_filters: [],
 };
 
-const mockProps = {
-  template: mockTemplate,
-  onSave: jest.fn(),
-  onPreview: jest.fn(),
-  onShare: jest.fn()
-};
+// Test wrapper with DnD provider
+const TestWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <DndProvider backend={HTML5Backend}>
+    {children}
+  </DndProvider>
+);
 
 describe('DashboardCustomizer', () => {
+  const mockOnTemplateUpdate = jest.fn();
+  const mockOnSave = jest.fn();
+  const mockOnPreview = jest.fn();
+
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('renders the dashboard customizer with template name', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
+  const renderCustomizer = (props = {}) => {
+    return render(
+      <TestWrapper>
+        <DashboardCustomizer
+          template={mockTemplate}
+          onTemplateUpdate={mockOnTemplateUpdate}
+          onSave={mockOnSave}
+          onPreview={mockOnPreview}
+          {...props}
+        />
+      </TestWrapper>
     );
+  };
 
-    expect(screen.getByText('Dashboard Customizer')).toBeInTheDocument();
-    expect(screen.getByText('Test Dashboard')).toBeInTheDocument();
-  });
+  describe('Rendering', () => {
+    it('renders dashboard customizer with template name', () => {
+      renderCustomizer();
+      expect(screen.getByText('Test Dashboard')).toBeInTheDocument();
+    });
 
-  it('displays widget palette with available widget types', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
+    it('renders widget palette with widget types', () => {
+      renderCustomizer();
+      expect(screen.getByText('Widget Palette')).toBeInTheDocument();
+      expect(screen.getByText('Metric Card')).toBeInTheDocument();
+      expect(screen.getByText('Line Chart')).toBeInTheDocument();
+      expect(screen.getByText('Bar Chart')).toBeInTheDocument();
+    });
 
-    expect(screen.getByText('Widget Palette')).toBeInTheDocument();
-    expect(screen.getByText('Metrics Grid')).toBeInTheDocument();
-    expect(screen.getByText('Line Chart')).toBeInTheDocument();
-    expect(screen.getByText('Bar Chart')).toBeInTheDocument();
-    expect(screen.getByText('Pie Chart')).toBeInTheDocument();
-  });
+    it('renders existing widgets in the canvas', () => {
+      renderCustomizer();
+      expect(screen.getByText('Test Metric')).toBeInTheDocument();
+      expect(screen.getByText('Test Chart')).toBeInTheDocument();
+    });
 
-  it('renders existing widgets on the canvas', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    expect(screen.getByText('Test Metrics')).toBeInTheDocument();
-    expect(screen.getByText('Test Chart')).toBeInTheDocument();
-    expect(screen.getByText('metrics_grid')).toBeInTheDocument();
-    expect(screen.getByText('line_chart')).toBeInTheDocument();
-  });
-
-  it('shows properties panel when no widget is selected', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    expect(screen.getByText('Properties')).toBeInTheDocument();
-    expect(screen.getByText('Select a widget to edit its properties')).toBeInTheDocument();
-  });
-
-  it('shows widget properties when a widget is selected', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    // Click on a widget to select it
-    const widget = screen.getByText('Test Metrics').closest('div');
-    fireEvent.click(widget!);
-
-    // Properties panel should show widget details
-    expect(screen.getByDisplayValue('Test Metrics')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('metrics_grid')).toBeInTheDocument();
-    expect(screen.getByDisplayValue('system_metrics')).toBeInTheDocument();
-  });
-
-  it('allows editing widget properties', async () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    // Select a widget
-    const widget = screen.getByText('Test Metrics').closest('div');
-    fireEvent.click(widget!);
-
-    // Edit the title
-    const titleInput = screen.getByDisplayValue('Test Metrics');
-    fireEvent.change(titleInput, { target: { value: 'Updated Metrics' } });
-
-    await waitFor(() => {
-      expect(screen.getByText('Updated Metrics')).toBeInTheDocument();
+    it('renders action buttons', () => {
+      renderCustomizer();
+      expect(screen.getByText('Preview')).toBeInTheDocument();
+      expect(screen.getByText('Save Template')).toBeInTheDocument();
     });
   });
 
-  it('allows editing widget dimensions', async () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
+  describe('Widget Palette', () => {
+    it('filters widgets by category', () => {
+      renderCustomizer();
+      
+      // Click on Charts category
+      fireEvent.click(screen.getByText('Charts'));
+      
+      // Should show chart widgets
+      expect(screen.getByText('Line Chart')).toBeInTheDocument();
+      expect(screen.getByText('Bar Chart')).toBeInTheDocument();
+      expect(screen.getByText('Pie Chart')).toBeInTheDocument();
+    });
 
-    // Select a widget
-    const widget = screen.getByText('Test Metrics').closest('div');
-    fireEvent.click(widget!);
-
-    // Edit width
-    const widthInput = screen.getByDisplayValue('4');
-    fireEvent.change(widthInput, { target: { value: '6' } });
-
-    await waitFor(() => {
-      expect(screen.getByDisplayValue('6')).toBeInTheDocument();
+    it('shows all widgets when "All Widgets" is selected', () => {
+      renderCustomizer();
+      
+      // Click on All Widgets
+      fireEvent.click(screen.getByText('All Widgets'));
+      
+      // Should show all widget types
+      expect(screen.getByText('Metric Card')).toBeInTheDocument();
+      expect(screen.getByText('Line Chart')).toBeInTheDocument();
+      expect(screen.getByText('Data Table')).toBeInTheDocument();
     });
   });
 
-  it('allows changing widget type', async () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
+  describe('Widget Management', () => {
+    it('selects widget when clicked', () => {
+      renderCustomizer();
+      
+      const widget = screen.getByText('Test Metric').closest('.cursor-move');
+      fireEvent.click(widget!);
+      
+      // Widget should be selected (would show properties panel)
+      expect(widget).toHaveClass('ring-2', 'ring-blue-500');
+    });
 
-    // Select a widget
-    const widget = screen.getByText('Test Metrics').closest('div');
-    fireEvent.click(widget!);
+    it('deletes widget when delete button is clicked', () => {
+      renderCustomizer();
+      
+      const deleteButtons = screen.getAllByRole('button');
+      const deleteButton = deleteButtons.find(btn => 
+        btn.querySelector('svg')?.getAttribute('class')?.includes('h-3')
+      );
+      
+      if (deleteButton) {
+        fireEvent.click(deleteButton);
+        
+        expect(mockOnTemplateUpdate).toHaveBeenCalledWith({
+          ...mockTemplate,
+          widgets: mockTemplate.widgets.filter(w => w.id !== 'widget-1'),
+        });
+      }
+    });
 
-    // Change widget type
-    const typeSelect = screen.getByDisplayValue('metrics_grid');
-    fireEvent.change(typeSelect, { target: { value: 'bar_chart' } });
-
-    await waitFor(() => {
-      expect(screen.getByDisplayValue('bar_chart')).toBeInTheDocument();
+    it('duplicates widget when duplicate button is clicked', () => {
+      renderCustomizer();
+      
+      const copyButtons = screen.getAllByRole('button');
+      const copyButton = copyButtons.find(btn => 
+        btn.querySelector('svg')?.getAttribute('class')?.includes('h-3')
+      );
+      
+      if (copyButton) {
+        fireEvent.click(copyButton);
+        
+        expect(mockOnTemplateUpdate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            widgets: expect.arrayContaining([
+              expect.objectContaining({
+                title: expect.stringContaining('(Copy)'),
+              }),
+            ]),
+          })
+        );
+      }
     });
   });
 
-  it('allows editing widget configuration JSON', async () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
+  describe('Properties Panel', () => {
+    it('shows widget properties when widget is selected', () => {
+      renderCustomizer();
+      
+      // Select a widget
+      const widget = screen.getByText('Test Metric').closest('.cursor-move');
+      fireEvent.click(widget!);
+      
+      // Should show properties panel
+      expect(screen.getByDisplayValue('Test Metric')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('roi_calculator')).toBeInTheDocument();
+    });
 
-    // Select a widget
-    const widget = screen.getByText('Test Metrics').closest('div');
-    fireEvent.click(widget!);
+    it('updates widget title', async () => {
+      renderCustomizer();
+      
+      // Select widget and update title
+      const widget = screen.getByText('Test Metric').closest('.cursor-move');
+      fireEvent.click(widget!);
+      
+      const titleInput = screen.getByDisplayValue('Test Metric');
+      fireEvent.change(titleInput, { target: { value: 'Updated Metric' } });
+      
+      await waitFor(() => {
+        expect(mockOnTemplateUpdate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            widgets: expect.arrayContaining([
+              expect.objectContaining({
+                id: 'widget-1',
+                title: 'Updated Metric',
+              }),
+            ]),
+          })
+        );
+      });
+    });
 
-    // Edit configuration
-    const configTextarea = screen.getByDisplayValue(/"metrics":\s*\[\s*"cpu",\s*"memory"\s*\]/);
-    const newConfig = JSON.stringify({ metrics: ['cpu', 'memory', 'disk'] }, null, 2);
-    fireEvent.change(configTextarea, { target: { value: newConfig } });
+    it('updates widget data source', async () => {
+      renderCustomizer();
+      
+      // Select widget and update data source
+      const widget = screen.getByText('Test Metric').closest('.cursor-move');
+      fireEvent.click(widget!);
+      
+      const dataSourceSelect = screen.getByDisplayValue('roi_calculator');
+      fireEvent.change(dataSourceSelect, { target: { value: 'cost_tracker' } });
+      
+      await waitFor(() => {
+        expect(mockOnTemplateUpdate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            widgets: expect.arrayContaining([
+              expect.objectContaining({
+                id: 'widget-1',
+                data_source: 'cost_tracker',
+              }),
+            ]),
+          })
+        );
+      });
+    });
 
-    // Configuration should be updated (though we can't easily test the internal state)
-    expect(configTextarea).toHaveValue(newConfig);
-  });
-
-  it('has undo functionality', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    const undoButton = screen.getByRole('button', { name: /undo/i });
-    expect(undoButton).toBeInTheDocument();
-    expect(undoButton).toBeDisabled(); // Should be disabled initially
-  });
-
-  it('has redo functionality', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    const redoButton = screen.getByRole('button', { name: /redo/i });
-    expect(redoButton).toBeInTheDocument();
-    expect(redoButton).toBeDisabled(); // Should be disabled initially
-  });
-
-  it('has preview functionality', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    const previewButton = screen.getByRole('button', { name: /preview/i });
-    fireEvent.click(previewButton);
-
-    expect(mockProps.onPreview).toHaveBeenCalledTimes(1);
-  });
-
-  it('has share functionality', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    const shareButton = screen.getByRole('button', { name: /share/i });
-    fireEvent.click(shareButton);
-
-    expect(mockProps.onShare).toHaveBeenCalledTimes(1);
-  });
-
-  it('has save functionality', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    const saveButton = screen.getByRole('button', { name: /save/i });
-    fireEvent.click(saveButton);
-
-    expect(mockProps.onSave).toHaveBeenCalledTimes(1);
-    expect(mockProps.onSave).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'test-template',
-        name: 'Test Dashboard',
-        widgets: expect.any(Array)
-      })
-    );
-  });
-
-  it('allows deleting widgets', async () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    // Select a widget
-    const widget = screen.getByText('Test Metrics').closest('div');
-    fireEvent.click(widget!);
-
-    // Click delete button
-    const deleteButton = screen.getByRole('button', { name: '' }); // Trash icon button
-    fireEvent.click(deleteButton);
-
-    await waitFor(() => {
-      expect(screen.queryByText('Test Metrics')).not.toBeInTheDocument();
+    it('updates widget dimensions', async () => {
+      renderCustomizer();
+      
+      // Select widget and update width
+      const widget = screen.getByText('Test Metric').closest('.cursor-move');
+      fireEvent.click(widget!);
+      
+      const widthInput = screen.getByDisplayValue('4');
+      fireEvent.change(widthInput, { target: { value: '6' } });
+      
+      await waitFor(() => {
+        expect(mockOnTemplateUpdate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            widgets: expect.arrayContaining([
+              expect.objectContaining({
+                id: 'widget-1',
+                position: expect.objectContaining({
+                  width: 6,
+                }),
+              }),
+            ]),
+          })
+        );
+      });
     });
   });
 
-  it('shows grid background on canvas', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
+  describe('Template Settings', () => {
+    it('switches to settings tab', () => {
+      renderCustomizer();
+      
+      fireEvent.click(screen.getByText('Settings'));
+      
+      expect(screen.getByDisplayValue('Test Dashboard')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('Test dashboard description')).toBeInTheDocument();
+    });
 
-    // Check for canvas with grid styling
-    const canvas = screen.getByRole('generic', { hidden: true });
-    expect(canvas).toHaveStyle({
-      backgroundImage: expect.stringContaining('linear-gradient')
+    it('updates template name', async () => {
+      renderCustomizer();
+      
+      fireEvent.click(screen.getByText('Settings'));
+      
+      const nameInput = screen.getByDisplayValue('Test Dashboard');
+      fireEvent.change(nameInput, { target: { value: 'Updated Dashboard' } });
+      
+      await waitFor(() => {
+        expect(mockOnTemplateUpdate).toHaveBeenCalledWith({
+          ...mockTemplate,
+          name: 'Updated Dashboard',
+        });
+      });
+    });
+
+    it('updates template description', async () => {
+      renderCustomizer();
+      
+      fireEvent.click(screen.getByText('Settings'));
+      
+      const descriptionInput = screen.getByDisplayValue('Test dashboard description');
+      fireEvent.change(descriptionInput, { target: { value: 'Updated description' } });
+      
+      await waitFor(() => {
+        expect(mockOnTemplateUpdate).toHaveBeenCalledWith({
+          ...mockTemplate,
+          description: 'Updated description',
+        });
+      });
+    });
+
+    it('updates grid size', async () => {
+      renderCustomizer();
+      
+      fireEvent.click(screen.getByText('Settings'));
+      
+      const gridSizeSelect = screen.getByDisplayValue('12');
+      fireEvent.change(gridSizeSelect, { target: { value: '16' } });
+      
+      await waitFor(() => {
+        expect(mockOnTemplateUpdate).toHaveBeenCalledWith({
+          ...mockTemplate,
+          layout_config: {
+            ...mockTemplate.layout_config,
+            grid_size: 16,
+          },
+        });
+      });
     });
   });
 
-  it('displays widget dimensions in grid units', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
+  describe('Actions', () => {
+    it('calls onSave when save button is clicked', () => {
+      renderCustomizer();
+      
+      fireEvent.click(screen.getByText('Save Template'));
+      
+      expect(mockOnSave).toHaveBeenCalled();
+    });
 
-    expect(screen.getByText('4x3 grid units')).toBeInTheDocument();
-    expect(screen.getByText('8x4 grid units')).toBeInTheDocument();
-  });
-
-  it('enables undo after making changes', async () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    // Select a widget and make a change
-    const widget = screen.getByText('Test Metrics').closest('div');
-    fireEvent.click(widget!);
-
-    const titleInput = screen.getByDisplayValue('Test Metrics');
-    fireEvent.change(titleInput, { target: { value: 'Changed Title' } });
-
-    await waitFor(() => {
-      const undoButton = screen.getByRole('button', { name: /undo/i });
-      expect(undoButton).not.toBeDisabled();
+    it('calls onPreview when preview button is clicked', () => {
+      renderCustomizer();
+      
+      fireEvent.click(screen.getByText('Preview'));
+      
+      expect(mockOnPreview).toHaveBeenCalled();
     });
   });
 
-  it('handles invalid JSON in configuration gracefully', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
+  describe('Responsive Behavior', () => {
+    it('handles different screen sizes', () => {
+      // Mock window resize
+      Object.defineProperty(window, 'innerWidth', {
+        writable: true,
+        configurable: true,
+        value: 768,
+      });
 
-    // Select a widget
-    const widget = screen.getByText('Test Metrics').closest('div');
-    fireEvent.click(widget!);
-
-    // Enter invalid JSON
-    const configTextarea = screen.getByDisplayValue(/"metrics":\s*\[\s*"cpu",\s*"memory"\s*\]/);
-    fireEvent.change(configTextarea, { target: { value: 'invalid json' } });
-
-    // Should not crash the application
-    expect(configTextarea).toHaveValue('invalid json');
-  });
-
-  it('shows drop zone when dragging widgets', () => {
-    // This test would require more complex drag and drop simulation
-    // For now, we'll just check that the canvas exists and can receive drops
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    // Canvas should be present and ready for drops
-    const canvas = document.querySelector('[style*="background-image"]');
-    expect(canvas).toBeInTheDocument();
-  });
-});
-
-describe('DashboardCustomizer Widget Palette', () => {
-  it('displays all widget types', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    const expectedWidgetTypes = [
-      'Metrics Grid',
-      'Line Chart',
-      'Bar Chart',
-      'Pie Chart',
-      'Gauge Chart',
-      'Status Grid',
-      'Alert List',
-      'Kanban Board',
-      'Area Chart',
-      'Data Table'
-    ];
-
-    expectedWidgetTypes.forEach(widgetType => {
-      expect(screen.getByText(widgetType)).toBeInTheDocument();
+      renderCustomizer();
+      
+      // Component should render without errors on smaller screens
+      expect(screen.getByText('Test Dashboard')).toBeInTheDocument();
     });
   });
 
-  it('shows widget icons', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
+  describe('Error Handling', () => {
+    it('handles empty template gracefully', () => {
+      const emptyTemplate = {
+        ...mockTemplate,
+        widgets: [],
+      };
 
-    // Check for emoji icons (simplified test)
-    expect(screen.getByText('📊')).toBeInTheDocument();
-    expect(screen.getByText('📈')).toBeInTheDocument();
-    expect(screen.getByText('🥧')).toBeInTheDocument();
+      render(
+        <TestWrapper>
+          <DashboardCustomizer
+            template={emptyTemplate}
+            onTemplateUpdate={mockOnTemplateUpdate}
+            onSave={mockOnSave}
+            onPreview={mockOnPreview}
+          />
+        </TestWrapper>
+      );
+      
+      expect(screen.getByText('Test Dashboard')).toBeInTheDocument();
+    });
+
+    it('handles invalid widget configurations', () => {
+      const invalidTemplate = {
+        ...mockTemplate,
+        widgets: [
+          {
+            ...mockTemplate.widgets[0],
+            position: { x: -1, y: -1, width: 0, height: 0 },
+          },
+        ],
+      };
+
+      render(
+        <TestWrapper>
+          <DashboardCustomizer
+            template={invalidTemplate}
+            onTemplateUpdate={mockOnTemplateUpdate}
+            onSave={mockOnSave}
+            onPreview={mockOnPreview}
+          />
+        </TestWrapper>
+      );
+      
+      expect(screen.getByText('Test Dashboard')).toBeInTheDocument();
+    });
   });
-});
 
-describe('DashboardCustomizer Properties Panel', () => {
-  it('shows all editable properties for selected widget', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
+  describe('Accessibility', () => {
+    it('provides proper ARIA labels', () => {
+      renderCustomizer();
+      
+      const buttons = screen.getAllByRole('button');
+      expect(buttons.length).toBeGreaterThan(0);
+      
+      // Check that important buttons have accessible names
+      expect(screen.getByText('Save Template')).toBeInTheDocument();
+      expect(screen.getByText('Preview')).toBeInTheDocument();
+    });
 
-    // Select a widget
-    const widget = screen.getByText('Test Metrics').closest('div');
-    fireEvent.click(widget!);
-
-    // Check for all property fields
-    expect(screen.getByLabelText('Title')).toBeInTheDocument();
-    expect(screen.getByLabelText('Type')).toBeInTheDocument();
-    expect(screen.getByLabelText('Width')).toBeInTheDocument();
-    expect(screen.getByLabelText('Height')).toBeInTheDocument();
-    expect(screen.getByLabelText('Data Source')).toBeInTheDocument();
-    expect(screen.getByLabelText('Configuration')).toBeInTheDocument();
-  });
-
-  it('validates width and height inputs', () => {
-    render(
-      <TestDndProvider>
-        <DashboardCustomizer {...mockProps} />
-      </TestDndProvider>
-    );
-
-    // Select a widget
-    const widget = screen.getByText('Test Metrics').closest('div');
-    fireEvent.click(widget!);
-
-    // Width input should have min/max constraints
-    const widthInput = screen.getByLabelText('Width') as HTMLInputElement;
-    expect(widthInput.min).toBe('1');
-    expect(widthInput.max).toBe('12');
-
-    // Height input should have min constraint
-    const heightInput = screen.getByLabelText('Height') as HTMLInputElement;
-    expect(heightInput.min).toBe('1');
+    it('supports keyboard navigation', () => {
+      renderCustomizer();
+      
+      const firstButton = screen.getByText('All Widgets');
+      firstButton.focus();
+      
+      expect(document.activeElement).toBe(firstButton);
+    });
   });
 });

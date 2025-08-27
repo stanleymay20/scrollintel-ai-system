@@ -30,10 +30,12 @@ FROM base as dependencies
 WORKDIR /app
 
 # Copy requirements
-COPY requirements.txt .
+COPY requirements_docker.txt .
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies with TensorFlow/Keras compatibility fix
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir tf-keras && \
+    pip install --no-cache-dir -r requirements_docker.txt
 
 # Stage 3: Development environment
 FROM dependencies as development

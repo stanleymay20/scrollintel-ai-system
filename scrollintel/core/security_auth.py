@@ -327,7 +327,7 @@ def get_auth_manager() -> AuthenticationManager:
         _auth_manager.create_user(
             username="admin",
             email="admin@scrollintel.com",
-            password="admin123",  # Change in production
+            password=os.getenv("ADMIN_PASSWORD", ""),  # Must be set via environment
             roles={Role.ADMIN}
         )
     

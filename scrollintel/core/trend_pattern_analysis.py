@@ -1,36 +1,41 @@
 """
 Advanced trend analysis and pattern recognition for prompt analytics.
-Provides sophisticated statistical analysis, forecasting, and pattern detection.
+Provides statistical analysis, forecasting, and anomaly detection.
 """
 
+import asyncio
+import json
 import numpy as np
-import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
-from sqlalchemy.orm import Session
-from sqlalchemy import and_, func
-from scipy import stats
-from scipy.signal import find_peaks
-from sklearn.cluster import DBSCAN
-from sklearn.preprocessing import StandardScaler
-import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from enum import Enum
+import statistics
+import logging
+from scipy import stats
+from sklearn.linear_model import LinearRegression
+from sklearn.preprocessing import PolynomialFeatures
+from sklearn.metrics import r2_score
 
-from ..models.analytics_models import PromptMetrics, UsageAnalytics, TrendAnalysis, PatternRecognition
-from ..models.database import get_db_session
+from ..core.config import get_settings
+from ..core.logging_config import get_logger
+from .prompt_analytics import prompt_performance_tracker
 
-logger = logging.getLogger(__name__)
+settings = get_settings()
+logger = get_logger(__name__)
 
 class TrendType(Enum):
+    """Types of trends that can be detected."""
     LINEAR = "linear"
     EXPONENTIAL = "exponential"
     LOGARITHMIC = "logarithmic"
     POLYNOMIAL = "polynomial"
     SEASONAL = "seasonal"
     CYCLICAL = "cyclical"
+    STABLE = "stable"
 
 class PatternType(Enum):
+    """Types of patterns that can be recognized."""
     SEASONAL = "seasonal"
     CYCLICAL = "cyclical"
     ANOMALY = "anomaly"
@@ -40,17 +45,23 @@ class PatternType(Enum):
     OSCILLATION = "oscillation"
 
 @dataclass
-class TrendForecast:
-    """Forecast data structure."""
-    timestamps: List[datetime]
-    predicted_values: List[float]
-    confidence_intervals: List[Tuple[float, float]]
-    forecast_accuracy: float
-    model_type: str
+class TrendAnalysis:
+    """Results of trend analysis."""
+    metric_name: str
+    trend_type: TrendType
+    trend_direction: str  # 'increasing', 'decreasing', 'stable'
+    trend_strength: float  # 0.0 to 1.0
+    confidence_level: float  # 0.0 to 1.0
+    r_squared: float
+    slope: Optional[float]
+    data_points: List[Dict[str, Any]]
+    forecast: Optional[List[Dict[str, Any]]]
+    analysis_period: Tuple[datetime, datetime]
+    generated_at: datetime
 
 @dataclass
-class DetectedPattern:
-    """Detected pattern data structure."""
+class Pattern:
+    """Detected pattern in data."""
     pattern_type: PatternType
     start_time: datetime
     end_time: datetime
@@ -60,16 +71,10 @@ class DetectedPattern:
     affected_metrics: List[str]
 
 class AdvancedTrendAnalyzer:
-    """Advanced trend analysis with multiple algorithms."""
+    """Advanced statistical trend analysis system."""
     
     def __init__(self):
-        self.trend_models = {
-            TrendType.LINEAR: self._fit_linear_trend,
-            TrendType.EXPONENTIAL: self._fit_exponential_trend,
-            TrendType.LOGARITHMIC: self._fit_logarithmic_trend,
-            TrendType.POLYNOMIAL: self._fit_polynomial_trend,
-            TrendType.SEASONAL: self._fit_seasonal_trend
-        }
+        self.logger = get_logger(__name__)
     
     async def analyze_comprehensive_trends(
         self,
@@ -78,1186 +83,719 @@ class AdvancedTrendAnalyzer:
         days: int = 30,
         forecast_days: int = 7
     ) -> Dict[str, Any]:
-        """Perform comprehensive trend analysis with multiple models."""
+        """Perform comprehensive trend analysis with forecasting."""
         try:
-            # Get historical data
-            data = await self._get_time_series_data(prompt_id, metric_name, days)
+            # Get performance data
+            performance_summary = await prompt_performance_tracker.get_prompt_performance_summary(
+                prompt_id=prompt_id,
+                days=days
+            )
             
-            if len(data) < 5:
-                return {"error": "Insufficient data for trend analysis"}
+            if 'error' in performance_summary:
+                return performance_summary
             
-            # Prepare time series
-            df = pd.DataFrame(data)
-            df['timestamp'] = pd.to_datetime(df['timestamp'])
-            df = df.sort_values('timestamp')
+            # Extract time series data
+            daily_usage = performance_summary.get('daily_usage', {})
+            if not daily_usage:
+                return {
+                    'error': 'Insufficient data for trend analysis',
+                    'prompt_id': prompt_id,
+                    'metric_name': metric_name
+                }
             
-            # Test multiple trend models
-            trend_results = {}
-            best_model = None
-            best_score = float('-inf')
+            # Convert to time series
+            time_series = self._prepare_time_series(daily_usage, metric_name)
             
-            for trend_type, model_func in self.trend_models.items():
-                try:
-                    result = model_func(df, forecast_days)
-                    trend_results[trend_type.value] = result
-                    
-                    if result['fit_score'] > best_score:
-                        best_score = result['fit_score']
-                        best_model = trend_type.value
-                        
-                except Exception as e:
-                    logger.warning(f"Failed to fit {trend_type.value} model: {str(e)}")
-                    continue
+            if len(time_series) < 3:
+                return {
+                    'error': 'Insufficient data points for trend analysis',
+                    'prompt_id': prompt_id,
+                    'metric_name': metric_name,
+                    'data_points': len(time_series)
+                }
             
-            # Generate comprehensive analysis
+            # Perform multiple trend analyses
+            analyses = {}
+            
+            # Linear trend analysis
+            linear_analysis = await self._analyze_linear_trend(time_series)
+            analyses['linear'] = linear_analysis
+            
+            # Polynomial trend analysis
+            polynomial_analysis = await self._analyze_polynomial_trend(time_series)
+            analyses['polynomial'] = polynomial_analysis
+            
+            # Seasonal analysis
+            if len(time_series) >= 7:  # Need at least a week of data
+                seasonal_analysis = await self._analyze_seasonal_pattern(time_series)
+                analyses['seasonal'] = seasonal_analysis
+            
+            # Determine best fit
+            best_analysis = self._select_best_trend_analysis(analyses)
+            
+            # Generate forecast
+            forecast = None
+            if best_analysis and forecast_days > 0:
+                forecast = await self._generate_forecast(
+                    time_series,
+                    best_analysis,
+                    forecast_days
+                )
+            
+            # Calculate trend statistics
+            trend_stats = self._calculate_trend_statistics(time_series)
+            
+            result = {
+                'prompt_id': prompt_id,
+                'metric_name': metric_name,
+                'analysis_period': {
+                    'start': min(point['date'] for point in time_series),
+                    'end': max(point['date'] for point in time_series),
+                    'days': days
+                },
+                'data_points': len(time_series),
+                'trend_analyses': analyses,
+                'best_fit': best_analysis,
+                'forecast': forecast,
+                'statistics': trend_stats,
+                'generated_at': datetime.utcnow().isoformat()
+            }
+            
+            return result
+            
+        except Exception as e:
+            self.logger.error(f"Error in comprehensive trend analysis: {e}")
+            return {'error': str(e)}
+    
+    def _prepare_time_series(self, daily_data: Dict[str, int], metric_name: str) -> List[Dict[str, Any]]:
+        """Prepare time series data for analysis."""
+        try:
+            time_series = []
+            
+            # Sort by date
+            sorted_dates = sorted(daily_data.keys())
+            
+            for i, date_str in enumerate(sorted_dates):
+                value = daily_data[date_str]
+                time_series.append({
+                    'date': date_str,
+                    'day_index': i,
+                    'value': value,
+                    'timestamp': datetime.fromisoformat(date_str).timestamp()
+                })
+            
+            return time_series
+            
+        except Exception as e:
+            self.logger.error(f"Error preparing time series: {e}")
+            return []
+    
+    async def _analyze_linear_trend(self, time_series: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze linear trend in time series data."""
+        try:
+            if len(time_series) < 2:
+                return {'error': 'Insufficient data for linear analysis'}
+            
+            # Prepare data for regression
+            X = np.array([point['day_index'] for point in time_series]).reshape(-1, 1)
+            y = np.array([point['value'] for point in time_series])
+            
+            # Fit linear regression
+            model = LinearRegression()
+            model.fit(X, y)
+            
+            # Calculate predictions and R²
+            y_pred = model.predict(X)
+            r_squared = r2_score(y, y_pred)
+            
+            # Determine trend direction and strength
+            slope = model.coef_[0]
+            
+            if abs(slope) < 0.1:
+                trend_direction = 'stable'
+                trend_strength = 0.0
+            elif slope > 0:
+                trend_direction = 'increasing'
+                trend_strength = min(abs(slope) / max(y), 1.0)
+            else:
+                trend_direction = 'decreasing'
+                trend_strength = min(abs(slope) / max(y), 1.0)
+            
+            # Calculate confidence level based on R² and data points
+            confidence_level = r_squared * min(len(time_series) / 10, 1.0)
+            
             analysis = {
-                "prompt_id": prompt_id,
-                "metric_name": metric_name,
-                "analysis_period_days": days,
-                "data_points": len(data),
-                "best_model": best_model,
-                "model_results": trend_results,
-                "trend_summary": self._summarize_trends(trend_results),
-                "forecast": trend_results.get(best_model, {}).get('forecast') if best_model else None,
-                "confidence_metrics": self._calculate_confidence_metrics(trend_results),
-                "recommendations": self._generate_trend_recommendations(trend_results, best_model)
+                'trend_type': TrendType.LINEAR.value,
+                'trend_direction': trend_direction,
+                'trend_strength': round(trend_strength, 3),
+                'confidence_level': round(confidence_level, 3),
+                'r_squared': round(r_squared, 3),
+                'slope': round(slope, 3),
+                'intercept': round(model.intercept_, 3),
+                'predictions': [round(pred, 2) for pred in y_pred.tolist()]
             }
             
             return analysis
             
         except Exception as e:
-            logger.error(f"Error in comprehensive trend analysis: {str(e)}")
-            return {"error": str(e)}
+            self.logger.error(f"Error in linear trend analysis: {e}")
+            return {'error': str(e)}
     
-    async def _get_time_series_data(
-        self,
-        prompt_id: str,
-        metric_name: str,
-        days: int
-    ) -> List[Dict[str, Any]]:
-        """Get time series data for analysis."""
+    async def _analyze_polynomial_trend(self, time_series: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze polynomial trend in time series data."""
         try:
-            with get_db_session() as db:
-                cutoff_date = datetime.utcnow() - timedelta(days=days)
-                
-                metrics = db.query(PromptMetrics).filter(
-                    and_(
-                        PromptMetrics.prompt_id == prompt_id,
-                        PromptMetrics.created_at >= cutoff_date
-                    )
-                ).order_by(PromptMetrics.created_at).all()
-                
-                data = []
-                for metric in metrics:
-                    value = getattr(metric, metric_name)
-                    if value is not None:
-                        data.append({
-                            'timestamp': metric.created_at,
-                            'value': float(value)
-                        })
-                
-                return data
-                
-        except Exception as e:
-            logger.error(f"Error getting time series data: {str(e)}")
-            return []
-    
-    def _fit_linear_trend(self, df: pd.DataFrame, forecast_days: int) -> Dict[str, Any]:
-        """Fit linear trend model."""
-        try:
-            # Convert timestamps to numeric for regression
-            df['time_numeric'] = (df['timestamp'] - df['timestamp'].min()).dt.total_seconds()
+            if len(time_series) < 4:
+                return {'error': 'Insufficient data for polynomial analysis'}
             
-            # Fit linear regression
-            slope, intercept, r_value, p_value, std_err = stats.linregress(
-                df['time_numeric'], df['value']
-            )
+            # Prepare data
+            X = np.array([point['day_index'] for point in time_series]).reshape(-1, 1)
+            y = np.array([point['value'] for point in time_series])
             
-            # Calculate predictions
-            predictions = slope * df['time_numeric'] + intercept
+            # Try different polynomial degrees
+            best_degree = 1
+            best_r_squared = 0
+            best_model = None
+            best_poly_features = None
             
-            # Calculate fit metrics
-            r_squared = r_value ** 2
-            mse = np.mean((df['value'] - predictions) ** 2)
-            
-            # Generate forecast
-            forecast = self._generate_linear_forecast(
-                df, slope, intercept, forecast_days
-            )
-            
-            return {
-                'model_type': 'linear',
-                'parameters': {
-                    'slope': slope,
-                    'intercept': intercept,
-                    'r_squared': r_squared,
-                    'p_value': p_value,
-                    'std_error': std_err
-                },
-                'fit_score': r_squared,
-                'mse': mse,
-                'predictions': predictions.tolist(),
-                'forecast': forecast,
-                'trend_direction': 'increasing' if slope > 0 else 'decreasing' if slope < 0 else 'stable',
-                'trend_strength': abs(slope),
-                'statistical_significance': p_value < 0.05
-            }
-            
-        except Exception as e:
-            logger.error(f"Error fitting linear trend: {str(e)}")
-            raise
-    
-    def _fit_exponential_trend(self, df: pd.DataFrame, forecast_days: int) -> Dict[str, Any]:
-        """Fit exponential trend model."""
-        try:
-            # Ensure positive values for log transformation
-            min_val = df['value'].min()
-            if min_val <= 0:
-                df['log_value'] = np.log(df['value'] - min_val + 1)
-            else:
-                df['log_value'] = np.log(df['value'])
-            
-            df['time_numeric'] = (df['timestamp'] - df['timestamp'].min()).dt.total_seconds()
-            
-            # Fit linear regression on log-transformed data
-            slope, intercept, r_value, p_value, std_err = stats.linregress(
-                df['time_numeric'], df['log_value']
-            )
-            
-            # Transform back to original scale
-            predictions = np.exp(slope * df['time_numeric'] + intercept)
-            if min_val <= 0:
-                predictions = predictions + min_val - 1
-            
-            # Calculate fit metrics
-            r_squared = r_value ** 2
-            mse = np.mean((df['value'] - predictions) ** 2)
-            
-            # Generate forecast
-            forecast = self._generate_exponential_forecast(
-                df, slope, intercept, forecast_days, min_val
-            )
-            
-            return {
-                'model_type': 'exponential',
-                'parameters': {
-                    'growth_rate': slope,
-                    'initial_value': np.exp(intercept),
-                    'r_squared': r_squared,
-                    'p_value': p_value
-                },
-                'fit_score': r_squared,
-                'mse': mse,
-                'predictions': predictions.tolist(),
-                'forecast': forecast,
-                'trend_direction': 'exponential_growth' if slope > 0 else 'exponential_decay',
-                'trend_strength': abs(slope),
-                'statistical_significance': p_value < 0.05
-            }
-            
-        except Exception as e:
-            logger.error(f"Error fitting exponential trend: {str(e)}")
-            raise
-    
-    def _fit_polynomial_trend(self, df: pd.DataFrame, forecast_days: int, degree: int = 2) -> Dict[str, Any]:
-        """Fit polynomial trend model."""
-        try:
-            df['time_numeric'] = (df['timestamp'] - df['timestamp'].min()).dt.total_seconds()
-            
-            # Fit polynomial
-            coefficients = np.polyfit(df['time_numeric'], df['value'], degree)
-            poly_func = np.poly1d(coefficients)
-            
-            # Calculate predictions
-            predictions = poly_func(df['time_numeric'])
-            
-            # Calculate R-squared
-            ss_res = np.sum((df['value'] - predictions) ** 2)
-            ss_tot = np.sum((df['value'] - np.mean(df['value'])) ** 2)
-            r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
-            
-            mse = np.mean((df['value'] - predictions) ** 2)
-            
-            # Generate forecast
-            forecast = self._generate_polynomial_forecast(
-                df, coefficients, forecast_days
-            )
-            
-            return {
-                'model_type': f'polynomial_degree_{degree}',
-                'parameters': {
-                    'coefficients': coefficients.tolist(),
-                    'degree': degree,
-                    'r_squared': r_squared
-                },
-                'fit_score': r_squared,
-                'mse': mse,
-                'predictions': predictions.tolist(),
-                'forecast': forecast,
-                'trend_direction': self._determine_polynomial_trend(coefficients),
-                'trend_strength': abs(coefficients[0]) if len(coefficients) > 0 else 0,
-                'statistical_significance': r_squared > 0.5
-            }
-            
-        except Exception as e:
-            logger.error(f"Error fitting polynomial trend: {str(e)}")
-            raise
-    
-    def _fit_seasonal_trend(self, df: pd.DataFrame, forecast_days: int) -> Dict[str, Any]:
-        """Fit seasonal trend model using Fourier analysis."""
-        try:
-            if len(df) < 14:  # Need at least 2 weeks of data
-                raise ValueError("Insufficient data for seasonal analysis")
-            
-            # Extract time features
-            df['hour'] = df['timestamp'].dt.hour
-            df['day_of_week'] = df['timestamp'].dt.dayofweek
-            df['time_numeric'] = (df['timestamp'] - df['timestamp'].min()).dt.total_seconds()
-            
-            # Detect seasonality using FFT
-            values = df['value'].values
-            fft = np.fft.fft(values)
-            frequencies = np.fft.fftfreq(len(values))
-            
-            # Find dominant frequencies
-            power_spectrum = np.abs(fft) ** 2
-            dominant_freq_idx = np.argsort(power_spectrum)[-3:]  # Top 3 frequencies
-            
-            # Fit seasonal components
-            seasonal_components = []
-            for idx in dominant_freq_idx:
-                if frequencies[idx] != 0:  # Skip DC component
-                    period = 1 / abs(frequencies[idx])
-                    amplitude = np.abs(fft[idx]) / len(values)
-                    phase = np.angle(fft[idx])
+            for degree in range(2, min(4, len(time_series) - 1)):
+                try:
+                    poly_features = PolynomialFeatures(degree=degree)
+                    X_poly = poly_features.fit_transform(X)
                     
-                    seasonal_components.append({
-                        'period': period,
-                        'amplitude': amplitude,
-                        'phase': phase,
-                        'frequency': frequencies[idx]
+                    model = LinearRegression()
+                    model.fit(X_poly, y)
+                    
+                    y_pred = model.predict(X_poly)
+                    r_squared = r2_score(y, y_pred)
+                    
+                    if r_squared > best_r_squared:
+                        best_r_squared = r_squared
+                        best_degree = degree
+                        best_model = model
+                        best_poly_features = poly_features
+                        
+                except Exception:
+                    continue
+            
+            if best_model is None:
+                return {'error': 'Could not fit polynomial model'}
+            
+            # Generate predictions with best model
+            X_poly = best_poly_features.transform(X)
+            y_pred = best_model.predict(X_poly)
+            
+            # Determine trend characteristics
+            if len(y_pred) >= 2:
+                first_half_avg = np.mean(y_pred[:len(y_pred)//2])
+                second_half_avg = np.mean(y_pred[len(y_pred)//2:])
+                
+                if second_half_avg > first_half_avg * 1.05:
+                    trend_direction = 'increasing'
+                elif second_half_avg < first_half_avg * 0.95:
+                    trend_direction = 'decreasing'
+                else:
+                    trend_direction = 'stable'
+            else:
+                trend_direction = 'stable'
+            
+            # Calculate trend strength based on variation
+            trend_strength = min(np.std(y_pred) / np.mean(y_pred), 1.0) if np.mean(y_pred) > 0 else 0
+            confidence_level = best_r_squared * min(len(time_series) / 10, 1.0)
+            
+            analysis = {
+                'trend_type': TrendType.POLYNOMIAL.value,
+                'trend_direction': trend_direction,
+                'trend_strength': round(trend_strength, 3),
+                'confidence_level': round(confidence_level, 3),
+                'r_squared': round(best_r_squared, 3),
+                'degree': best_degree,
+                'predictions': [round(pred, 2) for pred in y_pred.tolist()]
+            }
+            
+            return analysis
+            
+        except Exception as e:
+            self.logger.error(f"Error in polynomial trend analysis: {e}")
+            return {'error': str(e)}
+    
+    async def _analyze_seasonal_pattern(self, time_series: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Analyze seasonal patterns in time series data."""
+        try:
+            if len(time_series) < 7:
+                return {'error': 'Insufficient data for seasonal analysis'}
+            
+            values = [point['value'] for point in time_series]
+            
+            # Analyze weekly seasonality (if enough data)
+            seasonal_analysis = {}
+            
+            if len(time_series) >= 14:  # At least 2 weeks
+                # Group by day of week
+                weekday_values = [[] for _ in range(7)]
+                
+                for i, point in enumerate(time_series):
+                    weekday = i % 7
+                    weekday_values[weekday].append(point['value'])
+                
+                # Calculate average for each day of week
+                weekday_averages = []
+                for day_values in weekday_values:
+                    if day_values:
+                        weekday_averages.append(statistics.mean(day_values))
+                    else:
+                        weekday_averages.append(0)
+                
+                # Calculate seasonality strength
+                overall_mean = statistics.mean(values)
+                seasonal_variation = statistics.stdev(weekday_averages) if len(weekday_averages) > 1 else 0
+                seasonality_strength = seasonal_variation / overall_mean if overall_mean > 0 else 0
+                
+                seasonal_analysis = {
+                    'trend_type': TrendType.SEASONAL.value,
+                    'seasonality_strength': round(seasonality_strength, 3),
+                    'weekday_pattern': [round(avg, 2) for avg in weekday_averages],
+                    'peak_day': weekday_averages.index(max(weekday_averages)),
+                    'low_day': weekday_averages.index(min(weekday_averages)),
+                    'confidence_level': min(seasonality_strength * 2, 1.0)
+                }
+            
+            return seasonal_analysis
+            
+        except Exception as e:
+            self.logger.error(f"Error in seasonal analysis: {e}")
+            return {'error': str(e)}
+    
+    def _select_best_trend_analysis(self, analyses: Dict[str, Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Select the best trend analysis based on R² and confidence."""
+        try:
+            best_analysis = None
+            best_score = 0
+            
+            for analysis_type, analysis in analyses.items():
+                if 'error' in analysis:
+                    continue
+                
+                # Calculate composite score
+                r_squared = analysis.get('r_squared', 0)
+                confidence = analysis.get('confidence_level', 0)
+                
+                # Weight R² more heavily for statistical models
+                if analysis_type in ['linear', 'polynomial']:
+                    score = r_squared * 0.7 + confidence * 0.3
+                else:
+                    score = confidence
+                
+                if score > best_score:
+                    best_score = score
+                    best_analysis = analysis.copy()
+                    best_analysis['analysis_type'] = analysis_type
+                    best_analysis['composite_score'] = round(score, 3)
+            
+            return best_analysis
+            
+        except Exception as e:
+            self.logger.error(f"Error selecting best trend analysis: {e}")
+            return None
+    
+    async def _generate_forecast(
+        self,
+        time_series: List[Dict[str, Any]],
+        trend_analysis: Dict[str, Any],
+        forecast_days: int
+    ) -> List[Dict[str, Any]]:
+        """Generate forecast based on trend analysis."""
+        try:
+            forecast = []
+            
+            if trend_analysis.get('analysis_type') == 'linear':
+                # Linear forecast
+                slope = trend_analysis.get('slope', 0)
+                intercept = trend_analysis.get('intercept', 0)
+                
+                last_day_index = len(time_series) - 1
+                last_date = datetime.fromisoformat(time_series[-1]['date']).date()
+                
+                for i in range(1, forecast_days + 1):
+                    forecast_date = last_date + timedelta(days=i)
+                    forecast_day_index = last_day_index + i
+                    forecast_value = slope * forecast_day_index + intercept
+                    
+                    forecast.append({
+                        'date': forecast_date.isoformat(),
+                        'day_index': forecast_day_index,
+                        'predicted_value': max(0, round(forecast_value, 2)),
+                        'confidence': max(0, trend_analysis.get('confidence_level', 0) - (i * 0.1))
                     })
             
-            # Reconstruct signal
-            reconstructed = np.zeros(len(values))
-            for component in seasonal_components:
-                reconstructed += component['amplitude'] * np.cos(
-                    2 * np.pi * component['frequency'] * np.arange(len(values)) + component['phase']
+            elif trend_analysis.get('analysis_type') == 'seasonal':
+                # Seasonal forecast
+                weekday_pattern = trend_analysis.get('weekday_pattern', [])
+                if weekday_pattern:
+                    last_date = datetime.fromisoformat(time_series[-1]['date']).date()
+                    
+                    for i in range(1, forecast_days + 1):
+                        forecast_date = last_date + timedelta(days=i)
+                        weekday = (forecast_date.weekday() + 1) % 7  # Adjust for Monday=0
+                        
+                        if weekday < len(weekday_pattern):
+                            predicted_value = weekday_pattern[weekday]
+                        else:
+                            predicted_value = statistics.mean(weekday_pattern)
+                        
+                        forecast.append({
+                            'date': forecast_date.isoformat(),
+                            'day_index': len(time_series) + i - 1,
+                            'predicted_value': max(0, round(predicted_value, 2)),
+                            'confidence': max(0, trend_analysis.get('confidence_level', 0) - (i * 0.05))
+                        })
+            
+            return forecast
+            
+        except Exception as e:
+            self.logger.error(f"Error generating forecast: {e}")
+            return []
+    
+    def _calculate_trend_statistics(self, time_series: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Calculate basic trend statistics."""
+        try:
+            values = [point['value'] for point in time_series]
+            
+            if not values:
+                return {}
+            
+            stats_dict = {
+                'mean': round(statistics.mean(values), 2),
+                'median': round(statistics.median(values), 2),
+                'std_dev': round(statistics.stdev(values), 2) if len(values) > 1 else 0,
+                'min_value': min(values),
+                'max_value': max(values),
+                'range': max(values) - min(values),
+                'coefficient_of_variation': 0
+            }
+            
+            if stats_dict['mean'] > 0:
+                stats_dict['coefficient_of_variation'] = round(
+                    stats_dict['std_dev'] / stats_dict['mean'], 3
                 )
             
-            # Add trend component
-            trend_slope, trend_intercept = np.polyfit(range(len(values)), values, 1)
-            trend_component = trend_slope * np.arange(len(values)) + trend_intercept
+            # Calculate growth rate
+            if len(values) >= 2:
+                first_value = values[0]
+                last_value = values[-1]
+                
+                if first_value > 0:
+                    growth_rate = ((last_value - first_value) / first_value) * 100
+                    stats_dict['growth_rate_percent'] = round(growth_rate, 2)
             
-            predictions = reconstructed + trend_component
-            
-            # Calculate fit metrics
-            r_squared = 1 - np.sum((values - predictions) ** 2) / np.sum((values - np.mean(values)) ** 2)
-            mse = np.mean((values - predictions) ** 2)
-            
-            # Generate forecast
-            forecast = self._generate_seasonal_forecast(
-                df, seasonal_components, trend_slope, trend_intercept, forecast_days
-            )
-            
-            return {
-                'model_type': 'seasonal',
-                'parameters': {
-                    'seasonal_components': seasonal_components,
-                    'trend_slope': trend_slope,
-                    'trend_intercept': trend_intercept,
-                    'r_squared': r_squared
-                },
-                'fit_score': r_squared,
-                'mse': mse,
-                'predictions': predictions.tolist(),
-                'forecast': forecast,
-                'trend_direction': 'seasonal_with_trend',
-                'trend_strength': len(seasonal_components),
-                'statistical_significance': r_squared > 0.3
-            }
+            return stats_dict
             
         except Exception as e:
-            logger.error(f"Error fitting seasonal trend: {str(e)}")
-            raise
-    
-    def _fit_logarithmic_trend(self, df: pd.DataFrame, forecast_days: int) -> Dict[str, Any]:
-        """Fit logarithmic trend model."""
-        try:
-            df['time_numeric'] = (df['timestamp'] - df['timestamp'].min()).dt.total_seconds()
-            
-            # Ensure positive time values for log
-            df['log_time'] = np.log(df['time_numeric'] + 1)
-            
-            # Fit linear regression on log-transformed time
-            slope, intercept, r_value, p_value, std_err = stats.linregress(
-                df['log_time'], df['value']
-            )
-            
-            # Calculate predictions
-            predictions = slope * df['log_time'] + intercept
-            
-            # Calculate fit metrics
-            r_squared = r_value ** 2
-            mse = np.mean((df['value'] - predictions) ** 2)
-            
-            # Generate forecast
-            forecast = self._generate_logarithmic_forecast(
-                df, slope, intercept, forecast_days
-            )
-            
-            return {
-                'model_type': 'logarithmic',
-                'parameters': {
-                    'slope': slope,
-                    'intercept': intercept,
-                    'r_squared': r_squared,
-                    'p_value': p_value
-                },
-                'fit_score': r_squared,
-                'mse': mse,
-                'predictions': predictions.tolist(),
-                'forecast': forecast,
-                'trend_direction': 'logarithmic_growth' if slope > 0 else 'logarithmic_decay',
-                'trend_strength': abs(slope),
-                'statistical_significance': p_value < 0.05
-            }
-            
-        except Exception as e:
-            logger.error(f"Error fitting logarithmic trend: {str(e)}")
-            raise
-    
-    def _generate_linear_forecast(
-        self,
-        df: pd.DataFrame,
-        slope: float,
-        intercept: float,
-        forecast_days: int
-    ) -> Dict[str, Any]:
-        """Generate linear forecast."""
-        try:
-            last_timestamp = df['timestamp'].max()
-            last_time_numeric = df['time_numeric'].max()
-            
-            forecast_timestamps = []
-            forecast_values = []
-            confidence_intervals = []
-            
-            # Calculate standard error for confidence intervals
-            residuals = df['value'] - (slope * df['time_numeric'] + intercept)
-            std_error = np.std(residuals)
-            
-            for i in range(1, forecast_days + 1):
-                future_timestamp = last_timestamp + timedelta(days=i)
-                future_time_numeric = last_time_numeric + (i * 24 * 3600)  # seconds in a day
-                
-                predicted_value = slope * future_time_numeric + intercept
-                
-                # 95% confidence interval
-                margin_of_error = 1.96 * std_error
-                lower_bound = predicted_value - margin_of_error
-                upper_bound = predicted_value + margin_of_error
-                
-                forecast_timestamps.append(future_timestamp.isoformat())
-                forecast_values.append(predicted_value)
-                confidence_intervals.append((lower_bound, upper_bound))
-            
-            return {
-                'timestamps': forecast_timestamps,
-                'values': forecast_values,
-                'confidence_intervals': confidence_intervals,
-                'forecast_accuracy': max(0, 1 - std_error / np.mean(df['value'])) if np.mean(df['value']) != 0 else 0
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating linear forecast: {str(e)}")
+            self.logger.error(f"Error calculating trend statistics: {e}")
             return {}
-    
-    def _generate_exponential_forecast(
-        self,
-        df: pd.DataFrame,
-        slope: float,
-        intercept: float,
-        forecast_days: int,
-        min_val: float
-    ) -> Dict[str, Any]:
-        """Generate exponential forecast."""
-        try:
-            last_timestamp = df['timestamp'].max()
-            last_time_numeric = df['time_numeric'].max()
-            
-            forecast_timestamps = []
-            forecast_values = []
-            confidence_intervals = []
-            
-            for i in range(1, forecast_days + 1):
-                future_timestamp = last_timestamp + timedelta(days=i)
-                future_time_numeric = last_time_numeric + (i * 24 * 3600)
-                
-                log_predicted = slope * future_time_numeric + intercept
-                predicted_value = np.exp(log_predicted)
-                
-                if min_val <= 0:
-                    predicted_value = predicted_value + min_val - 1
-                
-                # Simple confidence interval (could be improved)
-                margin_of_error = predicted_value * 0.1  # 10% margin
-                lower_bound = max(0, predicted_value - margin_of_error)
-                upper_bound = predicted_value + margin_of_error
-                
-                forecast_timestamps.append(future_timestamp.isoformat())
-                forecast_values.append(predicted_value)
-                confidence_intervals.append((lower_bound, upper_bound))
-            
-            return {
-                'timestamps': forecast_timestamps,
-                'values': forecast_values,
-                'confidence_intervals': confidence_intervals,
-                'forecast_accuracy': 0.8  # Placeholder - would calculate based on historical accuracy
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating exponential forecast: {str(e)}")
-            return {}
-    
-    def _generate_polynomial_forecast(
-        self,
-        df: pd.DataFrame,
-        coefficients: np.ndarray,
-        forecast_days: int
-    ) -> Dict[str, Any]:
-        """Generate polynomial forecast."""
-        try:
-            last_timestamp = df['timestamp'].max()
-            last_time_numeric = df['time_numeric'].max()
-            poly_func = np.poly1d(coefficients)
-            
-            forecast_timestamps = []
-            forecast_values = []
-            confidence_intervals = []
-            
-            for i in range(1, forecast_days + 1):
-                future_timestamp = last_timestamp + timedelta(days=i)
-                future_time_numeric = last_time_numeric + (i * 24 * 3600)
-                
-                predicted_value = poly_func(future_time_numeric)
-                
-                # Simple confidence interval
-                margin_of_error = abs(predicted_value) * 0.15  # 15% margin
-                lower_bound = predicted_value - margin_of_error
-                upper_bound = predicted_value + margin_of_error
-                
-                forecast_timestamps.append(future_timestamp.isoformat())
-                forecast_values.append(predicted_value)
-                confidence_intervals.append((lower_bound, upper_bound))
-            
-            return {
-                'timestamps': forecast_timestamps,
-                'values': forecast_values,
-                'confidence_intervals': confidence_intervals,
-                'forecast_accuracy': 0.7  # Placeholder
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating polynomial forecast: {str(e)}")
-            return {}
-    
-    def _generate_seasonal_forecast(
-        self,
-        df: pd.DataFrame,
-        seasonal_components: List[Dict[str, Any]],
-        trend_slope: float,
-        trend_intercept: float,
-        forecast_days: int
-    ) -> Dict[str, Any]:
-        """Generate seasonal forecast."""
-        try:
-            last_timestamp = df['timestamp'].max()
-            data_length = len(df)
-            
-            forecast_timestamps = []
-            forecast_values = []
-            confidence_intervals = []
-            
-            for i in range(1, forecast_days + 1):
-                future_timestamp = last_timestamp + timedelta(days=i)
-                future_index = data_length + i - 1
-                
-                # Calculate trend component
-                trend_value = trend_slope * future_index + trend_intercept
-                
-                # Calculate seasonal component
-                seasonal_value = 0
-                for component in seasonal_components:
-                    seasonal_value += component['amplitude'] * np.cos(
-                        2 * np.pi * component['frequency'] * future_index + component['phase']
-                    )
-                
-                predicted_value = trend_value + seasonal_value
-                
-                # Confidence interval based on seasonal variation
-                seasonal_std = np.std([comp['amplitude'] for comp in seasonal_components])
-                margin_of_error = 1.96 * seasonal_std
-                lower_bound = predicted_value - margin_of_error
-                upper_bound = predicted_value + margin_of_error
-                
-                forecast_timestamps.append(future_timestamp.isoformat())
-                forecast_values.append(predicted_value)
-                confidence_intervals.append((lower_bound, upper_bound))
-            
-            return {
-                'timestamps': forecast_timestamps,
-                'values': forecast_values,
-                'confidence_intervals': confidence_intervals,
-                'forecast_accuracy': 0.75  # Placeholder
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating seasonal forecast: {str(e)}")
-            return {}
-    
-    def _generate_logarithmic_forecast(
-        self,
-        df: pd.DataFrame,
-        slope: float,
-        intercept: float,
-        forecast_days: int
-    ) -> Dict[str, Any]:
-        """Generate logarithmic forecast."""
-        try:
-            last_timestamp = df['timestamp'].max()
-            last_time_numeric = df['time_numeric'].max()
-            
-            forecast_timestamps = []
-            forecast_values = []
-            confidence_intervals = []
-            
-            # Calculate standard error
-            log_time = np.log(df['time_numeric'] + 1)
-            predictions = slope * log_time + intercept
-            residuals = df['value'] - predictions
-            std_error = np.std(residuals)
-            
-            for i in range(1, forecast_days + 1):
-                future_timestamp = last_timestamp + timedelta(days=i)
-                future_time_numeric = last_time_numeric + (i * 24 * 3600)
-                future_log_time = np.log(future_time_numeric + 1)
-                
-                predicted_value = slope * future_log_time + intercept
-                
-                # Confidence interval
-                margin_of_error = 1.96 * std_error
-                lower_bound = predicted_value - margin_of_error
-                upper_bound = predicted_value + margin_of_error
-                
-                forecast_timestamps.append(future_timestamp.isoformat())
-                forecast_values.append(predicted_value)
-                confidence_intervals.append((lower_bound, upper_bound))
-            
-            return {
-                'timestamps': forecast_timestamps,
-                'values': forecast_values,
-                'confidence_intervals': confidence_intervals,
-                'forecast_accuracy': max(0, 1 - std_error / np.mean(df['value'])) if np.mean(df['value']) != 0 else 0
-            }
-            
-        except Exception as e:
-            logger.error(f"Error generating logarithmic forecast: {str(e)}")
-            return {}
-    
-    def _determine_polynomial_trend(self, coefficients: np.ndarray) -> str:
-        """Determine trend direction for polynomial."""
-        if len(coefficients) < 2:
-            return "unknown"
-        
-        # For quadratic, check the sign of the leading coefficient
-        if len(coefficients) == 3:  # ax^2 + bx + c
-            if coefficients[0] > 0:
-                return "accelerating_upward"
-            elif coefficients[0] < 0:
-                return "accelerating_downward"
-            else:
-                return "linear"
-        
-        # For higher order, use the derivative at the end
-        derivative = np.polyder(coefficients)
-        end_slope = np.polyval(derivative, 100)  # Evaluate at a large x
-        
-        if end_slope > 0:
-            return "increasing"
-        elif end_slope < 0:
-            return "decreasing"
-        else:
-            return "stable"
-    
-    def _summarize_trends(self, trend_results: Dict[str, Any]) -> Dict[str, Any]:
-        """Summarize trend analysis results."""
-        if not trend_results:
-            return {}
-        
-        # Find best performing model
-        best_model = max(trend_results.keys(), key=lambda k: trend_results[k].get('fit_score', 0))
-        best_result = trend_results[best_model]
-        
-        # Calculate consensus trend direction
-        directions = [result.get('trend_direction', 'unknown') for result in trend_results.values()]
-        direction_counts = {}
-        for direction in directions:
-            direction_counts[direction] = direction_counts.get(direction, 0) + 1
-        
-        consensus_direction = max(direction_counts.keys(), key=lambda k: direction_counts[k])
-        
-        return {
-            'best_model': best_model,
-            'best_fit_score': best_result.get('fit_score', 0),
-            'consensus_direction': consensus_direction,
-            'model_agreement': direction_counts.get(consensus_direction, 0) / len(directions),
-            'average_fit_score': np.mean([r.get('fit_score', 0) for r in trend_results.values()]),
-            'trend_strength': best_result.get('trend_strength', 0),
-            'statistical_significance': best_result.get('statistical_significance', False)
-        }
-    
-    def _calculate_confidence_metrics(self, trend_results: Dict[str, Any]) -> Dict[str, Any]:
-        """Calculate confidence metrics for trend analysis."""
-        if not trend_results:
-            return {}
-        
-        fit_scores = [r.get('fit_score', 0) for r in trend_results.values()]
-        mse_values = [r.get('mse', float('inf')) for r in trend_results.values()]
-        
-        return {
-            'max_fit_score': max(fit_scores),
-            'min_fit_score': min(fit_scores),
-            'avg_fit_score': np.mean(fit_scores),
-            'fit_score_std': np.std(fit_scores),
-            'min_mse': min(mse_values),
-            'avg_mse': np.mean([mse for mse in mse_values if mse != float('inf')]),
-            'model_consistency': 1 - np.std(fit_scores) if np.std(fit_scores) < 1 else 0
-        }
-    
-    def _generate_trend_recommendations(
-        self,
-        trend_results: Dict[str, Any],
-        best_model: Optional[str]
-    ) -> List[str]:
-        """Generate recommendations based on trend analysis."""
-        recommendations = []
-        
-        if not trend_results or not best_model:
-            return ["Insufficient data for trend analysis"]
-        
-        best_result = trend_results[best_model]
-        fit_score = best_result.get('fit_score', 0)
-        trend_direction = best_result.get('trend_direction', 'unknown')
-        
-        # Recommendations based on fit quality
-        if fit_score < 0.3:
-            recommendations.append("Trend analysis shows low predictability - consider investigating external factors")
-        elif fit_score > 0.8:
-            recommendations.append("Strong trend detected - suitable for forecasting and planning")
-        
-        # Recommendations based on trend direction
-        if 'declining' in trend_direction or 'decay' in trend_direction:
-            recommendations.append("Performance is declining - immediate intervention recommended")
-        elif 'increasing' in trend_direction or 'growth' in trend_direction:
-            recommendations.append("Positive trend detected - consider scaling or optimization")
-        elif 'seasonal' in trend_direction:
-            recommendations.append("Seasonal patterns detected - plan for cyclical variations")
-        
-        # Model-specific recommendations
-        if best_model == 'exponential':
-            if best_result.get('parameters', {}).get('growth_rate', 0) > 0.1:
-                recommendations.append("Exponential growth detected - monitor for sustainability")
-        elif best_model == 'polynomial':
-            recommendations.append("Complex trend pattern - monitor closely for inflection points")
-        
-        return recommendations
 
 class AdvancedPatternRecognizer:
-    """Advanced pattern recognition using machine learning techniques."""
+    """Advanced pattern recognition system for prompt analytics."""
     
     def __init__(self):
-        self.pattern_detectors = {
-            PatternType.ANOMALY: self._detect_anomalies,
-            PatternType.SEASONAL: self._detect_seasonality,
-            PatternType.SPIKE: self._detect_spikes,
-            PatternType.DROP: self._detect_drops,
-            PatternType.PLATEAU: self._detect_plateaus,
-            PatternType.OSCILLATION: self._detect_oscillations
-        }
+        self.logger = get_logger(__name__)
     
     async def detect_comprehensive_patterns(
         self,
         prompt_ids: List[str],
         metric_names: List[str],
         days: int = 30
-    ) -> List[DetectedPattern]:
+    ) -> List[Pattern]:
         """Detect comprehensive patterns across multiple prompts and metrics."""
         try:
-            all_patterns = []
+            patterns = []
             
+            # Collect data for all prompts
+            prompt_data = {}
             for prompt_id in prompt_ids:
-                for metric_name in metric_names:
-                    # Get time series data
-                    data = await self._get_pattern_data(prompt_id, metric_name, days)
-                    
-                    if len(data) < 10:  # Need minimum data
-                        continue
-                    
-                    # Run all pattern detectors
-                    for pattern_type, detector_func in self.pattern_detectors.items():
-                        try:
-                            patterns = detector_func(data, prompt_id, metric_name)
-                            all_patterns.extend(patterns)
-                        except Exception as e:
-                            logger.warning(f"Pattern detector {pattern_type.value} failed: {str(e)}")
-                            continue
+                performance_summary = await prompt_performance_tracker.get_prompt_performance_summary(
+                    prompt_id=prompt_id,
+                    days=days
+                )
+                
+                if 'error' not in performance_summary:
+                    prompt_data[prompt_id] = performance_summary
             
-            # Filter and rank patterns by confidence
-            filtered_patterns = [p for p in all_patterns if p.confidence_score > 0.5]
-            filtered_patterns.sort(key=lambda x: x.confidence_score, reverse=True)
+            if not prompt_data:
+                return patterns
             
-            return filtered_patterns[:20]  # Return top 20 patterns
+            # Detect different types of patterns
+            patterns.extend(await self._detect_anomaly_patterns(prompt_data, metric_names))
+            patterns.extend(await self._detect_spike_patterns(prompt_data, metric_names))
+            patterns.extend(await self._detect_plateau_patterns(prompt_data, metric_names))
+            patterns.extend(await self._detect_oscillation_patterns(prompt_data, metric_names))
+            
+            # Sort patterns by confidence score
+            patterns.sort(key=lambda p: p.confidence_score, reverse=True)
+            
+            return patterns
             
         except Exception as e:
-            logger.error(f"Error in comprehensive pattern detection: {str(e)}")
+            self.logger.error(f"Error detecting comprehensive patterns: {e}")
             return []
     
-    async def _get_pattern_data(
+    async def _detect_anomaly_patterns(
         self,
-        prompt_id: str,
-        metric_name: str,
-        days: int
-    ) -> pd.DataFrame:
-        """Get data for pattern analysis."""
+        prompt_data: Dict[str, Dict[str, Any]],
+        metric_names: List[str]
+    ) -> List[Pattern]:
+        """Detect anomaly patterns in the data."""
         try:
-            with get_db_session() as db:
-                cutoff_date = datetime.utcnow() - timedelta(days=days)
-                
-                metrics = db.query(PromptMetrics).filter(
-                    and_(
-                        PromptMetrics.prompt_id == prompt_id,
-                        PromptMetrics.created_at >= cutoff_date
-                    )
-                ).order_by(PromptMetrics.created_at).all()
-                
-                data = []
-                for metric in metrics:
-                    value = getattr(metric, metric_name)
-                    if value is not None:
-                        data.append({
-                            'timestamp': metric.created_at,
-                            'value': float(value),
-                            'prompt_id': prompt_id,
-                            'metric_name': metric_name
-                        })
-                
-                df = pd.DataFrame(data)
-                if not df.empty:
-                    df['timestamp'] = pd.to_datetime(df['timestamp'])
-                    df = df.sort_values('timestamp')
-                
-                return df
-                
-        except Exception as e:
-            logger.error(f"Error getting pattern data: {str(e)}")
-            return pd.DataFrame()
-    
-    def _detect_anomalies(
-        self,
-        df: pd.DataFrame,
-        prompt_id: str,
-        metric_name: str
-    ) -> List[DetectedPattern]:
-        """Detect anomalies using statistical methods."""
-        patterns = []
-        
-        try:
-            if len(df) < 10:
-                return patterns
+            patterns = []
             
-            values = df['value'].values
-            
-            # Z-score based anomaly detection
-            z_scores = np.abs(stats.zscore(values))
-            anomaly_threshold = 2.5
-            anomaly_indices = np.where(z_scores > anomaly_threshold)[0]
-            
-            # Group consecutive anomalies
-            if len(anomaly_indices) > 0:
-                anomaly_groups = []
-                current_group = [anomaly_indices[0]]
+            for prompt_id, data in prompt_data.items():
+                daily_usage = data.get('daily_usage', {})
                 
-                for i in range(1, len(anomaly_indices)):
-                    if anomaly_indices[i] - anomaly_indices[i-1] <= 2:  # Within 2 points
-                        current_group.append(anomaly_indices[i])
-                    else:
-                        anomaly_groups.append(current_group)
-                        current_group = [anomaly_indices[i]]
+                if len(daily_usage) < 7:  # Need at least a week of data
+                    continue
                 
-                anomaly_groups.append(current_group)
+                values = list(daily_usage.values())
+                dates = list(daily_usage.keys())
                 
-                # Create pattern for each group
-                for group in anomaly_groups:
-                    if len(group) >= 1:  # At least 1 anomalous point
-                        start_idx = group[0]
-                        end_idx = group[-1]
+                # Calculate statistical thresholds
+                mean_val = statistics.mean(values)
+                std_val = statistics.stdev(values) if len(values) > 1 else 0
+                
+                # Detect outliers (values beyond 2 standard deviations)
+                threshold = 2 * std_val
+                
+                for i, (date, value) in enumerate(zip(dates, values)):
+                    if abs(value - mean_val) > threshold and std_val > 0:
+                        # Found an anomaly
+                        confidence = min((abs(value - mean_val) / threshold) / 2, 1.0)
                         
-                        confidence = min(1.0, np.mean(z_scores[group]) / anomaly_threshold)
-                        
-                        pattern = DetectedPattern(
+                        pattern = Pattern(
                             pattern_type=PatternType.ANOMALY,
-                            start_time=df.iloc[start_idx]['timestamp'],
-                            end_time=df.iloc[end_idx]['timestamp'],
+                            start_time=datetime.fromisoformat(date),
+                            end_time=datetime.fromisoformat(date),
                             confidence_score=confidence,
                             parameters={
-                                'anomaly_count': len(group),
-                                'max_z_score': np.max(z_scores[group]),
-                                'anomaly_values': values[group].tolist()
+                                'prompt_id': prompt_id,
+                                'anomaly_value': value,
+                                'expected_range': [mean_val - threshold, mean_val + threshold],
+                                'deviation_magnitude': abs(value - mean_val) / std_val
                             },
-                            description=f"Anomalous values detected in {metric_name}",
-                            affected_metrics=[metric_name]
+                            description=f"Anomalous usage detected: {value} (expected ~{mean_val:.1f})",
+                            affected_metrics=['usage_count']
                         )
+                        
                         patterns.append(pattern)
             
             return patterns
             
         except Exception as e:
-            logger.error(f"Error detecting anomalies: {str(e)}")
-            return patterns
+            self.logger.error(f"Error detecting anomaly patterns: {e}")
+            return []
     
-    def _detect_seasonality(
+    async def _detect_spike_patterns(
         self,
-        df: pd.DataFrame,
-        prompt_id: str,
-        metric_name: str
-    ) -> List[DetectedPattern]:
-        """Detect seasonal patterns using FFT."""
-        patterns = []
-        
+        prompt_data: Dict[str, Dict[str, Any]],
+        metric_names: List[str]
+    ) -> List[Pattern]:
+        """Detect spike patterns in the data."""
         try:
-            if len(df) < 24:  # Need at least 24 hours of data
-                return patterns
+            patterns = []
             
-            values = df['value'].values
-            
-            # Perform FFT
-            fft = np.fft.fft(values)
-            frequencies = np.fft.fftfreq(len(values))
-            power_spectrum = np.abs(fft) ** 2
-            
-            # Find dominant frequencies (excluding DC component)
-            non_dc_indices = np.where(frequencies != 0)[0]
-            if len(non_dc_indices) == 0:
-                return patterns
-            
-            dominant_freq_idx = non_dc_indices[np.argmax(power_spectrum[non_dc_indices])]
-            dominant_frequency = frequencies[dominant_freq_idx]
-            dominant_power = power_spectrum[dominant_freq_idx]
-            
-            # Calculate period in hours (assuming hourly data)
-            if abs(dominant_frequency) > 0:
-                period_hours = 1 / abs(dominant_frequency)
+            for prompt_id, data in prompt_data.items():
+                daily_usage = data.get('daily_usage', {})
                 
-                # Check if it's a meaningful seasonal pattern
-                if 12 <= period_hours <= 168:  # Between 12 hours and 1 week
-                    # Calculate confidence based on power spectrum
-                    total_power = np.sum(power_spectrum[non_dc_indices])
-                    confidence = min(1.0, dominant_power / total_power * 2)
+                if len(daily_usage) < 5:
+                    continue
+                
+                values = list(daily_usage.values())
+                dates = list(daily_usage.keys())
+                
+                # Look for sudden increases
+                for i in range(2, len(values) - 2):
+                    current_value = values[i]
                     
-                    if confidence > 0.3:
-                        pattern = DetectedPattern(
-                            pattern_type=PatternType.SEASONAL,
-                            start_time=df['timestamp'].min(),
-                            end_time=df['timestamp'].max(),
+                    # Compare with surrounding values
+                    before_avg = statistics.mean(values[max(0, i-2):i])
+                    after_avg = statistics.mean(values[i+1:min(len(values), i+3)])
+                    
+                    # Check if current value is significantly higher
+                    if (current_value > before_avg * 2 and 
+                        current_value > after_avg * 2 and
+                        current_value > 10):  # Minimum threshold
+                        
+                        spike_magnitude = current_value / max(before_avg, after_avg, 1)
+                        confidence = min(spike_magnitude / 5, 1.0)  # Normalize confidence
+                        
+                        pattern = Pattern(
+                            pattern_type=PatternType.SPIKE,
+                            start_time=datetime.fromisoformat(dates[i]),
+                            end_time=datetime.fromisoformat(dates[i]),
                             confidence_score=confidence,
                             parameters={
-                                'period_hours': period_hours,
-                                'dominant_frequency': dominant_frequency,
-                                'power_ratio': dominant_power / total_power,
-                                'amplitude': np.abs(fft[dominant_freq_idx]) / len(values)
+                                'prompt_id': prompt_id,
+                                'spike_value': current_value,
+                                'baseline_before': before_avg,
+                                'baseline_after': after_avg,
+                                'magnitude': spike_magnitude
                             },
-                            description=f"Seasonal pattern with {period_hours:.1f} hour period",
-                            affected_metrics=[metric_name]
+                            description=f"Usage spike detected: {current_value} (baseline ~{before_avg:.1f})",
+                            affected_metrics=['usage_count']
                         )
+                        
                         patterns.append(pattern)
             
             return patterns
             
         except Exception as e:
-            logger.error(f"Error detecting seasonality: {str(e)}")
-            return patterns
+            self.logger.error(f"Error detecting spike patterns: {e}")
+            return []
     
-    def _detect_spikes(
+    async def _detect_plateau_patterns(
         self,
-        df: pd.DataFrame,
-        prompt_id: str,
-        metric_name: str
-    ) -> List[DetectedPattern]:
-        """Detect spike patterns."""
-        patterns = []
-        
+        prompt_data: Dict[str, Dict[str, Any]],
+        metric_names: List[str]
+    ) -> List[Pattern]:
+        """Detect plateau patterns in the data."""
         try:
-            if len(df) < 5:
-                return patterns
+            patterns = []
             
-            values = df['value'].values
-            
-            # Find peaks using scipy
-            peaks, properties = find_peaks(
-                values,
-                height=np.mean(values) + 2 * np.std(values),  # 2 std above mean
-                distance=3  # Minimum distance between peaks
-            )
-            
-            for peak_idx in peaks:
-                # Calculate spike characteristics
-                peak_value = values[peak_idx]
-                baseline = np.mean(values)
-                spike_magnitude = peak_value - baseline
+            for prompt_id, data in prompt_data.items():
+                daily_usage = data.get('daily_usage', {})
                 
-                # Find spike boundaries
-                start_idx = max(0, peak_idx - 2)
-                end_idx = min(len(values) - 1, peak_idx + 2)
+                if len(daily_usage) < 7:
+                    continue
                 
-                # Calculate confidence based on spike magnitude
-                confidence = min(1.0, spike_magnitude / (2 * np.std(values)))
+                values = list(daily_usage.values())
+                dates = list(daily_usage.keys())
                 
-                if confidence > 0.5:
-                    pattern = DetectedPattern(
-                        pattern_type=PatternType.SPIKE,
-                        start_time=df.iloc[start_idx]['timestamp'],
-                        end_time=df.iloc[end_idx]['timestamp'],
-                        confidence_score=confidence,
-                        parameters={
-                            'peak_value': peak_value,
-                            'baseline_value': baseline,
-                            'spike_magnitude': spike_magnitude,
-                            'peak_index': peak_idx
-                        },
-                        description=f"Spike detected with magnitude {spike_magnitude:.2f}",
-                        affected_metrics=[metric_name]
-                    )
-                    patterns.append(pattern)
-            
-            return patterns
-            
-        except Exception as e:
-            logger.error(f"Error detecting spikes: {str(e)}")
-            return patterns
-    
-    def _detect_drops(
-        self,
-        df: pd.DataFrame,
-        prompt_id: str,
-        metric_name: str
-    ) -> List[DetectedPattern]:
-        """Detect drop patterns."""
-        patterns = []
-        
-        try:
-            if len(df) < 5:
-                return patterns
-            
-            values = df['value'].values
-            
-            # Find valleys (inverted peaks)
-            inverted_values = -values
-            peaks, properties = find_peaks(
-                inverted_values,
-                height=-np.mean(values) + 2 * np.std(values),  # 2 std below mean
-                distance=3
-            )
-            
-            for valley_idx in peaks:
-                # Calculate drop characteristics
-                valley_value = values[valley_idx]
-                baseline = np.mean(values)
-                drop_magnitude = baseline - valley_value
+                # Look for periods of stable values
+                plateau_threshold = 0.1  # 10% variation allowed
+                min_plateau_length = 3
                 
-                # Find drop boundaries
-                start_idx = max(0, valley_idx - 2)
-                end_idx = min(len(values) - 1, valley_idx + 2)
-                
-                # Calculate confidence
-                confidence = min(1.0, drop_magnitude / (2 * np.std(values)))
-                
-                if confidence > 0.5:
-                    pattern = DetectedPattern(
-                        pattern_type=PatternType.DROP,
-                        start_time=df.iloc[start_idx]['timestamp'],
-                        end_time=df.iloc[end_idx]['timestamp'],
-                        confidence_score=confidence,
-                        parameters={
-                            'valley_value': valley_value,
-                            'baseline_value': baseline,
-                            'drop_magnitude': drop_magnitude,
-                            'valley_index': valley_idx
-                        },
-                        description=f"Drop detected with magnitude {drop_magnitude:.2f}",
-                        affected_metrics=[metric_name]
-                    )
-                    patterns.append(pattern)
-            
-            return patterns
-            
-        except Exception as e:
-            logger.error(f"Error detecting drops: {str(e)}")
-            return patterns
-    
-    def _detect_plateaus(
-        self,
-        df: pd.DataFrame,
-        prompt_id: str,
-        metric_name: str
-    ) -> List[DetectedPattern]:
-        """Detect plateau patterns."""
-        patterns = []
-        
-        try:
-            if len(df) < 10:
-                return patterns
-            
-            values = df['value'].values
-            
-            # Calculate rolling standard deviation to find stable periods
-            window_size = min(5, len(values) // 3)
-            rolling_std = pd.Series(values).rolling(window=window_size).std()
-            
-            # Find periods with low variability
-            stability_threshold = np.std(values) * 0.2  # 20% of overall std
-            stable_periods = rolling_std < stability_threshold
-            
-            # Find consecutive stable periods
-            stable_indices = np.where(stable_periods)[0]
-            
-            if len(stable_indices) > 0:
-                # Group consecutive indices
-                groups = []
-                current_group = [stable_indices[0]]
-                
-                for i in range(1, len(stable_indices)):
-                    if stable_indices[i] - stable_indices[i-1] <= 2:
-                        current_group.append(stable_indices[i])
-                    else:
-                        if len(current_group) >= window_size:
-                            groups.append(current_group)
-                        current_group = [stable_indices[i]]
-                
-                if len(current_group) >= window_size:
-                    groups.append(current_group)
-                
-                # Create patterns for significant plateaus
-                for group in groups:
-                    if len(group) >= window_size:
-                        start_idx = group[0]
-                        end_idx = group[-1]
+                i = 0
+                while i < len(values) - min_plateau_length:
+                    plateau_start = i
+                    plateau_values = [values[i]]
+                    
+                    # Extend plateau as long as values are similar
+                    j = i + 1
+                    while j < len(values):
+                        current_avg = statistics.mean(plateau_values)
                         
-                        plateau_values = values[start_idx:end_idx+1]
-                        plateau_std = np.std(plateau_values)
-                        plateau_mean = np.mean(plateau_values)
+                        if abs(values[j] - current_avg) / max(current_avg, 1) <= plateau_threshold:
+                            plateau_values.append(values[j])
+                            j += 1
+                        else:
+                            break
+                    
+                    # Check if plateau is significant
+                    if len(plateau_values) >= min_plateau_length:
+                        plateau_avg = statistics.mean(plateau_values)
+                        plateau_std = statistics.stdev(plateau_values) if len(plateau_values) > 1 else 0
                         
-                        # Calculate confidence based on stability
-                        confidence = min(1.0, 1 - (plateau_std / np.std(values)))
+                        # Calculate confidence based on stability and length
+                        stability = 1 - (plateau_std / max(plateau_avg, 1))
+                        length_factor = min(len(plateau_values) / 7, 1.0)
+                        confidence = stability * length_factor
                         
-                        if confidence > 0.6:
-                            pattern = DetectedPattern(
+                        if confidence > 0.5:  # Only report significant plateaus
+                            pattern = Pattern(
                                 pattern_type=PatternType.PLATEAU,
-                                start_time=df.iloc[start_idx]['timestamp'],
-                                end_time=df.iloc[end_idx]['timestamp'],
+                                start_time=datetime.fromisoformat(dates[plateau_start]),
+                                end_time=datetime.fromisoformat(dates[plateau_start + len(plateau_values) - 1]),
                                 confidence_score=confidence,
                                 parameters={
-                                    'plateau_value': plateau_mean,
-                                    'plateau_std': plateau_std,
-                                    'duration_points': len(group),
-                                    'stability_ratio': plateau_std / np.std(values)
+                                    'prompt_id': prompt_id,
+                                    'plateau_value': plateau_avg,
+                                    'plateau_length': len(plateau_values),
+                                    'stability_score': stability
                                 },
-                                description=f"Plateau detected at value {plateau_mean:.2f}",
-                                affected_metrics=[metric_name]
+                                description=f"Stable usage plateau: {plateau_avg:.1f} for {len(plateau_values)} days",
+                                affected_metrics=['usage_count']
                             )
+                            
                             patterns.append(pattern)
+                    
+                    i = j if j > i + 1 else i + 1
             
             return patterns
             
         except Exception as e:
-            logger.error(f"Error detecting plateaus: {str(e)}")
-            return patterns
+            self.logger.error(f"Error detecting plateau patterns: {e}")
+            return []
     
-    def _detect_oscillations(
+    async def _detect_oscillation_patterns(
         self,
-        df: pd.DataFrame,
-        prompt_id: str,
-        metric_name: str
-    ) -> List[DetectedPattern]:
-        """Detect oscillation patterns."""
-        patterns = []
-        
+        prompt_data: Dict[str, Dict[str, Any]],
+        metric_names: List[str]
+    ) -> List[Pattern]:
+        """Detect oscillation patterns in the data."""
         try:
-            if len(df) < 8:
-                return patterns
+            patterns = []
             
-            values = df['value'].values
-            
-            # Find peaks and valleys
-            peaks, _ = find_peaks(values, distance=2)
-            valleys, _ = find_peaks(-values, distance=2)
-            
-            # Combine and sort extrema
-            extrema = np.concatenate([peaks, valleys])
-            extrema_types = ['peak'] * len(peaks) + ['valley'] * len(valleys)
-            
-            if len(extrema) < 4:  # Need at least 2 peaks and 2 valleys
-                return patterns
-            
-            # Sort by index
-            sorted_indices = np.argsort(extrema)
-            sorted_extrema = extrema[sorted_indices]
-            sorted_types = [extrema_types[i] for i in sorted_indices]
-            
-            # Check for alternating pattern
-            alternating_count = 0
-            for i in range(1, len(sorted_types)):
-                if sorted_types[i] != sorted_types[i-1]:
-                    alternating_count += 1
-            
-            alternating_ratio = alternating_count / (len(sorted_types) - 1)
-            
-            if alternating_ratio > 0.6:  # At least 60% alternating
-                # Calculate oscillation characteristics
-                extrema_values = values[sorted_extrema]
-                amplitude = (np.max(extrema_values) - np.min(extrema_values)) / 2
+            for prompt_id, data in prompt_data.items():
+                daily_usage = data.get('daily_usage', {})
                 
-                # Estimate period
-                if len(sorted_extrema) >= 4:
-                    periods = []
-                    for i in range(2, len(sorted_extrema)):
-                        if sorted_types[i] == sorted_types[i-2]:  # Same type of extrema
-                            period = sorted_extrema[i] - sorted_extrema[i-2]
-                            periods.append(period)
+                if len(daily_usage) < 10:  # Need enough data to detect oscillations
+                    continue
+                
+                values = list(daily_usage.values())
+                dates = list(daily_usage.keys())
+                
+                # Look for regular oscillations
+                # Simple approach: count direction changes
+                direction_changes = 0
+                last_direction = None
+                
+                for i in range(1, len(values)):
+                    if values[i] > values[i-1]:
+                        current_direction = 'up'
+                    elif values[i] < values[i-1]:
+                        current_direction = 'down'
+                    else:
+                        continue  # No change
                     
-                    avg_period = np.mean(periods) if periods else 0
+                    if last_direction and current_direction != last_direction:
+                        direction_changes += 1
                     
-                    confidence = min(1.0, alternating_ratio * (amplitude / np.std(values)))
+                    last_direction = current_direction
+                
+                # Calculate oscillation frequency
+                if len(values) > 2:
+                    oscillation_frequency = direction_changes / (len(values) - 1)
                     
-                    if confidence > 0.5:
-                        pattern = DetectedPattern(
+                    # High frequency of direction changes indicates oscillation
+                    if oscillation_frequency > 0.3:  # At least 30% of points are turning points
+                        # Calculate amplitude of oscillations
+                        mean_val = statistics.mean(values)
+                        deviations = [abs(v - mean_val) for v in values]
+                        avg_amplitude = statistics.mean(deviations)
+                        
+                        confidence = min(oscillation_frequency * 2, 1.0)
+                        
+                        pattern = Pattern(
                             pattern_type=PatternType.OSCILLATION,
-                            start_time=df.iloc[sorted_extrema[0]]['timestamp'],
-                            end_time=df.iloc[sorted_extrema[-1]]['timestamp'],
+                            start_time=datetime.fromisoformat(dates[0]),
+                            end_time=datetime.fromisoformat(dates[-1]),
                             confidence_score=confidence,
                             parameters={
-                                'amplitude': amplitude,
-                                'average_period': avg_period,
-                                'extrema_count': len(sorted_extrema),
-                                'alternating_ratio': alternating_ratio
+                                'prompt_id': prompt_id,
+                                'oscillation_frequency': oscillation_frequency,
+                                'avg_amplitude': avg_amplitude,
+                                'direction_changes': direction_changes,
+                                'period_estimate': len(values) / max(direction_changes / 2, 1)
                             },
-                            description=f"Oscillation with amplitude {amplitude:.2f}",
-                            affected_metrics=[metric_name]
+                            description=f"Oscillating usage pattern detected (frequency: {oscillation_frequency:.2f})",
+                            affected_metrics=['usage_count']
                         )
+                        
                         patterns.append(pattern)
             
             return patterns
             
         except Exception as e:
-            logger.error(f"Error detecting oscillations: {str(e)}")
-            return patterns
+            self.logger.error(f"Error detecting oscillation patterns: {e}")
+            return []
+
+# Global instances
+advanced_trend_analyzer = AdvancedTrendAnalyzer()
+advanced_pattern_recognizer = AdvancedPatternRecognizer()

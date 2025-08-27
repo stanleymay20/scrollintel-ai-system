@@ -1,422 +1,426 @@
 """
-Template versioning system for dashboard templates with rollback capabilities.
+Template Versioning System for Dashboard Templates
+
+Provides version control and rollback capabilities for dashboard templates.
 """
+
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, asdict
 from datetime import datetime
-from enum import Enum
 import json
 import uuid
-from sqlalchemy import Column, String, DateTime, Text, Boolean, Integer, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import relationship, Session
-from scrollintel.models.database import Base, get_db
+from enum import Enum
 
+from .template_engine import DashboardTemplate
 
 class VersionAction(Enum):
     CREATE = "create"
     UPDATE = "update"
-    CLONE = "clone"
-    IMPORT = "import"
     ROLLBACK = "rollback"
-
-
-@dataclass
-class TemplateChange:
-    field: str
-    old_value: Any
-    new_value: Any
-    change_type: str  # "added", "modified", "removed"
-
+    BRANCH = "branch"
+    MERGE = "merge"
 
 @dataclass
-class VersionMetadata:
-    version: str
+class TemplateVersion:
+    """Version information for a template"""
+    version_id: str
+    template_id: str
+    version_number: str
     action: VersionAction
-    changes: List[TemplateChange]
+    changes: Dict[str, Any]
+    author: str
+    commit_message: str
+    created_at: datetime
+    parent_version: Optional[str] = None
+    is_active: bool = False
+    template_snapshot: Optional[Dict[str, Any]] = None
+
+@dataclass
+class VersionBranch:
+    """Branch information for template versions"""
+    branch_id: str
+    template_id: str
+    branch_name: str
+    base_version: str
     created_by: str
     created_at: datetime
-    description: str
-    is_major: bool = False
-    parent_version: Optional[str] = None
+    is_merged: bool = False
+    merged_at: Optional[datetime] = None
 
-
-class TemplateVersion(Base):
-    """Database model for template versions."""
-    __tablename__ = "template_versions"
-    
-    id = Column(String, primary_key=True)
-    template_id = Column(String, nullable=False, index=True)
-    version = Column(String, nullable=False)
-    template_data = Column(Text, nullable=False)  # JSON serialized template
-    metadata = Column(Text, nullable=False)  # JSON serialized metadata
-    created_by = Column(String, nullable=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    is_active = Column(Boolean, default=True)
-    is_major = Column(Boolean, default=False)
-    parent_version = Column(String, nullable=True)
-    
-    def __repr__(self):
-        return f"<TemplateVersion(id={self.id}, template_id={self.template_id}, version={self.version})>"
-
-
-class TemplateVersionManager:
-    """Manager for template versioning and rollback operations."""
+class TemplateVersioning:
+    """Version control system for dashboard templates"""
     
     def __init__(self):
-        self.db_session = None
+        self.versions: Dict[str, List[TemplateVersion]] = {}  # template_id -> versions
+        self.branches: Dict[str, List[VersionBranch]] = {}   # template_id -> branches
+        self.active_versions: Dict[str, str] = {}            # template_id -> active_version_id
     
-    def _get_db_session(self) -> Session:
-        """Get database session."""
-        if not self.db_session:
-            self.db_session = next(get_db())
-        return self.db_session
-    
-    def _generate_version_number(self, template_id: str, is_major: bool = False) -> str:
-        """Generate next version number for template."""
-        db = self._get_db_session()
+    def create_initial_version(self, template: DashboardTemplate, author: str) -> str:
+        """Create initial version for a new template"""
+        version_id = str(uuid.uuid4())
         
-        # Get latest version
-        latest_version = db.query(TemplateVersion)\
-            .filter(TemplateVersion.template_id == template_id)\
-            .order_by(TemplateVersion.created_at.desc())\
-            .first()
-        
-        if not latest_version:
-            return "1.0.0"
-        
-        # Parse current version
-        try:
-            major, minor, patch = map(int, latest_version.version.split('.'))
-        except ValueError:
-            return "1.0.0"
-        
-        # Increment version
-        if is_major:
-            return f"{major + 1}.0.0"
-        else:
-            return f"{major}.{minor}.{patch + 1}"
-    
-    def _calculate_changes(self, old_template: Dict[str, Any], new_template: Dict[str, Any]) -> List[TemplateChange]:
-        """Calculate changes between template versions."""
-        changes = []
-        
-        # Compare basic fields
-        basic_fields = ['name', 'description', 'industry', 'category', 'permissions', 'tags']
-        for field in basic_fields:
-            old_val = old_template.get(field)
-            new_val = new_template.get(field)
-            
-            if old_val != new_val:
-                if old_val is None:
-                    change_type = "added"
-                elif new_val is None:
-                    change_type = "removed"
-                else:
-                    change_type = "modified"
-                
-                changes.append(TemplateChange(
-                    field=field,
-                    old_value=old_val,
-                    new_value=new_val,
-                    change_type=change_type
-                ))
-        
-        # Compare widgets
-        old_widgets = {w['id']: w for w in old_template.get('widgets', [])}
-        new_widgets = {w['id']: w for w in new_template.get('widgets', [])}
-        
-        # Added widgets
-        for widget_id, widget in new_widgets.items():
-            if widget_id not in old_widgets:
-                changes.append(TemplateChange(
-                    field=f"widgets.{widget_id}",
-                    old_value=None,
-                    new_value=widget,
-                    change_type="added"
-                ))
-        
-        # Removed widgets
-        for widget_id, widget in old_widgets.items():
-            if widget_id not in new_widgets:
-                changes.append(TemplateChange(
-                    field=f"widgets.{widget_id}",
-                    old_value=widget,
-                    new_value=None,
-                    change_type="removed"
-                ))
-        
-        # Modified widgets
-        for widget_id in set(old_widgets.keys()) & set(new_widgets.keys()):
-            old_widget = old_widgets[widget_id]
-            new_widget = new_widgets[widget_id]
-            
-            if old_widget != new_widget:
-                changes.append(TemplateChange(
-                    field=f"widgets.{widget_id}",
-                    old_value=old_widget,
-                    new_value=new_widget,
-                    change_type="modified"
-                ))
-        
-        # Compare layout config
-        old_layout = old_template.get('layout_config', {})
-        new_layout = new_template.get('layout_config', {})
-        
-        if old_layout != new_layout:
-            changes.append(TemplateChange(
-                field="layout_config",
-                old_value=old_layout,
-                new_value=new_layout,
-                change_type="modified"
-            ))
-        
-        return changes
-    
-    def create_version(
-        self,
-        template_id: str,
-        template_data: Dict[str, Any],
-        action: VersionAction,
-        created_by: str,
-        description: str = "",
-        is_major: bool = False,
-        parent_version: Optional[str] = None
-    ) -> TemplateVersion:
-        """Create a new version of a template."""
-        db = self._get_db_session()
-        
-        # Generate version number
-        version_number = self._generate_version_number(template_id, is_major)
-        
-        # Calculate changes if updating
-        changes = []
-        if action == VersionAction.UPDATE and parent_version:
-            parent = self.get_version(template_id, parent_version)
-            if parent:
-                old_data = json.loads(parent.template_data)
-                changes = self._calculate_changes(old_data, template_data)
-        
-        # Create metadata
-        metadata = VersionMetadata(
-            version=version_number,
-            action=action,
-            changes=changes,
-            created_by=created_by,
-            created_at=datetime.utcnow(),
-            description=description,
-            is_major=is_major,
-            parent_version=parent_version
-        )
-        
-        # Create version record
         version = TemplateVersion(
-            id=f"version_{uuid.uuid4().hex[:12]}",
-            template_id=template_id,
-            version=version_number,
-            template_data=json.dumps(template_data),
-            metadata=json.dumps(asdict(metadata)),
-            created_by=created_by,
-            is_major=is_major,
-            parent_version=parent_version
+            version_id=version_id,
+            template_id=template.id,
+            version_number="1.0.0",
+            action=VersionAction.CREATE,
+            changes={"action": "initial_creation"},
+            author=author,
+            commit_message="Initial template creation",
+            created_at=datetime.now(),
+            is_active=True,
+            template_snapshot=self._create_template_snapshot(template)
         )
         
-        db.add(version)
-        db.commit()
+        if template.id not in self.versions:
+            self.versions[template.id] = []
         
-        return version
+        self.versions[template.id].append(version)
+        self.active_versions[template.id] = version_id
+        
+        return version_id
     
-    def get_version(self, template_id: str, version: str) -> Optional[TemplateVersion]:
-        """Get a specific version of a template."""
-        db = self._get_db_session()
+    def create_version(self, 
+                      template: DashboardTemplate, 
+                      author: str, 
+                      commit_message: str,
+                      changes: Dict[str, Any]) -> str:
+        """Create new version of existing template"""
         
-        return db.query(TemplateVersion)\
-            .filter(
-                TemplateVersion.template_id == template_id,
-                TemplateVersion.version == version
-            )\
-            .first()
+        if template.id not in self.versions:
+            return self.create_initial_version(template, author)
+        
+        # Get current active version
+        current_versions = self.versions[template.id]
+        current_active = next((v for v in current_versions if v.is_active), None)
+        
+        # Generate new version number
+        new_version_number = self._generate_version_number(template.id, changes)
+        
+        version_id = str(uuid.uuid4())
+        
+        version = TemplateVersion(
+            version_id=version_id,
+            template_id=template.id,
+            version_number=new_version_number,
+            action=VersionAction.UPDATE,
+            changes=changes,
+            author=author,
+            commit_message=commit_message,
+            created_at=datetime.now(),
+            parent_version=current_active.version_id if current_active else None,
+            is_active=True,
+            template_snapshot=self._create_template_snapshot(template)
+        )
+        
+        # Deactivate current version
+        if current_active:
+            current_active.is_active = False
+        
+        self.versions[template.id].append(version)
+        self.active_versions[template.id] = version_id
+        
+        return version_id
     
-    def get_latest_version(self, template_id: str) -> Optional[TemplateVersion]:
-        """Get the latest version of a template."""
-        db = self._get_db_session()
+    def rollback_to_version(self, template_id: str, version_id: str, author: str) -> Optional[DashboardTemplate]:
+        """Rollback template to specific version"""
         
-        return db.query(TemplateVersion)\
-            .filter(TemplateVersion.template_id == template_id)\
-            .order_by(TemplateVersion.created_at.desc())\
-            .first()
-    
-    def get_version_history(self, template_id: str, limit: int = 50) -> List[TemplateVersion]:
-        """Get version history for a template."""
-        db = self._get_db_session()
-        
-        return db.query(TemplateVersion)\
-            .filter(TemplateVersion.template_id == template_id)\
-            .order_by(TemplateVersion.created_at.desc())\
-            .limit(limit)\
-            .all()
-    
-    def get_major_versions(self, template_id: str) -> List[TemplateVersion]:
-        """Get only major versions of a template."""
-        db = self._get_db_session()
-        
-        return db.query(TemplateVersion)\
-            .filter(
-                TemplateVersion.template_id == template_id,
-                TemplateVersion.is_major == True
-            )\
-            .order_by(TemplateVersion.created_at.desc())\
-            .all()
-    
-    def rollback_to_version(
-        self,
-        template_id: str,
-        target_version: str,
-        rolled_back_by: str,
-        description: str = ""
-    ) -> Optional[TemplateVersion]:
-        """Rollback template to a specific version."""
-        db = self._get_db_session()
-        
-        # Get target version
-        target = self.get_version(template_id, target_version)
-        if not target:
+        if template_id not in self.versions:
             return None
         
-        # Get current version for comparison
-        current = self.get_latest_version(template_id)
-        current_version = current.version if current else "0.0.0"
+        target_version = None
+        for version in self.versions[template_id]:
+            if version.version_id == version_id:
+                target_version = version
+                break
+        
+        if not target_version or not target_version.template_snapshot:
+            return None
         
         # Create rollback version
-        template_data = json.loads(target.template_data)
-        rollback_description = description or f"Rollback to version {target_version}"
+        rollback_version_id = str(uuid.uuid4())
+        current_active = self.active_versions.get(template_id)
         
-        rollback_version = self.create_version(
+        rollback_version = TemplateVersion(
+            version_id=rollback_version_id,
             template_id=template_id,
-            template_data=template_data,
+            version_number=self._generate_rollback_version_number(template_id),
             action=VersionAction.ROLLBACK,
-            created_by=rolled_back_by,
-            description=rollback_description,
-            is_major=False,
-            parent_version=current_version
+            changes={"rollback_to": version_id, "rollback_from": current_active},
+            author=author,
+            commit_message=f"Rollback to version {target_version.version_number}",
+            created_at=datetime.now(),
+            parent_version=current_active,
+            is_active=True,
+            template_snapshot=target_version.template_snapshot.copy()
         )
         
-        return rollback_version
+        # Deactivate current version
+        for version in self.versions[template_id]:
+            if version.is_active:
+                version.is_active = False
+        
+        self.versions[template_id].append(rollback_version)
+        self.active_versions[template_id] = rollback_version_id
+        
+        # Reconstruct template from snapshot
+        return self._reconstruct_template_from_snapshot(target_version.template_snapshot)
     
-    def compare_versions(
-        self,
-        template_id: str,
-        version1: str,
-        version2: str
-    ) -> Dict[str, Any]:
-        """Compare two versions of a template."""
-        v1 = self.get_version(template_id, version1)
-        v2 = self.get_version(template_id, version2)
+    def create_branch(self, template_id: str, branch_name: str, base_version: str, author: str) -> str:
+        """Create new branch from specific version"""
         
-        if not v1 or not v2:
-            return {"error": "One or both versions not found"}
+        branch_id = str(uuid.uuid4())
         
-        v1_data = json.loads(v1.template_data)
-        v2_data = json.loads(v2.template_data)
+        branch = VersionBranch(
+            branch_id=branch_id,
+            template_id=template_id,
+            branch_name=branch_name,
+            base_version=base_version,
+            created_by=author,
+            created_at=datetime.now()
+        )
         
-        changes = self._calculate_changes(v1_data, v2_data)
+        if template_id not in self.branches:
+            self.branches[template_id] = []
         
-        return {
-            "version1": {
-                "version": v1.version,
-                "created_at": v1.created_at.isoformat(),
-                "created_by": v1.created_by
-            },
-            "version2": {
-                "version": v2.version,
-                "created_at": v2.created_at.isoformat(),
-                "created_by": v2.created_by
-            },
-            "changes": [asdict(change) for change in changes],
-            "change_count": len(changes)
-        }
+        self.branches[template_id].append(branch)
+        return branch_id
     
-    def get_version_metadata(self, template_id: str, version: str) -> Optional[VersionMetadata]:
-        """Get metadata for a specific version."""
-        version_record = self.get_version(template_id, version)
-        if not version_record:
-            return None
+    def merge_branch(self, template_id: str, branch_id: str, author: str) -> bool:
+        """Merge branch back to main template"""
         
-        metadata_dict = json.loads(version_record.metadata)
-        
-        # Convert changes back to TemplateChange objects
-        changes = []
-        for change_dict in metadata_dict.get('changes', []):
-            changes.append(TemplateChange(**change_dict))
-        
-        metadata_dict['changes'] = changes
-        metadata_dict['action'] = VersionAction(metadata_dict['action'])
-        metadata_dict['created_at'] = datetime.fromisoformat(metadata_dict['created_at'])
-        
-        return VersionMetadata(**metadata_dict)
-    
-    def delete_version(self, template_id: str, version: str) -> bool:
-        """Delete a specific version (soft delete)."""
-        db = self._get_db_session()
-        
-        version_record = self.get_version(template_id, version)
-        if not version_record:
+        if template_id not in self.branches:
             return False
         
-        # Don't allow deletion of the only version
-        version_count = db.query(TemplateVersion)\
-            .filter(
-                TemplateVersion.template_id == template_id,
-                TemplateVersion.is_active == True
-            )\
-            .count()
+        branch = None
+        for b in self.branches[template_id]:
+            if b.branch_id == branch_id:
+                branch = b
+                break
         
-        if version_count <= 1:
+        if not branch or branch.is_merged:
             return False
         
-        version_record.is_active = False
-        db.commit()
+        # Mark branch as merged
+        branch.is_merged = True
+        branch.merged_at = datetime.now()
+        
+        # Create merge version
+        merge_version_id = str(uuid.uuid4())
+        current_active = self.active_versions.get(template_id)
+        
+        merge_version = TemplateVersion(
+            version_id=merge_version_id,
+            template_id=template_id,
+            version_number=self._generate_merge_version_number(template_id),
+            action=VersionAction.MERGE,
+            changes={"merged_branch": branch_id, "branch_name": branch.branch_name},
+            author=author,
+            commit_message=f"Merge branch '{branch.branch_name}'",
+            created_at=datetime.now(),
+            parent_version=current_active,
+            is_active=True
+        )
+        
+        # Deactivate current version
+        for version in self.versions[template_id]:
+            if version.is_active:
+                version.is_active = False
+        
+        self.versions[template_id].append(merge_version)
+        self.active_versions[template_id] = merge_version_id
         
         return True
     
-    def cleanup_old_versions(self, template_id: str, keep_count: int = 10) -> int:
-        """Clean up old versions, keeping only the most recent ones."""
-        db = self._get_db_session()
+    def get_version_history(self, template_id: str) -> List[TemplateVersion]:
+        """Get version history for template"""
+        return self.versions.get(template_id, [])
+    
+    def get_active_version(self, template_id: str) -> Optional[TemplateVersion]:
+        """Get currently active version"""
+        if template_id not in self.versions:
+            return None
         
-        # Get all versions ordered by creation date
-        versions = db.query(TemplateVersion)\
-            .filter(
-                TemplateVersion.template_id == template_id,
-                TemplateVersion.is_active == True
-            )\
-            .order_by(TemplateVersion.created_at.desc())\
-            .all()
+        active_version_id = self.active_versions.get(template_id)
+        if not active_version_id:
+            return None
         
-        if len(versions) <= keep_count:
-            return 0
+        for version in self.versions[template_id]:
+            if version.version_id == active_version_id:
+                return version
         
-        # Keep major versions and recent versions
-        to_keep = set()
+        return None
+    
+    def compare_versions(self, template_id: str, version1_id: str, version2_id: str) -> Dict[str, Any]:
+        """Compare two versions and return differences"""
         
-        # Always keep major versions
-        for version in versions:
-            if version.is_major:
-                to_keep.add(version.id)
+        version1 = None
+        version2 = None
         
-        # Keep most recent versions
-        for version in versions[:keep_count]:
-            to_keep.add(version.id)
+        for version in self.versions.get(template_id, []):
+            if version.version_id == version1_id:
+                version1 = version
+            elif version.version_id == version2_id:
+                version2 = version
         
-        # Mark others for deletion
-        deleted_count = 0
-        for version in versions:
-            if version.id not in to_keep:
-                version.is_active = False
-                deleted_count += 1
+        if not version1 or not version2:
+            return {"error": "One or both versions not found"}
         
-        db.commit()
-        return deleted_count
-
-
-# Global version manager instance
-version_manager = TemplateVersionManager()
+        # Compare snapshots
+        snapshot1 = version1.template_snapshot or {}
+        snapshot2 = version2.template_snapshot or {}
+        
+        differences = self._compare_snapshots(snapshot1, snapshot2)
+        
+        return {
+            "version1": {
+                "id": version1.version_id,
+                "number": version1.version_number,
+                "created_at": version1.created_at.isoformat()
+            },
+            "version2": {
+                "id": version2.version_id,
+                "number": version2.version_number,
+                "created_at": version2.created_at.isoformat()
+            },
+            "differences": differences
+        }
+    
+    def get_branches(self, template_id: str) -> List[VersionBranch]:
+        """Get all branches for template"""
+        return self.branches.get(template_id, [])
+    
+    def _create_template_snapshot(self, template: DashboardTemplate) -> Dict[str, Any]:
+        """Create snapshot of template state"""
+        return {
+            **asdict(template),
+            'created_at': template.created_at.isoformat(),
+            'updated_at': template.updated_at.isoformat(),
+            'industry': template.industry.value,
+            'category': template.category.value
+        }
+    
+    def _reconstruct_template_from_snapshot(self, snapshot: Dict[str, Any]) -> DashboardTemplate:
+        """Reconstruct template from snapshot"""
+        from .template_engine import IndustryType, TemplateCategory, WidgetConfig
+        
+        # Parse dates
+        snapshot['created_at'] = datetime.fromisoformat(snapshot['created_at'])
+        snapshot['updated_at'] = datetime.fromisoformat(snapshot['updated_at'])
+        
+        # Convert enums
+        snapshot['industry'] = IndustryType(snapshot['industry'])
+        snapshot['category'] = TemplateCategory(snapshot['category'])
+        
+        # Convert widgets
+        widgets = []
+        for widget_data in snapshot['widgets']:
+            widget = WidgetConfig(**widget_data)
+            widgets.append(widget)
+        snapshot['widgets'] = widgets
+        
+        return DashboardTemplate(**snapshot)
+    
+    def _generate_version_number(self, template_id: str, changes: Dict[str, Any]) -> str:
+        """Generate next version number based on changes"""
+        versions = self.versions.get(template_id, [])
+        if not versions:
+            return "1.0.0"
+        
+        # Get latest version number
+        latest_version = max(versions, key=lambda v: v.created_at)
+        parts = latest_version.version_number.split('.')
+        major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
+        
+        # Determine version increment based on changes
+        if self._is_breaking_change(changes):
+            major += 1
+            minor = 0
+            patch = 0
+        elif self._is_feature_change(changes):
+            minor += 1
+            patch = 0
+        else:
+            patch += 1
+        
+        return f"{major}.{minor}.{patch}"
+    
+    def _generate_rollback_version_number(self, template_id: str) -> str:
+        """Generate version number for rollback"""
+        versions = self.versions.get(template_id, [])
+        if not versions:
+            return "1.0.0"
+        
+        latest_version = max(versions, key=lambda v: v.created_at)
+        parts = latest_version.version_number.split('.')
+        major, minor, patch = int(parts[0]), int(parts[1]), int(parts[2])
+        
+        return f"{major}.{minor}.{patch + 1}"
+    
+    def _generate_merge_version_number(self, template_id: str) -> str:
+        """Generate version number for merge"""
+        return self._generate_rollback_version_number(template_id)
+    
+    def _is_breaking_change(self, changes: Dict[str, Any]) -> bool:
+        """Determine if changes are breaking"""
+        breaking_changes = [
+            'layout_config_major_change',
+            'widget_removal',
+            'data_source_change'
+        ]
+        return any(change in changes for change in breaking_changes)
+    
+    def _is_feature_change(self, changes: Dict[str, Any]) -> bool:
+        """Determine if changes add new features"""
+        feature_changes = [
+            'widget_addition',
+            'new_visualization',
+            'filter_addition'
+        ]
+        return any(change in changes for change in feature_changes)
+    
+    def _compare_snapshots(self, snapshot1: Dict[str, Any], snapshot2: Dict[str, Any]) -> Dict[str, Any]:
+        """Compare two template snapshots"""
+        differences = {}
+        
+        # Compare basic fields
+        for key in ['name', 'description', 'version']:
+            if snapshot1.get(key) != snapshot2.get(key):
+                differences[key] = {
+                    'old': snapshot1.get(key),
+                    'new': snapshot2.get(key)
+                }
+        
+        # Compare widgets
+        widgets1 = {w['id']: w for w in snapshot1.get('widgets', [])}
+        widgets2 = {w['id']: w for w in snapshot2.get('widgets', [])}
+        
+        widget_changes = {}
+        
+        # Added widgets
+        added_widgets = set(widgets2.keys()) - set(widgets1.keys())
+        if added_widgets:
+            widget_changes['added'] = [widgets2[wid] for wid in added_widgets]
+        
+        # Removed widgets
+        removed_widgets = set(widgets1.keys()) - set(widgets2.keys())
+        if removed_widgets:
+            widget_changes['removed'] = [widgets1[wid] for wid in removed_widgets]
+        
+        # Modified widgets
+        modified_widgets = []
+        for wid in set(widgets1.keys()) & set(widgets2.keys()):
+            if widgets1[wid] != widgets2[wid]:
+                modified_widgets.append({
+                    'id': wid,
+                    'old': widgets1[wid],
+                    'new': widgets2[wid]
+                })
+        
+        if modified_widgets:
+            widget_changes['modified'] = modified_widgets
+        
+        if widget_changes:
+            differences['widgets'] = widget_changes
+        
+        return differences

@@ -132,9 +132,31 @@ export const scrollIntelApi = {
   getBillingInfo: () => api.get('/api/billing'),
   getUsage: () => api.get('/api/billing/usage'),
 
-  // Visual Generation
-  generateImage: (data: any) => api.post('/api/visual-generation/image', data),
-  generateVideo: (data: any) => api.post('/api/visual-generation/video', data),
+  // Visual Generation - Updated to use integrated endpoints
+  generateImage: (data: any) => api.post('/api/v1/visual/generate/image', data),
+  generateVideo: (data: any) => api.post('/api/v1/visual/generate/video', data),
+  enhanceImage: (formData: FormData, enhancementType: string) => 
+    api.post(`/api/v1/visual/enhance/image?enhancement_type=${enhancementType}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    }),
+  batchGenerate: (data: any) => api.post('/api/v1/visual/batch/generate', data),
+  getGenerationStatus: (resultId: string) => api.get(`/api/v1/visual/generation/${resultId}/status`),
+  cancelGeneration: (resultId: string) => api.delete(`/api/v1/visual/generation/${resultId}`),
+  getUserGenerations: (params?: any) => api.get('/api/v1/visual/user/generations', { params }),
+  getUserUsageStats: () => api.get('/api/v1/visual/user/usage'),
+  enhancePrompt: (prompt: string, style?: string, contentType?: string) => 
+    api.post('/api/v1/visual/prompt/enhance', null, {
+      params: { prompt, style, content_type: contentType }
+    }),
+  getPromptTemplates: (category?: string, contentType?: string) => 
+    api.get('/api/v1/visual/templates', { params: { category, content_type: contentType } }),
+  getModelCapabilities: () => api.get('/api/v1/visual/models/capabilities'),
+  getSystemStatus: () => api.get('/api/v1/visual/system/status'),
+  estimateCost: (prompt: string, contentType: string, resolution?: string, duration?: number) =>
+    api.get('/api/v1/visual/estimate/cost', { 
+      params: { prompt, content_type: contentType, resolution, duration }
+    }),
+  getCompetitiveAnalysis: () => api.get('/api/v1/visual/competitive/analysis'),
 
   // Model Factory
   getModels: () => api.get('/api/model-factory/models'),

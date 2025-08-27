@@ -9,7 +9,11 @@ from datetime import datetime
 import aiohttp
 import json
 
-from ..core.data_connector import BaseDataConnector, DataRecord, ConnectionStatus
+from ..core.data_connector import (
+    BaseDataConnector, DataRecord, ConnectionStatus,
+    ConnectorError, ConnectionError, AuthenticationError, 
+    DataFetchError, TimeoutError, retry_on_failure
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +21,14 @@ logger = logging.getLogger(__name__)
 class SAPConnector(BaseDataConnector):
     """Connector for SAP ERP systems"""
     
+    def get_required_params(self) -> List[str]:
+        """Get required SAP connection parameters"""
+        return ['host', 'client', 'username', 'password']
+    
     async def connect(self) -> bool:
         """Connect to SAP system"""
         try:
+            await self.validate_connection_params()
             self.status = ConnectionStatus.CONNECTING
             
             # SAP connection parameters
@@ -28,21 +37,28 @@ class SAPConnector(BaseDataConnector):
             username = self.config.connection_params.get('username')
             password = self.config.connection_params.get('password')
             
-            if not all([host, client, username, password]):
-                raise ValueError("Missing required SAP connection parameters")
-            
-            # Simulate SAP RFC connection
+            # Simulate SAP RFC connection with potential failures
             await asyncio.sleep(1)  # Simulate connection time
+            
+            # Simulate occasional connection failures for testing
+            import random
+            if random.random() < 0.1:  # 10% failure rate for testing
+                raise ConnectionError("SAP system temporarily unavailable")
             
             self.status = ConnectionStatus.CONNECTED
             logger.info(f"Connected to SAP system: {host}")
             return True
             
+        except (ValueError, ConnectionError) as e:
+            self.status = ConnectionStatus.ERROR
+            self.error_message = str(e)
+            logger.error(f"SAP connection failed: {e}")
+            raise
         except Exception as e:
             self.status = ConnectionStatus.ERROR
             self.error_message = str(e)
             logger.error(f"SAP connection failed: {e}")
-            return False
+            raise ConnectionError(f"SAP connection failed: {e}")
     
     async def disconnect(self) -> bool:
         """Disconnect from SAP system"""
@@ -74,8 +90,17 @@ class SAPConnector(BaseDataConnector):
             where_clause = query.get('where', {})
             limit = query.get('limit', 1000)
             
-            # Simulate SAP data fetch
+            # Validate query parameters
+            if limit > 10000:
+                raise ValueError("Query limit exceeds maximum allowed (10000)")
+            
+            # Simulate SAP data fetch with potential failures
             await asyncio.sleep(2)  # Simulate query time
+            
+            # Simulate occasional data fetch failures for testing
+            import random
+            if random.random() < 0.05:  # 5% failure rate for testing
+                raise DataFetchError("SAP table temporarily locked")
             
             # Mock SAP data
             mock_data = []
@@ -103,9 +128,12 @@ class SAPConnector(BaseDataConnector):
             logger.info(f"Fetched {len(mock_data)} records from SAP table {table_name}")
             return mock_data
             
-        except Exception as e:
+        except (ValueError, DataFetchError) as e:
             logger.error(f"SAP data fetch failed: {e}")
             raise
+        except Exception as e:
+            logger.error(f"SAP data fetch failed: {e}")
+            raise DataFetchError(f"SAP data fetch failed: {e}")
     
     async def get_schema(self) -> Dict[str, Any]:
         """Get SAP table schemas"""
@@ -135,9 +163,14 @@ class SAPConnector(BaseDataConnector):
 class OracleERPConnector(BaseDataConnector):
     """Connector for Oracle ERP Cloud"""
     
+    def get_required_params(self) -> List[str]:
+        """Get required Oracle ERP connection parameters"""
+        return ['base_url', 'username', 'password']
+    
     async def connect(self) -> bool:
         """Connect to Oracle ERP"""
         try:
+            await self.validate_connection_params()
             self.status = ConnectionStatus.CONNECTING
             
             # Oracle ERP connection parameters
@@ -145,21 +178,28 @@ class OracleERPConnector(BaseDataConnector):
             username = self.config.connection_params.get('username')
             password = self.config.connection_params.get('password')
             
-            if not all([base_url, username, password]):
-                raise ValueError("Missing required Oracle ERP connection parameters")
-            
-            # Simulate Oracle authentication
+            # Simulate Oracle authentication with potential failures
             await asyncio.sleep(1)
+            
+            # Simulate occasional authentication failures for testing
+            import random
+            if random.random() < 0.08:  # 8% failure rate for testing
+                raise AuthenticationError("Oracle ERP authentication failed")
             
             self.status = ConnectionStatus.CONNECTED
             logger.info(f"Connected to Oracle ERP: {base_url}")
             return True
             
+        except (ValueError, AuthenticationError) as e:
+            self.status = ConnectionStatus.ERROR
+            self.error_message = str(e)
+            logger.error(f"Oracle ERP connection failed: {e}")
+            raise
         except Exception as e:
             self.status = ConnectionStatus.ERROR
             self.error_message = str(e)
             logger.error(f"Oracle ERP connection failed: {e}")
-            return False
+            raise ConnectionError(f"Oracle ERP connection failed: {e}")
     
     async def disconnect(self) -> bool:
         """Disconnect from Oracle ERP"""
@@ -251,6 +291,10 @@ class OracleERPConnector(BaseDataConnector):
 
 class MicrosoftDynamicsConnector(BaseDataConnector):
     """Connector for Microsoft Dynamics 365"""
+    
+    def get_required_params(self) -> List[str]:
+        """Get required Dynamics 365 connection parameters"""
+        return ['org_url', 'client_id', 'client_secret', 'tenant_id']
     
     async def connect(self) -> bool:
         """Connect to Microsoft Dynamics 365"""

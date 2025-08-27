@@ -1,220 +1,231 @@
 #!/usr/bin/env python3
 """
-ScrollIntel Domain Setup for scrollintel.com
+Quick Setup for ScrollIntel.com Domain Deployment
 """
 
 import os
-import json
-from pathlib import Path
+import secrets
+import string
 
-def create_vercel_config():
-    """Create Vercel configuration for scrollintel.com"""
-    config = {
-        "version": 2,
-        "name": "scrollintel",
-        "builds": [
-            {
-                "src": "frontend/package.json",
-                "use": "@vercel/next"
-            }
-        ],
-        "routes": [
-            {
-                "src": "/api/(.*)",
-                "dest": "https://api.scrollintel.com/api/$1"
-            },
-            {
-                "src": "/(.*)",
-                "dest": "frontend/$1"
-            }
-        ],
-        "env": {
-            "NEXT_PUBLIC_API_URL": "https://api.scrollintel.com",
-            "NEXT_PUBLIC_DOMAIN": "scrollintel.com"
-        }
-    }
+def generate_secure_key(length=64):
+    """Generate a secure random key"""
+    alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+def setup_environment():
+    """Setup environment variables for scrollintel.com"""
     
-    with open("vercel.json", "w") as f:
-        json.dump(config, f, indent=2)
-    print("Created vercel.json for scrollintel.com")
-
-def create_render_config():
-    """Create Render configuration"""
-    config = {
-        "services": [
-            {
-                "type": "web",
-                "name": "scrollintel-api",
-                "env": "python",
-                "plan": "starter",
-                "buildCommand": "pip install -r requirements.txt",
-                "startCommand": "uvicorn scrollintel.api.simple_main:app --host 0.0.0.0 --port $PORT",
-                "healthCheckPath": "/health",
-                "envVars": [
-                    {
-                        "key": "ENVIRONMENT",
-                        "value": "production"
-                    },
-                    {
-                        "key": "DEBUG",
-                        "value": "false"
-                    },
-                    {
-                        "key": "ALLOWED_ORIGINS",
-                        "value": "https://scrollintel.com,https://www.scrollintel.com"
-                    }
-                ]
-            }
-        ],
-        "databases": [
-            {
-                "name": "scrollintel-db",
-                "plan": "starter"
-            }
-        ]
-    }
+    print("🔧 Setting up ScrollIntel.com environment...")
     
-    with open("render.yaml", "w") as f:
-        import yaml
-        yaml.dump(config, f, default_flow_style=False)
-    print("Created render.yaml for API deployment")
+    # Generate secure JWT secret
+    jwt_secret = generate_secure_key(64)
+    
+    # Create production environment file
+    env_content = f"""# ScrollIntel.com Production Environment
+# Generated on: {os.popen('date').read().strip()}
 
-def create_deployment_guide():
-    """Create deployment guide"""
-    guide = """# ScrollIntel.com Deployment Guide
+# ===== REQUIRED: AI Services =====
+# Get your OpenAI API key from: https://platform.openai.com/api-keys
+OPENAI_API_KEY=sk-your-openai-api-key-here
 
-## Domain Setup Complete!
-Your domain: scrollintel.com
-API endpoint: api.scrollintel.com
+# ===== REQUIRED: Security =====
+JWT_SECRET_KEY={jwt_secret}
 
-## Quick Deployment Options
+# ===== REQUIRED: Database =====
+# For local development (will auto-create SQLite)
+DATABASE_URL=sqlite:///./scrollintel.db
 
-### Option 1: Vercel + Render (RECOMMENDED)
+# For production PostgreSQL (uncomment and configure):
+# DATABASE_URL=postgresql://username:password@localhost:5432/scrollintel
 
-#### Deploy Frontend to Vercel:
-1. Go to https://vercel.com
-2. Import from GitHub: your ScrollIntel repository
-3. Set root directory to 'frontend'
-4. Add custom domain: scrollintel.com
-5. Deploy!
+# ===== Optional: Advanced Features =====
+# Redis for caching (optional)
+REDIS_URL=redis://localhost:6379
 
-#### Deploy Backend to Render:
-1. Go to https://render.com
-2. Create new Web Service from GitHub
-3. Use the render.yaml configuration
-4. Add custom domain: api.scrollintel.com
-5. Deploy!
+# Email notifications (optional)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
 
-### Option 2: Railway (All-in-One)
-1. Go to https://railway.app
-2. Deploy from GitHub repository
-3. Add custom domain in Railway dashboard
-4. Configure environment variables
+# ===== Domain Configuration =====
+DOMAIN=scrollintel.com
+API_DOMAIN=api.scrollintel.com
+APP_DOMAIN=app.scrollintel.com
 
-## DNS Configuration
+# ===== Production Settings =====
+NODE_ENV=production
+API_HOST=0.0.0.0
+API_PORT=8000
+API_WORKERS=4
 
-Add these DNS records to your domain registrar:
+# CORS origins
+CORS_ORIGINS=https://scrollintel.com,https://app.scrollintel.com
 
-```
-Type    Name    Value                           TTL
-A       @       [Your deployment IP]            300
-CNAME   www     scrollintel.com                 300
-CNAME   api     [Your API deployment URL]      300
-```
+# ===== Monitoring =====
+PROMETHEUS_ENABLED=true
+GRAFANA_ENABLED=true
 
-## Environment Variables
+# ===== Storage =====
+MINIO_ACCESS_KEY=minioadmin
+MINIO_SECRET_KEY={generate_secure_key(32)}
 
-Set these in your deployment platform:
+# ===== Database Credentials =====
+POSTGRES_USER=scrollintel
+POSTGRES_PASSWORD={generate_secure_key(32)}
+POSTGRES_DB=scrollintel
 
-```
-ENVIRONMENT=production
-DEBUG=false
-OPENAI_API_KEY=your_openai_api_key
-JWT_SECRET_KEY=your_jwt_secret_key
-ALLOWED_ORIGINS=https://scrollintel.com,https://www.scrollintel.com
-```
-
-## Expected URLs After Deployment
-
-- Main Site: https://scrollintel.com
-- API: https://api.scrollintel.com
-- API Docs: https://api.scrollintel.com/docs
-- Health Check: https://api.scrollintel.com/health
-
-## Test Your Deployment
-
-After deployment, test these URLs to ensure everything works:
-- https://scrollintel.com (should load the frontend)
-- https://api.scrollintel.com/health (should return {"status": "healthy"})
-- https://api.scrollintel.com/docs (should show API documentation)
-
-ScrollIntel.com is ready to go live!
+# ===== Grafana =====
+GRAFANA_PASSWORD={generate_secure_key(16)}
 """
     
-    with open("SCROLLINTEL_DOMAIN_GUIDE.md", "w", encoding='utf-8') as f:
-        f.write(guide)
-    print("Created SCROLLINTEL_DOMAIN_GUIDE.md")
-
-def create_test_script():
-    """Create domain test script"""
-    script = '''#!/usr/bin/env python3
-"""Test ScrollIntel domain deployment"""
-
-import requests
-
-def test_scrollintel_domain():
-    """Test if ScrollIntel is deployed correctly"""
+    # Write environment file
+    with open('.env.scrollintel.com', 'w') as f:
+        f.write(env_content)
     
-    urls = [
-        "https://scrollintel.com",
-        "https://www.scrollintel.com", 
-        "https://api.scrollintel.com/health",
-        "https://api.scrollintel.com/docs"
-    ]
+    print("✅ Created .env.scrollintel.com")
     
-    print("Testing ScrollIntel domain deployment...")
-    
-    for url in urls:
-        try:
-            print(f"Testing {url}...")
-            response = requests.get(url, timeout=10)
-            if response.status_code == 200:
-                print(f"SUCCESS: {url} - {response.status_code}")
-            else:
-                print(f"WARNING: {url} - {response.status_code}")
-        except Exception as e:
-            print(f"ERROR: {url} - {e}")
-    
-    print("Domain test complete!")
+    # Create quick start script
+    quick_start = """#!/bin/bash
+# ScrollIntel.com Quick Start
 
-if __name__ == "__main__":
-    test_scrollintel_domain()
+echo "🚀 Starting ScrollIntel for scrollintel.com..."
+
+# Load environment
+export $(cat .env.scrollintel.com | grep -v '^#' | xargs)
+
+# Start with simple backend first
+echo "📡 Starting API server..."
+python -c "
+import uvicorn
+from scrollintel.api.simple_main import app
+print('🌐 ScrollIntel API starting at http://localhost:8000')
+print('📖 API docs available at http://localhost:8000/docs')
+print('🔍 Health check at http://localhost:8000/health')
+uvicorn.run(app, host='0.0.0.0', port=8000)
+"
+"""
+    
+    with open('start_scrollintel_domain.sh', 'w') as f:
+        f.write(quick_start)
+    
+    os.chmod('start_scrollintel_domain.sh', 0o755)
+    
+    print("✅ Created start_scrollintel_domain.sh")
+    
+    # Create Windows batch file
+    windows_start = """@echo off
+echo 🚀 Starting ScrollIntel for scrollintel.com...
+
+REM Load environment from file
+for /f "tokens=*" %%i in (.env.scrollintel.com) do set %%i
+
+echo 📡 Starting API server...
+python -c "import uvicorn; from scrollintel.api.simple_main import app; print('🌐 ScrollIntel API starting at http://localhost:8000'); print('📖 API docs available at http://localhost:8000/docs'); print('🔍 Health check at http://localhost:8000/health'); uvicorn.run(app, host='0.0.0.0', port=8000)"
+
+pause
+"""
+    
+    with open('start_scrollintel_domain.bat', 'w') as f:
+        f.write(windows_start)
+    
+    print("✅ Created start_scrollintel_domain.bat")
+    
+    print("\n🎯 Next Steps:")
+    print("1. Edit .env.scrollintel.com and add your OpenAI API key")
+    print("2. Run: python start_scrollintel_domain.py (or .bat on Windows)")
+    print("3. Test locally at http://localhost:8000")
+    print("4. Deploy to your server with the domain pointing to it")
+    
+    return True
+
+def create_simple_launcher():
+    """Create a simple Python launcher"""
+    launcher_content = """#!/usr/bin/env python3
 '''
-    
-    with open("test_scrollintel_domain.py", "w") as f:
-        f.write(script)
-    print("Created test_scrollintel_domain.py")
+ScrollIntel.com Simple Launcher
+Start ScrollIntel locally for testing before domain deployment
+'''
+
+import os
+import sys
+import uvicorn
+from pathlib import Path
+
+def load_env_file(env_file='.env.scrollintel.com'):
+    '''Load environment variables from file'''
+    if Path(env_file).exists():
+        with open(env_file, 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#') and '=' in line:
+                    key, value = line.split('=', 1)
+                    os.environ[key] = value
+        print(f"✅ Loaded environment from {env_file}")
+    else:
+        print(f"⚠️  Environment file {env_file} not found")
 
 def main():
-    """Main setup function"""
-    print("Setting up ScrollIntel for scrollintel.com domain...")
+    print("🚀 ScrollIntel.com Launcher")
+    print("=" * 50)
     
-    create_vercel_config()
-    create_render_config()
-    create_deployment_guide()
-    create_test_script()
+    # Load environment
+    load_env_file()
     
-    print("\nScrollIntel Domain Setup Complete!")
-    print("\nFiles created:")
-    print("- vercel.json (Vercel deployment config)")
-    print("- render.yaml (Render deployment config)")
-    print("- SCROLLINTEL_DOMAIN_GUIDE.md (deployment instructions)")
-    print("- test_scrollintel_domain.py (test script)")
-    print("\nNext steps:")
-    print("1. Read SCROLLINTEL_DOMAIN_GUIDE.md for deployment instructions")
-    print("2. Choose Vercel + Render for best results")
-    print("3. Configure DNS records with your domain registrar")
-    print("4. Deploy and test!")
+    # Check for OpenAI API key
+    if not os.getenv('OPENAI_API_KEY') or os.getenv('OPENAI_API_KEY') == 'sk-your-openai-api-key-here':
+        print("⚠️  Please set your OPENAI_API_KEY in .env.scrollintel.com")
+        print("   Get your API key from: https://platform.openai.com/api-keys")
+        print()
+    
+    try:
+        # Import the app
+        from scrollintel.api.simple_main import app
+        
+        print("🌐 Starting ScrollIntel API server...")
+        print("📡 API: http://localhost:8000")
+        print("📖 Docs: http://localhost:8000/docs") 
+        print("🔍 Health: http://localhost:8000/health")
+        print("🤖 Chat with AI agents at /chat")
+        print("📊 Upload files at /upload")
+        print()
+        print("Press Ctrl+C to stop")
+        print("=" * 50)
+        
+        # Start the server
+        uvicorn.run(
+            app, 
+            host="0.0.0.0", 
+            port=8000,
+            reload=False,
+            log_level="info"
+        )
+        
+    except ImportError as e:
+        print(f"❌ Import error: {e}")
+        print("Make sure you're in the ScrollIntel directory")
+    except KeyboardInterrupt:
+        print("\\n👋 ScrollIntel stopped")
+    except Exception as e:
+        print(f"❌ Error starting ScrollIntel: {e}")
 
 if __name__ == "__main__":
     main()
+"""
+    
+    with open('start_scrollintel_domain.py', 'w') as f:
+        f.write(launcher_content)
+    
+    print("✅ Created start_scrollintel_domain.py")
+
+if __name__ == "__main__":
+    setup_environment()
+    create_simple_launcher()
+    
+    print("\n🎉 ScrollIntel.com setup complete!")
+    print("\n📋 Quick Start:")
+    print("1. Edit .env.scrollintel.com - add your OpenAI API key")
+    print("2. Run: python start_scrollintel_domain.py")
+    print("3. Open: http://localhost:8000")
+    print("4. Test the AI agents and file upload")
+    print("5. Deploy to your server when ready!")

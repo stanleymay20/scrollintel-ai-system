@@ -1,57 +1,39 @@
 # ScrollIntel.com Production Environment
-# Copy this to .env.production and fill in your values
+NODE_ENV=production
+ENVIRONMENT=production
 
 # Domain Configuration
 DOMAIN=scrollintel.com
 API_DOMAIN=api.scrollintel.com
 APP_DOMAIN=app.scrollintel.com
 
-# Application Settings
-NODE_ENV=production
-DEBUG=false
-LOG_LEVEL=INFO
-
 # API Configuration
 API_HOST=0.0.0.0
 API_PORT=8000
-API_WORKERS=4
+WORKERS=4
 
-# Database (Replace with your actual database URL)
-DATABASE_URL=postgresql://scrollintel:your_password@postgres:5432/scrollintel
-POSTGRES_USER=scrollintel
-POSTGRES_PASSWORD=your_secure_password
+# Database (Update with your actual database URL)
+DATABASE_URL=postgresql://scrollintel:your_password@localhost:5432/scrollintel_prod
+REDIS_URL=redis://localhost:6379/0
 
-# Redis
-REDIS_URL=redis://redis:6379
+# Security (IMPORTANT: Change these!)
+SECRET_KEY=your-super-secure-secret-key-change-this-now
+JWT_SECRET_KEY=your-jwt-secret-key-change-this-now
 
-# Security (Generate secure keys!)
-JWT_SECRET_KEY=your_super_secure_jwt_secret_key_here
+# AI Services (Add your actual API keys)
+OPENAI_API_KEY=your-openai-api-key-here
+ANTHROPIC_API_KEY=your-anthropic-api-key-here
+
+# CORS
 CORS_ORIGINS=https://scrollintel.com,https://app.scrollintel.com
 
-# AI Services (Add your OpenAI API key)
-OPENAI_API_KEY=sk-your-openai-api-key-here
+# Features
+ENABLE_MONITORING=true
+ENABLE_ANALYTICS=true
+ENABLE_CACHING=true
 
-# Object Storage
-MINIO_ENDPOINT=storage.scrollintel.com
-MINIO_ACCESS_KEY=minioadmin
-MINIO_SECRET_KEY=your_secure_minio_password
-
-# Monitoring
-PROMETHEUS_ENABLED=true
-GRAFANA_ENABLED=true
-GRAFANA_PASSWORD=your_secure_grafana_password
-
-# Email (Optional - for notifications)
+# Email (Optional)
 SMTP_HOST=smtp.gmail.com
 SMTP_PORT=587
-SMTP_USER=your_email@gmail.com
-SMTP_PASS=your_app_password
-
-# Backup Configuration
-BACKUP_ENABLED=true
-BACKUP_SCHEDULE=0 2 * * *
-BACKUP_RETENTION_DAYS=7
-
-# SSL Configuration
-SSL_EMAIL=admin@scrollintel.com
-CERTBOT_EMAIL=admin@scrollintel.com
+SMTP_USER=noreply@scrollintel.com
+SMTP_PASSWORD=your-email-password

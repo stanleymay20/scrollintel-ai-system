@@ -770,8 +770,8 @@ Auto-generated resolvers for GraphQL schema
 """
 
 from typing import List, Optional, Dict, Any
-import graphene
-from graphene import ObjectType, String, Int, Boolean, List as GrapheneList
+# import graphene  # Temporarily disabled for Docker build
+# from graphene import ObjectType, String, Int, Boolean, List as GrapheneList  # Temporarily disabled for Docker build
 
 {% for gql_type in schema.types %}
 {% if not gql_type.is_enum %}

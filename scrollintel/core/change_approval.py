@@ -1,558 +1,455 @@
 """
-Change Approval Workflow System
-
-This module provides comprehensive change approval workflows for sensitive
-prompt operations, ensuring proper review and authorization processes.
+Change approval workflow system for prompt management.
 """
-
 import uuid
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any, Callable
+from typing import Optional, Dict, Any, List
 from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_, desc
+from enum import Enum
 
-from ..models.audit_models import (
-    ChangeApproval, ApprovalStatus, RiskLevel, AuditAction,
-    ChangeApprovalCreate, ChangeApprovalResponse
+from scrollintel.models.audit_models import (
+    ChangeApproval, ChangeApprovalCreate, ChangeApprovalResponse
 )
-from ..models.database import get_sync_db
-from ..core.audit_logger import audit_logger, audit_action
-from ..core.access_control import access_control_manager, Permission
-from ..core.config import get_settings
 
 
-class ApprovalRule:
-    """Base class for approval rules"""
-    
-    def __init__(self, name: str, description: str, condition: Callable):
-        self.name = name
-        self.description = description
-        self.condition = condition
-    
-    def applies_to(self, change_request: Dict[str, Any]) -> bool:
-        """Check if this rule applies to the change request"""
-        return self.condition(change_request)
+class ApprovalStatus(str, Enum):
+    """Approval status types."""
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
 
 
 class ChangeApprovalManager:
-    """Comprehensive change approval workflow management"""
+    """Service for managing change approval workflows."""
     
-    def __init__(self):
-        self.settings = get_settings()
-        self.approval_rules = self._initialize_approval_rules()
-        self.notification_handlers = []
-    
-    def _initialize_approval_rules(self) -> List[ApprovalRule]:
-        """Initialize default approval rules"""
-        rules = []
-        
-        # High-risk changes require approval
-        rules.append(ApprovalRule(
-            name="high_risk_changes",
-            description="Changes with high or critical risk level require approval",
-            condition=lambda req: req.get("risk_level") in [RiskLevel.HIGH, RiskLevel.CRITICAL]
-        ))
-        
-        # Production prompt changes require approval
-        rules.append(ApprovalRule(
-            name="production_prompts",
-            description="Changes to production prompts require approval",
-            condition=lambda req: req.get("prompt_environment") == "production"
-        ))
-        
-        # Sensitive category prompts require approval
-        rules.append(ApprovalRule(
-            name="sensitive_categories",
-            description="Changes to sensitive prompt categories require approval",
-            condition=lambda req: req.get("prompt_category") in [
-                "financial", "medical", "legal", "personal_data", "security"
-            ]
-        ))
-        
-        # Large content changes require approval
-        rules.append(ApprovalRule(
-            name="large_content_changes",
-            description="Large content changes require approval",
-            condition=lambda req: self._is_large_content_change(req)
-        ))
-        
-        # Deletion operations require approval
-        rules.append(ApprovalRule(
-            name="deletion_operations",
-            description="Prompt deletion operations require approval",
-            condition=lambda req: req.get("change_type") == "delete"
-        ))
-        
-        return rules
-    
-    def _is_large_content_change(self, change_request: Dict[str, Any]) -> bool:
-        """Check if the change involves large content modifications"""
-        proposed_changes = change_request.get("proposed_changes", {})
-        old_content = proposed_changes.get("old_content", "")
-        new_content = proposed_changes.get("new_content", "")
-        
-        # Consider it large if content changes by more than 50% or 500 characters
-        if len(old_content) == 0:
-            return len(new_content) > 500
-        
-        change_ratio = abs(len(new_content) - len(old_content)) / len(old_content)
-        return change_ratio > 0.5 or abs(len(new_content) - len(old_content)) > 500
-    
-    @audit_action(AuditAction.CREATE, "change_approval", RiskLevel.MEDIUM)
-    def request_approval(
-        self,
-        prompt_id: str,
-        requester_id: str,
-        requester_email: str,
-        change_type: str,
-        change_description: str,
-        change_justification: str,
-        proposed_changes: Dict[str, Any],
-        context: Optional[Dict[str, Any]] = None
-    ) -> str:
-        """
-        Request approval for a prompt change
-        
-        Args:
-            prompt_id: ID of the prompt to be changed
-            requester_id: ID of the user requesting the change
-            requester_email: Email of the requester
-            change_type: Type of change (create, update, delete)
-            change_description: Description of the change
-            change_justification: Business justification for the change
-            proposed_changes: Detailed proposed changes
-            context: Additional context information
-            
-        Returns:
-            str: Change approval request ID
-        """
-        with get_sync_db() as db:
-            # Assess risk level
-            risk_assessment = self._assess_change_risk(
-                change_type, proposed_changes, context or {}
-            )
-            
-            # Check if approval is required
-            change_request = {
-                "prompt_id": prompt_id,
-                "change_type": change_type,
-                "proposed_changes": proposed_changes,
-                "risk_level": risk_assessment["risk_level"],
-                "prompt_environment": context.get("environment", "development"),
-                "prompt_category": context.get("category", "general")
-            }
-            
-            requires_approval = self._requires_approval(change_request)
-            
-            if not requires_approval:
-                # Auto-approve low-risk changes
-                return self._auto_approve_change(
-                    prompt_id, requester_id, requester_email,
-                    change_type, change_description, proposed_changes
-                )
-            
-            # Create approval request
-            approval_request = ChangeApproval(
-                id=str(uuid.uuid4()),
-                prompt_id=prompt_id,
-                requester_id=requester_id,
-                requester_email=requester_email,
-                change_type=change_type,
-                change_description=change_description,
-                change_justification=change_justification,
-                proposed_changes=proposed_changes,
-                status=ApprovalStatus.PENDING.value,
-                risk_level=risk_assessment["risk_level"].value,
-                risk_assessment=risk_assessment,
-                requested_at=datetime.utcnow(),
-                expires_at=datetime.utcnow() + timedelta(days=7)  # 7-day expiration
-            )
-            
-            db.add(approval_request)
-            db.commit()
-            
-            # Send notifications
-            self._send_approval_notifications(approval_request)
-            
-            return approval_request.id
-    
-    def _assess_change_risk(
-        self,
-        change_type: str,
-        proposed_changes: Dict[str, Any],
-        context: Dict[str, Any]
-    ) -> Dict[str, Any]:
-        """Assess the risk level of a proposed change"""
-        risk_factors = []
-        risk_score = 0
-        
-        # Change type risk
-        if change_type == "delete":
-            risk_score += 30
-            risk_factors.append("Deletion operation")
-        elif change_type == "update":
-            risk_score += 10
-            risk_factors.append("Update operation")
-        
-        # Environment risk
-        environment = context.get("environment", "development")
-        if environment == "production":
-            risk_score += 25
-            risk_factors.append("Production environment")
-        elif environment == "staging":
-            risk_score += 15
-            risk_factors.append("Staging environment")
-        
-        # Category risk
-        category = context.get("category", "general")
-        sensitive_categories = ["financial", "medical", "legal", "personal_data", "security"]
-        if category in sensitive_categories:
-            risk_score += 20
-            risk_factors.append(f"Sensitive category: {category}")
-        
-        # Content change size risk
-        if self._is_large_content_change({"proposed_changes": proposed_changes}):
-            risk_score += 15
-            risk_factors.append("Large content change")
-        
-        # Usage frequency risk
-        usage_frequency = context.get("usage_frequency", 0)
-        if usage_frequency > 1000:
-            risk_score += 10
-            risk_factors.append("High usage frequency")
-        
-        # Determine risk level
-        if risk_score >= 60:
-            risk_level = RiskLevel.CRITICAL
-        elif risk_score >= 40:
-            risk_level = RiskLevel.HIGH
-        elif risk_score >= 20:
-            risk_level = RiskLevel.MEDIUM
-        else:
-            risk_level = RiskLevel.LOW
-        
-        return {
-            "risk_level": risk_level,
-            "risk_score": risk_score,
-            "risk_factors": risk_factors,
-            "assessment_details": {
-                "change_type_score": 30 if change_type == "delete" else 10,
-                "environment_score": 25 if environment == "production" else 0,
-                "category_score": 20 if category in sensitive_categories else 0,
-                "content_size_score": 15 if self._is_large_content_change({"proposed_changes": proposed_changes}) else 0,
-                "usage_frequency_score": 10 if usage_frequency > 1000 else 0
+    def __init__(self, db_session: Session):
+        self.db = db_session
+        self.approval_rules = {
+            "production_prompt": {
+                "required_approvers": 2,
+                "approval_timeout_hours": 24,
+                "auto_approve_minor": False
+            },
+            "sensitive_template": {
+                "required_approvers": 1,
+                "approval_timeout_hours": 48,
+                "auto_approve_minor": True
+            },
+            "experiment": {
+                "required_approvers": 1,
+                "approval_timeout_hours": 12,
+                "auto_approve_minor": True
             }
         }
     
-    def _requires_approval(self, change_request: Dict[str, Any]) -> bool:
-        """Check if the change request requires approval"""
-        for rule in self.approval_rules:
-            if rule.applies_to(change_request):
-                return True
-        return False
-    
-    def _auto_approve_change(
+    def request_approval(
         self,
-        prompt_id: str,
-        requester_id: str,
-        requester_email: str,
-        change_type: str,
+        resource_type: str,
+        resource_id: str,
         change_description: str,
-        proposed_changes: Dict[str, Any]
+        proposed_changes: Dict[str, Any],
+        requested_by: str,
+        priority: str = "normal",
+        deadline: Optional[datetime] = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> str:
-        """Auto-approve low-risk changes"""
-        with get_sync_db() as db:
-            approval_request = ChangeApproval(
-                id=str(uuid.uuid4()),
-                prompt_id=prompt_id,
-                requester_id=requester_id,
-                requester_email=requester_email,
-                change_type=change_type,
-                change_description=change_description,
-                change_justification="Auto-approved low-risk change",
-                proposed_changes=proposed_changes,
-                status=ApprovalStatus.APPROVED.value,
-                approver_id="system",
-                approver_email="system@auto-approval",
-                approval_comments="Automatically approved based on low risk assessment",
-                risk_level=RiskLevel.LOW.value,
-                requested_at=datetime.utcnow(),
-                reviewed_at=datetime.utcnow(),
-                approved_at=datetime.utcnow()
-            )
-            
-            db.add(approval_request)
-            db.commit()
-            
-            return approval_request.id
+        """Request approval for a change."""
+        
+        # Check if approval is required
+        if not self._requires_approval(resource_type, proposed_changes):
+            return None
+        
+        # Calculate deadline if not provided
+        if not deadline:
+            rules = self.approval_rules.get(resource_type, {})
+            timeout_hours = rules.get("approval_timeout_hours", 24)
+            deadline = datetime.utcnow() + timedelta(hours=timeout_hours)
+        
+        approval_request = ChangeApproval(
+            id=str(uuid.uuid4()),
+            resource_type=resource_type,
+            resource_id=resource_id,
+            change_description=change_description,
+            proposed_changes=proposed_changes,
+            requested_by=requested_by,
+            requested_at=datetime.utcnow(),
+            status=ApprovalStatus.PENDING.value,
+            priority=priority,
+            deadline=deadline,
+            approval_metadata=metadata or {}
+        )
+        
+        self.db.add(approval_request)
+        self.db.commit()
+        
+        # Notify approvers
+        self._notify_approvers(approval_request)
+        
+        return approval_request.id
     
-    @audit_action(AuditAction.APPROVE, "change_approval", RiskLevel.MEDIUM)
     def approve_change(
         self,
         approval_id: str,
         approver_id: str,
-        approver_email: str,
-        comments: Optional[str] = None
-    ) -> bool:
-        """
-        Approve a change request
+        approval_notes: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Approve a change request."""
         
-        Args:
-            approval_id: ID of the approval request
-            approver_id: ID of the approver
-            approver_email: Email of the approver
-            comments: Approval comments
-            
-        Returns:
-            bool: True if approval was successful
-        """
-        with get_sync_db() as db:
-            approval_request = db.query(ChangeApproval).filter(
-                ChangeApproval.id == approval_id
-            ).first()
-            
-            if not approval_request:
-                return False
-            
-            if approval_request.status != ApprovalStatus.PENDING.value:
-                return False
-            
-            # Check if approver has permission
-            if not access_control_manager.check_permission(
-                approver_id, Permission.ADMIN_COMPLIANCE_MANAGE
-            ):
-                raise PermissionError("Insufficient permissions to approve changes")
-            
-            # Update approval request
-            approval_request.status = ApprovalStatus.APPROVED.value
-            approval_request.approver_id = approver_id
-            approval_request.approver_email = approver_email
-            approval_request.approval_comments = comments
-            approval_request.reviewed_at = datetime.utcnow()
-            approval_request.approved_at = datetime.utcnow()
-            
-            db.commit()
-            
-            # Send notifications
-            self._send_approval_decision_notifications(approval_request, "approved")
-            
-            return True
+        approval = self.db.query(ChangeApproval).filter(
+            ChangeApproval.id == approval_id
+        ).first()
+        
+        if not approval:
+            return {"success": False, "error": "Approval request not found"}
+        
+        if approval.status != ApprovalStatus.PENDING.value:
+            return {"success": False, "error": f"Approval request is {approval.status}"}
+        
+        if approval.deadline and datetime.utcnow() > approval.deadline:
+            approval.status = ApprovalStatus.EXPIRED.value
+            self.db.commit()
+            return {"success": False, "error": "Approval request has expired"}
+        
+        # Check if approver has permission
+        if not self._can_approve(approver_id, approval.resource_type, approval.resource_id):
+            return {"success": False, "error": "Insufficient permissions to approve"}
+        
+        approval.status = ApprovalStatus.APPROVED.value
+        approval.approver_id = approver_id
+        approval.approved_at = datetime.utcnow()
+        approval.approval_notes = approval_notes
+        
+        self.db.commit()
+        
+        # Log approval
+        self._log_approval_action(approval, approver_id, "approved")
+        
+        # Notify requester
+        self._notify_approval_decision(approval, "approved")
+        
+        return {
+            "success": True,
+            "approval_id": approval_id,
+            "status": "approved",
+            "approved_at": approval.approved_at
+        }
     
-    @audit_action(AuditAction.REJECT, "change_approval", RiskLevel.MEDIUM)
     def reject_change(
         self,
         approval_id: str,
         approver_id: str,
-        approver_email: str,
-        comments: str
-    ) -> bool:
-        """
-        Reject a change request
+        rejection_reason: str
+    ) -> Dict[str, Any]:
+        """Reject a change request."""
         
-        Args:
-            approval_id: ID of the approval request
-            approver_id: ID of the approver
-            approver_email: Email of the approver
-            comments: Rejection comments (required)
-            
-        Returns:
-            bool: True if rejection was successful
-        """
-        with get_sync_db() as db:
-            approval_request = db.query(ChangeApproval).filter(
-                ChangeApproval.id == approval_id
-            ).first()
-            
-            if not approval_request:
-                return False
-            
-            if approval_request.status != ApprovalStatus.PENDING.value:
-                return False
-            
-            # Check if approver has permission
-            if not access_control_manager.check_permission(
-                approver_id, Permission.ADMIN_COMPLIANCE_MANAGE
-            ):
-                raise PermissionError("Insufficient permissions to reject changes")
-            
-            # Update approval request
-            approval_request.status = ApprovalStatus.REJECTED.value
-            approval_request.approver_id = approver_id
-            approval_request.approver_email = approver_email
-            approval_request.approval_comments = comments
-            approval_request.reviewed_at = datetime.utcnow()
-            
-            db.commit()
-            
-            # Send notifications
-            self._send_approval_decision_notifications(approval_request, "rejected")
-            
-            return True
+        approval = self.db.query(ChangeApproval).filter(
+            ChangeApproval.id == approval_id
+        ).first()
+        
+        if not approval:
+            return {"success": False, "error": "Approval request not found"}
+        
+        if approval.status != ApprovalStatus.PENDING.value:
+            return {"success": False, "error": f"Approval request is {approval.status}"}
+        
+        # Check if approver has permission
+        if not self._can_approve(approver_id, approval.resource_type, approval.resource_id):
+            return {"success": False, "error": "Insufficient permissions to reject"}
+        
+        approval.status = ApprovalStatus.REJECTED.value
+        approval.approver_id = approver_id
+        approval.approved_at = datetime.utcnow()
+        approval.rejection_reason = rejection_reason
+        
+        self.db.commit()
+        
+        # Log rejection
+        self._log_approval_action(approval, approver_id, "rejected")
+        
+        # Notify requester
+        self._notify_approval_decision(approval, "rejected")
+        
+        return {
+            "success": True,
+            "approval_id": approval_id,
+            "status": "rejected",
+            "rejected_at": approval.approved_at,
+            "reason": rejection_reason
+        }
+    
+    def cancel_approval(self, approval_id: str, cancelled_by: str) -> Dict[str, Any]:
+        """Cancel a pending approval request."""
+        
+        approval = self.db.query(ChangeApproval).filter(
+            ChangeApproval.id == approval_id
+        ).first()
+        
+        if not approval:
+            return {"success": False, "error": "Approval request not found"}
+        
+        if approval.status != ApprovalStatus.PENDING.value:
+            return {"success": False, "error": f"Cannot cancel {approval.status} approval"}
+        
+        # Check if user can cancel (requester or admin)
+        if approval.requested_by != cancelled_by and not self._is_admin(cancelled_by):
+            return {"success": False, "error": "Insufficient permissions to cancel"}
+        
+        approval.status = ApprovalStatus.CANCELLED.value
+        approval.approval_metadata["cancelled_by"] = cancelled_by
+        approval.approval_metadata["cancelled_at"] = datetime.utcnow().isoformat()
+        
+        self.db.commit()
+        
+        return {"success": True, "approval_id": approval_id, "status": "cancelled"}
     
     def get_pending_approvals(
         self,
         approver_id: Optional[str] = None,
-        limit: int = 50,
-        offset: int = 0
+        resource_type: Optional[str] = None,
+        priority: Optional[str] = None,
+        limit: int = 100
     ) -> List[ChangeApprovalResponse]:
-        """
-        Get pending approval requests
+        """Get pending approval requests."""
         
-        Args:
-            approver_id: Filter by specific approver (if None, returns all)
-            limit: Maximum number of requests to return
-            offset: Number of requests to skip
-            
-        Returns:
-            List[ChangeApprovalResponse]: List of pending approval requests
-        """
-        with get_sync_db() as db:
-            query = db.query(ChangeApproval).filter(
-                ChangeApproval.status == ApprovalStatus.PENDING.value
-            )
-            
-            # Filter expired requests
-            query = query.filter(
-                or_(
-                    ChangeApproval.expires_at.is_(None),
-                    ChangeApproval.expires_at > datetime.utcnow()
-                )
-            )
-            
-            approval_requests = query.order_by(
-                desc(ChangeApproval.requested_at)
-            ).offset(offset).limit(limit).all()
-            
-            return [ChangeApprovalResponse.from_orm(req) for req in approval_requests]
+        query = self.db.query(ChangeApproval).filter(
+            ChangeApproval.status == ApprovalStatus.PENDING.value
+        )
+        
+        if resource_type:
+            query = query.filter(ChangeApproval.resource_type == resource_type)
+        
+        if priority:
+            query = query.filter(ChangeApproval.priority == priority)
+        
+        # Filter by approver permissions if specified
+        if approver_id:
+            # This would need integration with access control system
+            pass
+        
+        # Order by priority (urgent > high > normal > low) then by requested time
+        priority_order = {"urgent": 4, "high": 3, "normal": 2, "low": 1}
+        
+        approvals = query.all()
+        
+        # Sort in Python since SQLAlchemy ordering by enum values can be tricky
+        approvals.sort(key=lambda x: (
+            priority_order.get(x.priority, 0),
+            x.requested_at
+        ), reverse=True)
+        
+        approvals = approvals[:limit]
+        
+        return [ChangeApprovalResponse.model_validate(approval) for approval in approvals]
     
     def get_approval_history(
         self,
-        prompt_id: Optional[str] = None,
-        requester_id: Optional[str] = None,
-        approver_id: Optional[str] = None,
-        status: Optional[ApprovalStatus] = None,
-        limit: int = 100,
-        offset: int = 0
+        resource_type: Optional[str] = None,
+        resource_id: Optional[str] = None,
+        requested_by: Optional[str] = None,
+        limit: int = 100
     ) -> List[ChangeApprovalResponse]:
-        """
-        Get approval request history
+        """Get approval history."""
         
-        Args:
-            prompt_id: Filter by prompt ID
-            requester_id: Filter by requester ID
-            approver_id: Filter by approver ID
-            status: Filter by approval status
-            limit: Maximum number of requests to return
-            offset: Number of requests to skip
-            
-        Returns:
-            List[ChangeApprovalResponse]: List of approval requests
-        """
-        with get_sync_db() as db:
-            query = db.query(ChangeApproval)
-            
-            if prompt_id:
-                query = query.filter(ChangeApproval.prompt_id == prompt_id)
-            if requester_id:
-                query = query.filter(ChangeApproval.requester_id == requester_id)
-            if approver_id:
-                query = query.filter(ChangeApproval.approver_id == approver_id)
-            if status:
-                query = query.filter(ChangeApproval.status == status.value)
-            
-            approval_requests = query.order_by(
-                desc(ChangeApproval.requested_at)
-            ).offset(offset).limit(limit).all()
-            
-            return [ChangeApprovalResponse.from_orm(req) for req in approval_requests]
-    
-    def cleanup_expired_requests(self) -> int:
-        """
-        Clean up expired approval requests
+        query = self.db.query(ChangeApproval)
         
-        Returns:
-            int: Number of requests cleaned up
-        """
-        with get_sync_db() as db:
-            expired_requests = db.query(ChangeApproval).filter(
-                and_(
-                    ChangeApproval.status == ApprovalStatus.PENDING.value,
-                    ChangeApproval.expires_at < datetime.utcnow()
-                )
-            ).all()
-            
-            count = len(expired_requests)
-            
-            for request in expired_requests:
-                request.status = ApprovalStatus.CANCELLED.value
-                request.approval_comments = "Request expired"
-            
-            db.commit()
-            
-            return count
+        if resource_type:
+            query = query.filter(ChangeApproval.resource_type == resource_type)
+        
+        if resource_id:
+            query = query.filter(ChangeApproval.resource_id == resource_id)
+        
+        if requested_by:
+            query = query.filter(ChangeApproval.requested_by == requested_by)
+        
+        approvals = query.order_by(desc(ChangeApproval.requested_at)).limit(limit).all()
+        
+        return [ChangeApprovalResponse.model_validate(approval) for approval in approvals]
     
-    def add_notification_handler(self, handler: Callable):
-        """Add a notification handler for approval events"""
-        self.notification_handlers.append(handler)
+    def check_approval_status(self, resource_type: str, resource_id: str) -> Dict[str, Any]:
+        """Check if a resource has pending or recent approvals."""
+        
+        # Check for pending approvals
+        pending = self.db.query(ChangeApproval).filter(
+            and_(
+                ChangeApproval.resource_type == resource_type,
+                ChangeApproval.resource_id == resource_id,
+                ChangeApproval.status == ApprovalStatus.PENDING.value
+            )
+        ).first()
+        
+        if pending:
+            return {
+                "has_pending": True,
+                "approval_id": pending.id,
+                "requested_at": pending.requested_at,
+                "deadline": pending.deadline,
+                "priority": pending.priority
+            }
+        
+        # Check for recent approvals
+        recent_cutoff = datetime.utcnow() - timedelta(hours=24)
+        recent = self.db.query(ChangeApproval).filter(
+            and_(
+                ChangeApproval.resource_type == resource_type,
+                ChangeApproval.resource_id == resource_id,
+                ChangeApproval.approved_at >= recent_cutoff,
+                ChangeApproval.status == ApprovalStatus.APPROVED.value
+            )
+        ).first()
+        
+        if recent:
+            return {
+                "has_pending": False,
+                "recently_approved": True,
+                "approval_id": recent.id,
+                "approved_at": recent.approved_at,
+                "approved_by": recent.approver_id
+            }
+        
+        return {"has_pending": False, "recently_approved": False}
     
-    def _send_approval_notifications(self, approval_request: ChangeApproval):
-        """Send notifications for new approval requests"""
-        notification_data = {
-            "type": "approval_requested",
-            "approval_id": approval_request.id,
-            "prompt_id": approval_request.prompt_id,
-            "requester_email": approval_request.requester_email,
-            "change_type": approval_request.change_type,
-            "change_description": approval_request.change_description,
-            "risk_level": approval_request.risk_level,
-            "requested_at": approval_request.requested_at.isoformat()
+    def _requires_approval(self, resource_type: str, proposed_changes: Dict[str, Any]) -> bool:
+        """Check if changes require approval."""
+        
+        rules = self.approval_rules.get(resource_type)
+        if not rules:
+            return False
+        
+        # Check for minor changes that can be auto-approved
+        if rules.get("auto_approve_minor", False):
+            if self._is_minor_change(proposed_changes):
+                return False
+        
+        return True
+    
+    def _is_minor_change(self, proposed_changes: Dict[str, Any]) -> bool:
+        """Determine if changes are minor and can be auto-approved."""
+        
+        minor_fields = ["description", "tags", "metadata", "examples"]
+        
+        # If only minor fields are changed
+        changed_fields = set(proposed_changes.keys())
+        if changed_fields.issubset(set(minor_fields)):
+            return True
+        
+        # If content changes are small
+        if "content" in proposed_changes:
+            old_content = proposed_changes["content"].get("old", "")
+            new_content = proposed_changes["content"].get("new", "")
+            
+            # Simple heuristic: less than 10% change
+            if len(old_content) > 0:
+                change_ratio = abs(len(new_content) - len(old_content)) / len(old_content)
+                if change_ratio < 0.1:
+                    return True
+        
+        return False
+    
+    def _can_approve(self, approver_id: str, resource_type: str, resource_id: str) -> bool:
+        """Check if user can approve changes for resource."""
+        
+        # This would integrate with the access control system
+        from scrollintel.core.access_control import AccessControlManager
+        
+        access_manager = AccessControlManager(self.db)
+        result = access_manager.check_permission(
+            user_id=approver_id,
+            resource_type=resource_type,
+            resource_id=resource_id,
+            permission="approve"
+        )
+        
+        return result.get("allowed", False)
+    
+    def _is_admin(self, user_id: str) -> bool:
+        """Check if user is an admin."""
+        
+        # This would integrate with user management system
+        # For now, return False as placeholder
+        return False
+    
+    def _notify_approvers(self, approval: ChangeApproval):
+        """Notify potential approvers of pending request."""
+        
+        # This would integrate with notification system
+        # For now, just log the notification
+        print(f"Notification: Approval request {approval.id} for {approval.resource_type} {approval.resource_id}")
+    
+    def _notify_approval_decision(self, approval: ChangeApproval, decision: str):
+        """Notify requester of approval decision."""
+        
+        # This would integrate with notification system
+        print(f"Notification: Approval request {approval.id} was {decision}")
+    
+    def _log_approval_action(self, approval: ChangeApproval, user_id: str, action: str):
+        """Log approval action to audit trail."""
+        
+        from scrollintel.core.audit_logger import AuditLogger
+        
+        audit_logger = AuditLogger(self.db)
+        audit_logger.log_action(
+            user_id=user_id,
+            user_email="unknown",  # Would get from user service
+            action=f"approval_{action}",
+            resource_type="change_approval",
+            resource_id=approval.id,
+            resource_name=f"{approval.resource_type}:{approval.resource_id}",
+            metadata={
+                "original_resource_type": approval.resource_type,
+                "original_resource_id": approval.resource_id,
+                "change_description": approval.change_description,
+                "priority": approval.priority
+            }
+        )
+    
+    def expire_old_approvals(self) -> int:
+        """Expire old pending approval requests."""
+        
+        expired_count = self.db.query(ChangeApproval).filter(
+            and_(
+                ChangeApproval.status == ApprovalStatus.PENDING.value,
+                ChangeApproval.deadline < datetime.utcnow()
+            )
+        ).update({"status": ApprovalStatus.EXPIRED.value})
+        
+        self.db.commit()
+        
+        return expired_count
+    
+    def get_approval_statistics(self) -> Dict[str, Any]:
+        """Get approval workflow statistics."""
+        
+        total_requests = self.db.query(ChangeApproval).count()
+        
+        status_counts = {}
+        for status in ApprovalStatus:
+            count = self.db.query(ChangeApproval).filter(
+                ChangeApproval.status == status.value
+            ).count()
+            status_counts[status.value] = count
+        
+        # Average approval time
+        approved_requests = self.db.query(ChangeApproval).filter(
+            ChangeApproval.status == ApprovalStatus.APPROVED.value
+        ).all()
+        
+        if approved_requests:
+            approval_times = []
+            for request in approved_requests:
+                if request.approved_at and request.requested_at:
+                    time_diff = request.approved_at - request.requested_at
+                    approval_times.append(time_diff.total_seconds() / 3600)  # hours
+            
+            avg_approval_time = sum(approval_times) / len(approval_times) if approval_times else 0
+        else:
+            avg_approval_time = 0
+        
+        return {
+            "total_requests": total_requests,
+            "status_distribution": status_counts,
+            "average_approval_time_hours": avg_approval_time,
+            "approval_rate": status_counts.get("approved", 0) / max(total_requests, 1) * 100
         }
-        
-        for handler in self.notification_handlers:
-            try:
-                handler(notification_data)
-            except Exception as e:
-                # Log notification failure but don't fail the approval process
-                audit_logger.log_action(
-                    user_id="system",
-                    user_email="system@notifications",
-                    action=AuditAction.UPDATE,
-                    resource_type="notification",
-                    resource_id=approval_request.id,
-                    context={"error": str(e), "notification_type": "approval_requested"}
-                )
-    
-    def _send_approval_decision_notifications(
-        self,
-        approval_request: ChangeApproval,
-        decision: str
-    ):
-        """Send notifications for approval decisions"""
-        notification_data = {
-            "type": f"approval_{decision}",
-            "approval_id": approval_request.id,
-            "prompt_id": approval_request.prompt_id,
-            "requester_email": approval_request.requester_email,
-            "approver_email": approval_request.approver_email,
-            "change_type": approval_request.change_type,
-            "approval_comments": approval_request.approval_comments,
-            "reviewed_at": approval_request.reviewed_at.isoformat()
-        }
-        
-        for handler in self.notification_handlers:
-            try:
-                handler(notification_data)
-            except Exception as e:
-                # Log notification failure but don't fail the approval process
-                audit_logger.log_action(
-                    user_id="system",
-                    user_email="system@notifications",
-                    action=AuditAction.UPDATE,
-                    resource_type="notification",
-                    resource_id=approval_request.id,
-                    context={"error": str(e), "notification_type": f"approval_{decision}"}
-                )
-
-
-# Global change approval manager instance
-change_approval_manager = ChangeApprovalManager()

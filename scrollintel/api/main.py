@@ -25,6 +25,8 @@ from .routes.performance_routes import router as performance_router
 from .routes.visualization_routes import router as visualization_router
 from .routes.legal_routes import router as legal_router
 from .routes.simple_routes import router as simple_router
+from .routes.visual_generation_routes import router as visual_generation_router
+from .websocket.visual_generation_websocket import router as visual_generation_ws_router
 from ..core.performance_monitor import initialize_performance_monitoring
 from ..core.logging_config import get_logger
 from ..core.config import get_settings
@@ -140,6 +142,8 @@ app.include_router(enterprise_ui_routes.router)
 app.include_router(performance_router)
 app.include_router(visualization_router)
 app.include_router(legal_router)
+app.include_router(visual_generation_router)  # Visual generation routes
+app.include_router(visual_generation_ws_router)  # Visual generation WebSocket
 
 # Root endpoint
 @app.get("/")

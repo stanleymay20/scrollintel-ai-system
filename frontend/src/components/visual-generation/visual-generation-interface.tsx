@@ -1,69 +1,94 @@
 'use client'
 
-import React, { useState, useRef, useCallback } from 'react'
+import React, { useState, useRef, useCallback, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Progress } from '@/components/ui/progress'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { VideoGenerationPanel } from './video-generation-panel'
 import { ImageGenerationPanel } from './image-generation-panel'
 import { HumanoidDesigner } from './humanoid-designer'
 import { TimelineEditor } from './timeline-editor'
 import { DepthVisualizationTools } from './depth-visualization-tools'
 import { RealTimePreview } from './real-time-preview'
-import { Play, Pause, Square, Download, Share2, Settings } from 'lucide-react'
-
-interface GenerationJob {
-  id: string
-  type: 'image' | 'video' | 'humanoid' | '2d-to-3d'
-  status: 'queued' | 'processing' | 'completed' | 'failed'
-  progress: number
-  prompt: string
-  result?: string
-  metadata?: any
-}
+import { useVisualGeneration, GenerationJob } from '@/hooks/useVisualGeneration'
+import { Play, Pause, Square, Download, Share2, Settings, AlertCircle, X } from 'lucide-react'
 
 export function VisualGenerationInterface() {
   const [activeTab, setActiveTab] = useState('video')
-  const [jobs, setJobs] = useState<GenerationJob[]>([])
   const [selectedJob, setSelectedJob] = useState<GenerationJob | null>(null)
-  const [isGenerating, setIsGenerating] = useState(false)
   const previewRef = useRef<HTMLDivElement>(null)
 
+  const {
+    jobs,
+    isGenerating,
+    error,
+    generateImage,
+    generateVideo,
+    enhanceImage,
+    cancelGeneration,
+    onProgress,
+    loadUserGenerations,
+    clearError
+  } = useVisualGeneration()
+
+  // Load user's generation history on mount
+  useEffect(() => {
+    loadUserGenerations({ limit: 20 })
+  }, [loadUserGenerations])
+
   const handleGenerate = useCallback(async (type: string, params: any) => {
-    const newJob: GenerationJob = {
-      id: `job_${Date.now()}`,
-      type: type as any,
-      status: 'queued',
-      progress: 0,
-      prompt: params.prompt || '',
-    }
-
-    setJobs(prev => [...prev, newJob])
-    setSelectedJob(newJob)
-    setIsGenerating(true)
-
     try {
-      // Simulate generation process
-      for (let i = 0; i <= 100; i += 10) {
-        await new Promise(resolve => setTimeout(resolve, 500))
-        setJobs(prev => prev.map(job => 
-          job.id === newJob.id 
-            ? { ...job, progress: i, status: i === 100 ? 'completed' : 'processing' }
-            : job
-        ))
+      let result
+      
+      switch (type) {
+        case 'image':
+          result = await generateImage(params)
+          break
+        case 'video':
+          result = await generateVideo(params)
+          break
+        case 'humanoid':
+          // Humanoid generation uses video generation with special parameters
+          result = await generateVideo({
+            ...params,
+            humanoid_generation: true,
+            neural_rendering_quality: 'photorealistic_plus',
+            temporal_consistency_level: 'ultra_high'
+          })
+          break
+        case '2d-to-3d':
+          // 2D-to-3D conversion (enhancement)
+          if (params.file) {
+            result = await enhanceImage(params.file, '2d_to_3d')
+          }
+          break
+        default:
+          throw new Error(`Unknown generation type: ${type}`)
       }
-    } catch (error) {
-      setJobs(prev => prev.map(job => 
-        job.id === newJob.id 
-          ? { ...job, status: 'failed' }
-          : job
-      ))
-    } finally {
-      setIsGenerating(false)
+
+      // Set the newly created job as selected
+      if (result?.result_id) {
+        const newJob = jobs.find(job => job.id === result.result_id)
+        if (newJob) {
+          setSelectedJob(newJob)
+        }
+      }
+    } catch (error: any) {
+      console.error('Generation failed:', error)
+      // Error is handled by the hook
     }
-  }, [])
+  }, [generateImage, generateVideo, enhanceImage, jobs])
+
+  const handleCancelGeneration = useCallback(async (jobId: string) => {
+    try {
+      await cancelGeneration(jobId)
+    } catch (error: any) {
+      console.error('Cancellation failed:', error)
+    }
+  }, [cancelGeneration])
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -83,6 +108,11 @@ export function VisualGenerationInterface() {
           <Badge variant="outline" className="text-purple-400 border-purple-400">
             Ultra-Realistic 4K
           </Badge>
+          {isGenerating && (
+            <Badge variant="outline" className="text-blue-400 border-blue-400 animate-pulse">
+              Generating...
+            </Badge>
+          )}
         </div>
         <div className="flex items-center space-x-2">
           <Button variant="outline" size="sm">
@@ -95,6 +125,24 @@ export function VisualGenerationInterface() {
           </Button>
         </div>
       </div>
+
+      {/* Error Alert */}
+      {error && (
+        <Alert className="mx-4 mt-4 border-red-500 bg-red-500/10">
+          <AlertCircle className="h-4 w-4" />
+          <AlertDescription className="flex items-center justify-between">
+            <span>{error}</span>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={clearError}
+              className="h-auto p-1 text-red-400 hover:text-red-300"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="flex-1 flex">
         {/* Main Content */}
@@ -182,9 +230,24 @@ export function VisualGenerationInterface() {
                       <span className="text-xs text-slate-400 capitalize">
                         {job.status}
                       </span>
-                      {job.status === 'completed' && (
-                        <Button size="sm" variant="ghost" className="h-6 px-2">
+                      {job.status === 'completed' && job.result?.content_urls && (
+                        <Button 
+                          size="sm" 
+                          variant="ghost" 
+                          className="h-6 px-2"
+                          onClick={() => window.open(job.result!.content_urls[0], '_blank')}
+                        >
                           <Download className="w-3 h-3" />
+                        </Button>
+                      )}
+                      {(job.status === 'processing' || job.status === 'queued') && (
+                        <Button 
+                          size="sm" 
+                          variant="ghost" 
+                          className="h-6 px-2 text-red-400 hover:text-red-300"
+                          onClick={() => handleCancelGeneration(job.id)}
+                        >
+                          <X className="w-3 h-3" />
                         </Button>
                       )}
                     </div>

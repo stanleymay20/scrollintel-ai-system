@@ -26,15 +26,33 @@ export function VideoGenerationPanel({ onGenerate }: VideoGenerationPanelProps) 
   const [sourceImage, setSourceImage] = useState<File | null>(null)
 
   const handleGenerate = () => {
+    // Convert resolution string to array
+    let resolutionArray: [number, number]
+    switch (resolution) {
+      case '4k':
+        resolutionArray = [3840, 2160]
+        break
+      case '1080p':
+        resolutionArray = [1920, 1080]
+        break
+      case '720p':
+        resolutionArray = [1280, 720]
+        break
+      default:
+        resolutionArray = [1920, 1080]
+    }
+
     onGenerate('video', {
       prompt,
       duration: duration[0],
-      resolution,
+      resolution: resolutionArray,
       fps: parseInt(fps),
       style,
-      motionIntensity: motionIntensity[0],
-      cameraMovement,
-      sourceImage
+      quality: 'ultra_high',
+      humanoid_generation: style === 'humanoid' || prompt.toLowerCase().includes('person') || prompt.toLowerCase().includes('human'),
+      physics_simulation: true,
+      neural_rendering_quality: 'photorealistic_plus',
+      temporal_consistency_level: 'ultra_high'
     })
   }
 

@@ -58,10 +58,10 @@ def create_security_tables():
         print("✓ Security configuration created")
         
         print("\n🔒 Security and compliance framework setup completed successfully!")
-        print("\nDefault credentials:")
+        print("\nDefault admin user created.")
         print("Username: admin")
-        print("Password: ScrollIntel2024!")
-        print("\nPlease change the default password immediately after first login.")
+        print("Password: Generated securely - check environment variables or logs")
+        print("\nPlease set ADMIN_PASSWORD environment variable or change password after first login.")
         
     except Exception as e:
         print(f"❌ Error creating security tables: {str(e)}")
@@ -81,8 +81,18 @@ def create_default_admin_user(engine):
             print("Admin user already exists, skipping creation")
             return
         
-        # Hash password
-        password = "ScrollIntel2024!"
+        # Get password from environment or generate secure random password
+        import secrets
+        import string
+        
+        password = os.getenv("ADMIN_PASSWORD")
+        if not password:
+            # Generate secure random password
+            alphabet = string.ascii_letters + string.digits + "!@#$%^&*"
+            password = ''.join(secrets.choice(alphabet) for _ in range(16))
+            print(f"Generated admin password: {password}")
+            print("IMPORTANT: Save this password securely!")
+        
         password_hash, salt = security_framework.encryption_manager.hash_password(password)
         
         # Create admin user

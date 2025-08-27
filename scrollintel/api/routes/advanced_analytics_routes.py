@@ -1,469 +1,723 @@
 """
-Advanced Analytics API Routes
+API Routes for Advanced Reporting and Analytics
 
-This module provides REST API endpoints for all advanced analytics capabilities
-including graph analytics, semantic search, pattern recognition, and predictive analytics.
+This module provides REST API endpoints for the advanced reporting and analytics
+functionality including comprehensive reporting, scheduling, and interactive reports.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, Query, File, UploadFile
+from fastapi.responses import Response, HTMLResponse
 from typing import Dict, List, Optional, Any
+from datetime import datetime, timedelta
+import json
 import logging
-from datetime import datetime
+from pydantic import BaseModel, Field
 
-from ...models.advanced_analytics_models import (
-    AdvancedAnalyticsRequest, AdvancedAnalyticsResponse, AnalyticsType,
-    GraphAnalysisRequest, GraphAnalysisResult,
-    SemanticQuery, SemanticSearchResponse,
-    PatternRecognitionRequest, PatternRecognitionResult,
-    PredictiveAnalyticsRequest, PredictiveAnalyticsResult,
-    AnalyticsInsight
+from ...engines.comprehensive_reporting_engine import (
+    ComprehensiveReportingEngine, ReportConfig, ReportType, ReportFormat, GeneratedReport
 )
-from ...engines.advanced_analytics_engine import advanced_analytics_engine
-from ...core.auth import get_current_user
+from ...core.automated_report_scheduler import (
+    AutomatedReportScheduler, ReportSchedule, ScheduleConfig, DeliveryConfig,
+    ScheduleFrequency, DeliveryMethod, ScheduleStatus
+)
+from ...engines.advanced_statistical_analytics import (
+    AdvancedStatisticalAnalytics, AnalysisConfig, AnalysisType
+)
+from ...engines.executive_summary_generator import (
+    ExecutiveSummaryGenerator, SummaryType, ExecutiveSummary
+)
+from ...engines.interactive_report_builder import (
+    InteractiveReportBuilder, ComponentType, ChartType, LayoutType,
+    ComponentConfig, ChartConfig, ReportLayout
+)
 
 logger = logging.getLogger(__name__)
+
+# Initialize engines
+reporting_engine = ComprehensiveReportingEngine()
+scheduler = AutomatedReportScheduler(reporting_engine)
+analytics_engine = AdvancedStatisticalAnalytics()
+summary_generator = ExecutiveSummaryGenerator()
+report_builder = InteractiveReportBuilder()
 
 router = APIRouter(prefix="/api/v1/advanced-analytics", tags=["Advanced Analytics"])
 
 
-@router.post("/execute", response_model=AdvancedAnalyticsResponse)
-async def execute_analytics(
-    request: AdvancedAnalyticsRequest,
-    background_tasks: BackgroundTasks,
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Execute advanced analytics operations.
-    
-    Supports all analytics types:
-    - Graph Analysis
-    - Semantic Search
-    - Pattern Recognition
-    - Predictive Analytics
-    """
+# Pydantic models for request/response
+class ReportGenerationRequest(BaseModel):
+    report_type: str = Field(..., description="Type of report to generate")
+    format: str = Field(..., description="Output format (pdf, excel, web, json, csv)")
+    title: str = Field(..., description="Report title")
+    description: str = Field(..., description="Report description")
+    data_sources: List[str] = Field(default=[], description="Data sources to include")
+    filters: Dict[str, Any] = Field(default={}, description="Filters to apply")
+    date_range: Dict[str, str] = Field(default={}, description="Date range for data")
+    template_id: Optional[str] = Field(None, description="Template ID to use")
+    custom_sections: Optional[List[Dict]] = Field(None, description="Custom sections")
+
+
+class ScheduleCreationRequest(BaseModel):
+    name: str = Field(..., description="Schedule name")
+    description: str = Field(..., description="Schedule description")
+    report_config: Dict[str, Any] = Field(..., description="Report configuration")
+    frequency: str = Field(..., description="Schedule frequency")
+    start_date: str = Field(..., description="Start date (ISO format)")
+    end_date: Optional[str] = Field(None, description="End date (ISO format)")
+    time_of_day: Optional[str] = Field(None, description="Time of day (HH:MM)")
+    day_of_week: Optional[int] = Field(None, description="Day of week (0=Monday)")
+    day_of_month: Optional[int] = Field(None, description="Day of month")
+    delivery_method: str = Field(..., description="Delivery method")
+    recipients: List[str] = Field(..., description="Delivery recipients")
+    delivery_settings: Dict[str, Any] = Field(default={}, description="Delivery settings")
+
+
+class AnalysisRequest(BaseModel):
+    data: Dict[str, Any] = Field(..., description="Data to analyze")
+    analysis_types: List[str] = Field(..., description="Types of analysis to perform")
+    confidence_level: float = Field(0.95, description="Confidence level")
+    significance_threshold: float = Field(0.05, description="Significance threshold")
+    min_data_points: int = Field(30, description="Minimum data points required")
+
+
+class SummaryGenerationRequest(BaseModel):
+    data: Dict[str, Any] = Field(..., description="Analytics data and insights")
+    summary_type: str = Field("performance_overview", description="Type of summary")
+    target_audience: str = Field("executive", description="Target audience")
+    custom_focus: Optional[List[str]] = Field(None, description="Custom focus areas")
+
+
+class InteractiveReportRequest(BaseModel):
+    name: str = Field(..., description="Report name")
+    description: str = Field(..., description="Report description")
+    layout_type: str = Field("single_column", description="Layout type")
+    template_id: Optional[str] = Field(None, description="Template ID")
+
+
+class ComponentRequest(BaseModel):
+    component_type: str = Field(..., description="Component type")
+    title: str = Field(..., description="Component title")
+    position: Dict[str, int] = Field(..., description="Position and size")
+    properties: Optional[Dict[str, Any]] = Field(None, description="Component properties")
+
+
+# Report Generation Endpoints
+
+@router.post("/reports/generate")
+async def generate_report(request: ReportGenerationRequest):
+    """Generate a comprehensive report"""
     try:
-        logger.info(f"Executing {request.analytics_type.value} analytics for user {current_user.get('user_id')}")
+        # Parse date range
+        date_range = {}
+        if request.date_range.get('start'):
+            date_range['start'] = datetime.fromisoformat(request.date_range['start'])
+        if request.date_range.get('end'):
+            date_range['end'] = datetime.fromisoformat(request.date_range['end'])
         
-        # Execute analytics
-        result = await advanced_analytics_engine.execute_analytics(request)
-        
-        # Track usage in background
-        background_tasks.add_task(
-            _track_analytics_usage,
-            current_user.get('user_id'),
-            request.analytics_type,
-            result.execution_metrics
+        # Create report configuration
+        config = ReportConfig(
+            report_type=ReportType(request.report_type),
+            format=ReportFormat(request.format),
+            title=request.title,
+            description=request.description,
+            data_sources=request.data_sources,
+            filters=request.filters,
+            date_range=date_range,
+            template_id=request.template_id,
+            custom_sections=request.custom_sections
         )
         
-        return result
+        # Generate report
+        report = await reporting_engine.generate_report(config)
         
-    except Exception as e:
-        logger.error(f"Error executing analytics: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Analytics execution failed: {str(e)}")
-
-
-@router.post("/comprehensive-analysis")
-async def execute_comprehensive_analysis(
-    data_sources: List[str],
-    business_context: Optional[Dict[str, Any]] = None,
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Execute comprehensive analysis using all analytics engines.
-    
-    This endpoint runs graph analytics, pattern recognition, and predictive analytics
-    in parallel to provide a complete business intelligence overview.
-    """
-    try:
-        logger.info(f"Starting comprehensive analysis for user {current_user.get('user_id')}")
-        
-        result = await advanced_analytics_engine.execute_comprehensive_analysis(
-            data_sources, business_context
-        )
-        
-        return {
-            "status": "success",
-            "data": result,
-            "message": f"Comprehensive analysis completed for {len(data_sources)} data sources"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error in comprehensive analysis: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Comprehensive analysis failed: {str(e)}")
-
-
-@router.get("/business-intelligence-summary")
-async def get_business_intelligence_summary(
-    time_period: int = Query(30, description="Number of days to look back"),
-    current_user: dict = Depends(get_current_user)
-):
-    """
-    Get business intelligence summary from recent analytics.
-    
-    Provides executive-level insights, trends, and recommendations based on
-    recent analytics operations and their results.
-    """
-    try:
-        summary = await advanced_analytics_engine.get_business_intelligence_summary(time_period)
-        
-        return {
-            "status": "success",
-            "data": summary,
-            "time_period_days": time_period,
-            "generated_at": datetime.utcnow()
-        }
-        
-    except Exception as e:
-        logger.error(f"Error generating BI summary: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"BI summary generation failed: {str(e)}")
-
-
-# Graph Analytics Endpoints
-@router.post("/graph/build", tags=["Graph Analytics"])
-async def build_enterprise_graph(
-    data_sources: List[str],
-    current_user: dict = Depends(get_current_user)
-):
-    """Build enterprise graph from multiple data sources."""
-    try:
-        result = await advanced_analytics_engine.graph_engine.build_enterprise_graph(data_sources)
-        
-        return {
-            "status": "success",
-            "data": result,
-            "message": f"Enterprise graph built from {len(data_sources)} data sources"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error building enterprise graph: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Graph building failed: {str(e)}")
-
-
-@router.post("/graph/analyze", response_model=GraphAnalysisResult, tags=["Graph Analytics"])
-async def analyze_graph_relationships(
-    request: GraphAnalysisRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """Analyze complex relationships in the enterprise graph."""
-    try:
-        result = await advanced_analytics_engine.graph_engine.analyze_complex_relationships(request)
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error analyzing graph relationships: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Graph analysis failed: {str(e)}")
-
-
-@router.get("/graph/opportunities", tags=["Graph Analytics"])
-async def detect_graph_opportunities(
-    business_context: Optional[Dict[str, Any]] = None,
-    current_user: dict = Depends(get_current_user)
-):
-    """Detect business opportunities through graph analysis."""
-    try:
-        opportunities = await advanced_analytics_engine.graph_engine.detect_business_opportunities(
-            business_context or {}
-        )
-        
-        return {
-            "status": "success",
-            "data": opportunities,
-            "count": len(opportunities)
-        }
-        
-    except Exception as e:
-        logger.error(f"Error detecting graph opportunities: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Opportunity detection failed: {str(e)}")
-
-
-# Semantic Search Endpoints
-@router.post("/search/index", tags=["Semantic Search"])
-async def index_enterprise_data(
-    data_sources: List[str],
-    current_user: dict = Depends(get_current_user)
-):
-    """Index enterprise data for semantic search."""
-    try:
-        result = await advanced_analytics_engine.search_engine.index_enterprise_data(data_sources)
-        
-        return {
-            "status": "success",
-            "data": result,
-            "message": f"Indexed data from {len(data_sources)} sources"
-        }
-        
-    except Exception as e:
-        logger.error(f"Error indexing enterprise data: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Data indexing failed: {str(e)}")
-
-
-@router.post("/search/query", response_model=SemanticSearchResponse, tags=["Semantic Search"])
-async def semantic_search(
-    query: SemanticQuery,
-    current_user: dict = Depends(get_current_user)
-):
-    """Perform semantic search across enterprise data."""
-    try:
-        result = await advanced_analytics_engine.search_engine.semantic_search(query)
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error in semantic search: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Semantic search failed: {str(e)}")
-
-
-@router.get("/search/related/{content_id}", tags=["Semantic Search"])
-async def discover_related_content(
-    content_id: str,
-    max_results: int = Query(20, description="Maximum number of related items"),
-    current_user: dict = Depends(get_current_user)
-):
-    """Discover content related to a specific document or entity."""
-    try:
-        related_items = await advanced_analytics_engine.search_engine.discover_related_content(
-            content_id, max_results
-        )
-        
-        return {
-            "status": "success",
-            "data": related_items,
-            "content_id": content_id,
-            "count": len(related_items)
-        }
-        
-    except Exception as e:
-        logger.error(f"Error discovering related content: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Related content discovery failed: {str(e)}")
-
-
-# Pattern Recognition Endpoints
-@router.post("/patterns/recognize", response_model=PatternRecognitionResult, tags=["Pattern Recognition"])
-async def recognize_patterns(
-    request: PatternRecognitionRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """Recognize patterns in business data."""
-    try:
-        result = await advanced_analytics_engine.pattern_engine.recognize_patterns(request)
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error recognizing patterns: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Pattern recognition failed: {str(e)}")
-
-
-@router.get("/patterns/opportunities", tags=["Pattern Recognition"])
-async def detect_emerging_opportunities(
-    data_sources: List[str] = Query(..., description="Data sources to analyze"),
-    lookback_days: int = Query(90, description="Number of days to look back"),
-    current_user: dict = Depends(get_current_user)
-):
-    """Detect emerging business opportunities through pattern analysis."""
-    try:
-        opportunities = await advanced_analytics_engine.pattern_engine.detect_emerging_opportunities(
-            data_sources, lookback_days
-        )
-        
-        return {
-            "status": "success",
-            "data": opportunities,
-            "data_sources": data_sources,
-            "lookback_days": lookback_days,
-            "count": len(opportunities)
-        }
-        
-    except Exception as e:
-        logger.error(f"Error detecting emerging opportunities: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Opportunity detection failed: {str(e)}")
-
-
-@router.post("/patterns/monitor", tags=["Pattern Recognition"])
-async def monitor_pattern_changes(
-    baseline_patterns: List[Dict[str, Any]],
-    current_data_source: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """Monitor changes in patterns compared to a baseline."""
-    try:
-        # Convert baseline patterns (simplified for API)
-        from ...models.advanced_analytics_models import RecognizedPattern, PatternType
-        
-        baseline_pattern_objects = []
-        for pattern_data in baseline_patterns:
-            pattern = RecognizedPattern(
-                pattern_type=PatternType(pattern_data.get("pattern_type", "trend")),
-                description=pattern_data.get("description", ""),
-                strength=pattern_data.get("strength", 0.5),
-                confidence=pattern_data.get("confidence", 0.5),
-                data_points=pattern_data.get("data_points", [])
+        # Return appropriate response based on format
+        if config.format in [ReportFormat.PDF, ReportFormat.EXCEL]:
+            return Response(
+                content=report.content,
+                media_type="application/octet-stream",
+                headers={"Content-Disposition": f"attachment; filename={report.report_id}.{config.format.value}"}
             )
-            baseline_pattern_objects.append(pattern)
+        elif config.format == ReportFormat.WEB:
+            return HTMLResponse(content=report.content.decode('utf-8'))
+        else:
+            return {
+                "report_id": report.report_id,
+                "content": report.content.decode('utf-8'),
+                "metadata": report.metadata,
+                "generated_at": report.generated_at.isoformat(),
+                "file_size": report.file_size
+            }
         
-        changes = await advanced_analytics_engine.pattern_engine.monitor_pattern_changes(
-            baseline_pattern_objects, current_data_source
+    except Exception as e:
+        logger.error(f"Error generating report: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/reports/{report_id}")
+async def get_report(report_id: str):
+    """Get a generated report by ID"""
+    try:
+        report = await reporting_engine.get_report(report_id)
+        
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        return {
+            "report_id": report.report_id,
+            "title": report.config.title,
+            "type": report.config.report_type.value,
+            "format": report.format.value,
+            "generated_at": report.generated_at.isoformat(),
+            "file_size": report.file_size,
+            "metadata": report.metadata
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting report: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/reports")
+async def list_reports(
+    report_type: Optional[str] = Query(None, description="Filter by report type"),
+    format: Optional[str] = Query(None, description="Filter by format")
+):
+    """List all generated reports"""
+    try:
+        filters = {}
+        if report_type:
+            filters['type'] = report_type
+        if format:
+            filters['format'] = format
+        
+        reports = await reporting_engine.list_reports(filters)
+        return {"reports": reports}
+        
+    except Exception as e:
+        logger.error(f"Error listing reports: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Report Scheduling Endpoints
+
+@router.post("/schedules")
+async def create_schedule(request: ScheduleCreationRequest):
+    """Create a new report schedule"""
+    try:
+        # Parse dates
+        start_date = datetime.fromisoformat(request.start_date)
+        end_date = datetime.fromisoformat(request.end_date) if request.end_date else None
+        
+        # Create schedule configuration
+        schedule_config = ScheduleConfig(
+            frequency=ScheduleFrequency(request.frequency),
+            start_date=start_date,
+            end_date=end_date,
+            time_of_day=request.time_of_day,
+            day_of_week=request.day_of_week,
+            day_of_month=request.day_of_month
         )
         
-        return {
-            "status": "success",
-            "data": changes,
-            "baseline_patterns_count": len(baseline_patterns),
-            "current_data_source": current_data_source
-        }
-        
-    except Exception as e:
-        logger.error(f"Error monitoring pattern changes: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Pattern monitoring failed: {str(e)}")
-
-
-# Predictive Analytics Endpoints
-@router.post("/predictions/forecast", response_model=PredictiveAnalyticsResult, tags=["Predictive Analytics"])
-async def predict_business_outcomes(
-    request: PredictiveAnalyticsRequest,
-    current_user: dict = Depends(get_current_user)
-):
-    """Generate comprehensive business outcome predictions."""
-    try:
-        result = await advanced_analytics_engine.predictive_engine.predict_business_outcomes(request)
-        return result
-        
-    except Exception as e:
-        logger.error(f"Error predicting business outcomes: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
-
-
-@router.post("/predictions/revenue", tags=["Predictive Analytics"])
-async def forecast_revenue(
-    data_sources: List[str],
-    forecast_horizon: int = Query(90, description="Number of days to forecast"),
-    current_user: dict = Depends(get_current_user)
-):
-    """Generate revenue forecasts with confidence intervals."""
-    try:
-        prediction = await advanced_analytics_engine.predictive_engine.forecast_revenue(
-            data_sources, forecast_horizon
+        # Create delivery configuration
+        delivery_config = DeliveryConfig(
+            method=DeliveryMethod(request.delivery_method),
+            recipients=request.recipients,
+            settings=request.delivery_settings
         )
         
-        return {
-            "status": "success",
-            "data": prediction,
-            "forecast_horizon_days": forecast_horizon,
-            "data_sources": data_sources
-        }
-        
-    except Exception as e:
-        logger.error(f"Error forecasting revenue: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Revenue forecasting failed: {str(e)}")
-
-
-@router.post("/predictions/churn", tags=["Predictive Analytics"])
-async def predict_customer_churn(
-    customer_data_source: str,
-    current_user: dict = Depends(get_current_user)
-):
-    """Predict customer churn probabilities."""
-    try:
-        predictions = await advanced_analytics_engine.predictive_engine.predict_customer_churn(
-            customer_data_source
+        # Create schedule
+        schedule = ReportSchedule(
+            schedule_id="",  # Will be generated
+            name=request.name,
+            description=request.description,
+            report_config=request.report_config,
+            schedule_config=schedule_config,
+            delivery_config=delivery_config,
+            status=ScheduleStatus.ACTIVE,
+            created_at=datetime.utcnow()
         )
         
+        schedule_id = await scheduler.create_schedule(schedule)
+        
         return {
-            "status": "success",
-            "data": predictions,
-            "customer_data_source": customer_data_source,
-            "predictions_count": len(predictions)
+            "schedule_id": schedule_id,
+            "message": "Schedule created successfully"
         }
         
     except Exception as e:
-        logger.error(f"Error predicting customer churn: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Churn prediction failed: {str(e)}")
+        logger.error(f"Error creating schedule: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/predictions/growth-opportunities", tags=["Predictive Analytics"])
-async def identify_growth_opportunities(
-    data_sources: List[str] = Query(..., description="Data sources to analyze"),
-    current_user: dict = Depends(get_current_user)
-):
-    """Identify growth opportunities through predictive analysis."""
+@router.get("/schedules")
+async def list_schedules(status: Optional[str] = Query(None, description="Filter by status")):
+    """List all report schedules"""
     try:
-        opportunities = await advanced_analytics_engine.predictive_engine.identify_growth_opportunities(
-            data_sources
+        schedule_status = ScheduleStatus(status) if status else None
+        schedules = await scheduler.list_schedules(schedule_status)
+        return {"schedules": schedules}
+        
+    except Exception as e:
+        logger.error(f"Error listing schedules: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/schedules/{schedule_id}")
+async def get_schedule(schedule_id: str):
+    """Get a schedule by ID"""
+    try:
+        schedule = await scheduler.get_schedule(schedule_id)
+        
+        if not schedule:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        return {
+            "schedule_id": schedule.schedule_id,
+            "name": schedule.name,
+            "description": schedule.description,
+            "status": schedule.status.value,
+            "frequency": schedule.schedule_config.frequency.value,
+            "next_run": schedule.next_run.isoformat() if schedule.next_run else None,
+            "last_run": schedule.last_run.isoformat() if schedule.last_run else None,
+            "run_count": schedule.run_count,
+            "failure_count": schedule.failure_count
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting schedule: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/schedules/{schedule_id}/pause")
+async def pause_schedule(schedule_id: str):
+    """Pause a schedule"""
+    try:
+        success = await scheduler.pause_schedule(schedule_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        return {"message": "Schedule paused successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error pausing schedule: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/schedules/{schedule_id}/resume")
+async def resume_schedule(schedule_id: str):
+    """Resume a paused schedule"""
+    try:
+        success = await scheduler.resume_schedule(schedule_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        return {"message": "Schedule resumed successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error resuming schedule: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/schedules/{schedule_id}")
+async def delete_schedule(schedule_id: str):
+    """Delete a schedule"""
+    try:
+        success = await scheduler.delete_schedule(schedule_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Schedule not found")
+        
+        return {"message": "Schedule deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting schedule: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/schedules/{schedule_id}/executions")
+async def get_execution_history(schedule_id: str):
+    """Get execution history for a schedule"""
+    try:
+        executions = await scheduler.get_execution_history(schedule_id)
+        return {"executions": executions}
+        
+    except Exception as e:
+        logger.error(f"Error getting execution history: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Statistical Analysis Endpoints
+
+@router.post("/analysis/statistical")
+async def perform_statistical_analysis(request: AnalysisRequest):
+    """Perform comprehensive statistical analysis"""
+    try:
+        # Convert data to pandas DataFrame if needed
+        import pandas as pd
+        
+        if isinstance(request.data, dict) and 'dataframe' in request.data:
+            df = pd.DataFrame(request.data['dataframe'])
+        else:
+            df = pd.DataFrame(request.data)
+        
+        # Create analysis configuration
+        config = AnalysisConfig(
+            analysis_types=[AnalysisType(at) for at in request.analysis_types],
+            confidence_level=request.confidence_level,
+            significance_threshold=request.significance_threshold,
+            min_data_points=request.min_data_points
         )
         
-        return {
-            "status": "success",
-            "data": opportunities,
-            "data_sources": data_sources,
-            "opportunities_count": len(opportunities)
-        }
+        # Perform analysis
+        results = await analytics_engine.perform_comprehensive_analysis(df, config)
+        
+        # Convert results to JSON-serializable format
+        json_results = {}
+        for analysis_type, analysis_results in results.items():
+            json_results[analysis_type] = [
+                {
+                    "analysis_type": result.analysis_type.value,
+                    "metric_name": result.metric_name,
+                    "result": result.result,
+                    "confidence_level": result.confidence_level,
+                    "p_value": result.p_value,
+                    "effect_size": result.effect_size,
+                    "interpretation": result.interpretation,
+                    "recommendations": result.recommendations
+                }
+                for result in analysis_results
+            ]
+        
+        return {"analysis_results": json_results}
         
     except Exception as e:
-        logger.error(f"Error identifying growth opportunities: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Growth opportunity identification failed: {str(e)}")
+        logger.error(f"Error performing statistical analysis: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-# Performance and Monitoring Endpoints
-@router.get("/performance/summary")
-async def get_performance_summary(
-    current_user: dict = Depends(get_current_user)
-):
-    """Get performance summary across all analytics engines."""
+@router.post("/analysis/ml-insights")
+async def generate_ml_insights(request: AnalysisRequest):
+    """Generate ML-powered insights from data"""
     try:
-        summary = await advanced_analytics_engine.get_performance_summary()
+        import pandas as pd
         
-        return {
-            "status": "success",
-            "data": summary,
-            "generated_at": datetime.utcnow()
-        }
+        # Convert data to DataFrame
+        if isinstance(request.data, dict) and 'dataframe' in request.data:
+            df = pd.DataFrame(request.data['dataframe'])
+        else:
+            df = pd.DataFrame(request.data)
+        
+        # Create analysis configuration
+        config = AnalysisConfig(
+            analysis_types=[AnalysisType(at) for at in request.analysis_types],
+            confidence_level=request.confidence_level,
+            significance_threshold=request.significance_threshold,
+            min_data_points=request.min_data_points
+        )
+        
+        # Perform statistical analysis first
+        statistical_results = await analytics_engine.perform_comprehensive_analysis(df, config)
+        
+        # Generate ML insights
+        ml_insights = await analytics_engine.generate_ml_insights(df, statistical_results)
+        
+        # Convert to JSON-serializable format
+        insights_json = [
+            {
+                "insight_type": insight.insight_type.value,
+                "title": insight.title,
+                "description": insight.description,
+                "confidence_score": insight.confidence_score,
+                "impact_score": insight.impact_score,
+                "data_points": insight.data_points,
+                "visualizations": insight.visualizations,
+                "action_items": insight.action_items,
+                "metadata": insight.metadata
+            }
+            for insight in ml_insights
+        ]
+        
+        return {"ml_insights": insights_json}
         
     except Exception as e:
-        logger.error(f"Error getting performance summary: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Performance summary failed: {str(e)}")
+        logger.error(f"Error generating ML insights: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.get("/health")
-async def health_check():
-    """Health check endpoint for advanced analytics services."""
+# Executive Summary Endpoints
+
+@router.post("/summaries/generate")
+async def generate_executive_summary(request: SummaryGenerationRequest):
+    """Generate executive summary with natural language explanations"""
     try:
-        # Basic health checks
-        health_status = {
-            "status": "healthy",
-            "timestamp": datetime.utcnow(),
-            "engines": {
-                "graph_analytics": "operational",
-                "semantic_search": "operational", 
-                "pattern_recognition": "operational",
-                "predictive_analytics": "operational"
+        # Generate summary
+        summary = await summary_generator.generate_executive_summary(
+            data=request.data,
+            summary_type=SummaryType(request.summary_type),
+            target_audience=request.target_audience,
+            custom_focus=request.custom_focus
+        )
+        
+        # Convert to JSON-serializable format
+        summary_json = {
+            "title": summary.title,
+            "executive_overview": summary.executive_overview,
+            "key_highlights": summary.key_highlights,
+            "critical_insights": [
+                {
+                    "title": insight.title,
+                    "summary": insight.summary,
+                    "detailed_explanation": insight.detailed_explanation,
+                    "key_metrics": insight.key_metrics,
+                    "urgency": insight.urgency.value,
+                    "confidence_level": insight.confidence_level,
+                    "business_impact": insight.business_impact,
+                    "recommended_actions": insight.recommended_actions,
+                    "visualization_suggestions": insight.visualization_suggestions
+                }
+                for insight in summary.critical_insights
+            ],
+            "performance_metrics": summary.performance_metrics,
+            "trends_and_patterns": summary.trends_and_patterns,
+            "risks_and_opportunities": summary.risks_and_opportunities,
+            "strategic_recommendations": summary.strategic_recommendations,
+            "next_steps": summary.next_steps,
+            "generated_at": summary.generated_at.isoformat(),
+            "data_period": {
+                "start": summary.data_period.get("start").isoformat() if summary.data_period.get("start") else None,
+                "end": summary.data_period.get("end").isoformat() if summary.data_period.get("end") else None
             },
-            "version": "1.0.0"
+            "confidence_score": summary.confidence_score
         }
         
-        return health_status
+        return {"executive_summary": summary_json}
         
     except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": datetime.utcnow()
-        }
+        logger.error(f"Error generating executive summary: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-# Utility Functions
-async def _track_analytics_usage(user_id: str, analytics_type: AnalyticsType, 
-                                execution_metrics: Dict[str, Any]):
-    """Track analytics usage for billing and monitoring."""
+# Interactive Report Builder Endpoints
+
+@router.post("/interactive-reports")
+async def create_interactive_report(request: InteractiveReportRequest, created_by: str = "user"):
+    """Create a new interactive report"""
     try:
-        # Log usage metrics
-        logger.info(f"Analytics usage - User: {user_id}, Type: {analytics_type.value}, "
-                   f"Execution time: {execution_metrics.get('execution_time_ms', 0):.2f}ms")
+        report_id = await report_builder.create_report(
+            name=request.name,
+            description=request.description,
+            created_by=created_by,
+            layout_type=LayoutType(request.layout_type),
+            template_id=request.template_id
+        )
         
-        # Here you would typically store usage data in a database
-        # for billing, monitoring, and analytics purposes
+        return {
+            "report_id": report_id,
+            "message": "Interactive report created successfully"
+        }
         
     except Exception as e:
-        logger.warning(f"Error tracking analytics usage: {str(e)}")
+        logger.error(f"Error creating interactive report: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-# Export router
-__all__ = ["router"]
+@router.get("/interactive-reports")
+async def list_interactive_reports(created_by: Optional[str] = Query(None)):
+    """List all interactive reports"""
+    try:
+        reports = await report_builder.list_reports(created_by)
+        return {"reports": reports}
+        
+    except Exception as e:
+        logger.error(f"Error listing interactive reports: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/interactive-reports/{report_id}")
+async def get_interactive_report(report_id: str):
+    """Get an interactive report by ID"""
+    try:
+        report = await report_builder.get_report(report_id)
+        
+        if not report:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        report_json = await report_builder.generate_report_json(report_id)
+        return {"report": report_json}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting interactive report: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/interactive-reports/{report_id}/html")
+async def get_interactive_report_html(report_id: str):
+    """Get HTML representation of interactive report"""
+    try:
+        html_content = await report_builder.generate_report_html(report_id)
+        return HTMLResponse(content=html_content)
+        
+    except Exception as e:
+        logger.error(f"Error generating report HTML: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/interactive-reports/{report_id}/components")
+async def add_report_component(report_id: str, request: ComponentRequest):
+    """Add a component to an interactive report"""
+    try:
+        component_id = await report_builder.add_component(
+            report_id=report_id,
+            component_type=ComponentType(request.component_type),
+            title=request.title,
+            position=request.position,
+            properties=request.properties
+        )
+        
+        return {
+            "component_id": component_id,
+            "message": "Component added successfully"
+        }
+        
+    except Exception as e:
+        logger.error(f"Error adding component: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.put("/interactive-reports/{report_id}/components/{component_id}")
+async def update_report_component(report_id: str, component_id: str, updates: Dict[str, Any]):
+    """Update a component in an interactive report"""
+    try:
+        success = await report_builder.update_component(
+            report_id=report_id,
+            component_id=component_id,
+            updates=updates
+        )
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Component not found")
+        
+        return {"message": "Component updated successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating component: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/interactive-reports/{report_id}/components/{component_id}")
+async def remove_report_component(report_id: str, component_id: str):
+    """Remove a component from an interactive report"""
+    try:
+        success = await report_builder.remove_component(
+            report_id=report_id,
+            component_id=component_id
+        )
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Component not found")
+        
+        return {"message": "Component removed successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error removing component: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/interactive-reports/{report_id}")
+async def delete_interactive_report(report_id: str):
+    """Delete an interactive report"""
+    try:
+        success = await report_builder.delete_report(report_id)
+        
+        if not success:
+            raise HTTPException(status_code=404, detail="Report not found")
+        
+        return {"message": "Report deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting report: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Utility Endpoints
+
+@router.get("/formats")
+async def get_supported_formats():
+    """Get list of supported report formats"""
+    try:
+        formats = reporting_engine.get_supported_formats()
+        return {"supported_formats": formats}
+        
+    except Exception as e:
+        logger.error(f"Error getting supported formats: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/report-types")
+async def get_report_types():
+    """Get list of available report types"""
+    try:
+        types = reporting_engine.get_report_types()
+        return {"report_types": types}
+        
+    except Exception as e:
+        logger.error(f"Error getting report types: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/component-library")
+async def get_component_library():
+    """Get the interactive report component library"""
+    try:
+        library = report_builder.get_component_library()
+        return {"component_library": library}
+        
+    except Exception as e:
+        logger.error(f"Error getting component library: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/chart-types")
+async def get_chart_types():
+    """Get list of supported chart types"""
+    try:
+        chart_types = report_builder.get_supported_chart_types()
+        return {"chart_types": chart_types}
+        
+    except Exception as e:
+        logger.error(f"Error getting chart types: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# Start scheduler when module is imported
+@router.on_event("startup")
+async def startup_event():
+    """Start the report scheduler on startup"""
+    scheduler.start_scheduler()
+    logger.info("Report scheduler started")
+
+
+@router.on_event("shutdown")
+async def shutdown_event():
+    """Stop the report scheduler on shutdown"""
+    scheduler.stop_scheduler()
+    logger.info("Report scheduler stopped")

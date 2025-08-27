@@ -1,592 +1,1017 @@
 """
-Advanced Statistical Analytics Engine
-Provides comprehensive statistical analysis and ML insights for reports
+Advanced Statistical Analysis and ML-Powered Insights Engine
+
+This module provides sophisticated statistical analysis capabilities and machine learning
+powered insights for the advanced analytics dashboard system.
 """
 
+import asyncio
+import logging
 import numpy as np
 import pandas as pd
-from scipy import stats
-from sklearn.ensemble import IsolationForest, RandomForestRegressor
-from sklearn.cluster import KMeans, DBSCAN
-from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import silhouette_score
-from sklearn.linear_model import LinearRegression
-from sklearn.model_selection import train_test_split
-import warnings
-warnings.filterwarnings('ignore')
-
-from typing import Dict, List, Any, Optional, Tuple
-from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Any, Tuple, Union
+from dataclasses import dataclass, asdict
+from enum import Enum
 import json
+
+# Statistical libraries
+try:
+    from scipy import stats
+    from scipy.signal import find_peaks
+    from sklearn.ensemble import IsolationForest, RandomForestRegressor
+    from sklearn.cluster import KMeans, DBSCAN
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.decomposition import PCA
+    from sklearn.metrics import silhouette_score
+    import statsmodels.api as sm
+    from statsmodels.tsa.seasonal import seasonal_decompose
+    from statsmodels.tsa.arima.model import ARIMA
+    ADVANCED_STATS_AVAILABLE = True
+except ImportError:
+    ADVANCED_STATS_AVAILABLE = False
+
+logger = logging.getLogger(__name__)
+
+
+class AnalysisType(Enum):
+    """Types of statistical analysis"""
+    DESCRIPTIVE = "descriptive"
+    CORRELATION = "correlation"
+    REGRESSION = "regression"
+    TIME_SERIES = "time_series"
+    ANOMALY_DETECTION = "anomaly_detection"
+    CLUSTERING = "clustering"
+    FORECASTING = "forecasting"
+    HYPOTHESIS_TESTING = "hypothesis_testing"
+    TREND_ANALYSIS = "trend_analysis"
+    SEASONALITY = "seasonality"
+
+
+class InsightType(Enum):
+    """Types of ML-powered insights"""
+    PATTERN_DETECTION = "pattern_detection"
+    TREND_IDENTIFICATION = "trend_identification"
+    ANOMALY_ALERT = "anomaly_alert"
+    CORRELATION_DISCOVERY = "correlation_discovery"
+    FORECAST_PREDICTION = "forecast_prediction"
+    CLUSTER_ANALYSIS = "cluster_analysis"
+    PERFORMANCE_OPTIMIZATION = "performance_optimization"
+    RISK_ASSESSMENT = "risk_assessment"
+
 
 @dataclass
 class StatisticalResult:
-    test_name: str
-    statistic: float
-    p_value: float
-    critical_value: Optional[float]
-    interpretation: str
+    """Result of statistical analysis"""
+    analysis_type: AnalysisType
+    metric_name: str
+    result: Dict[str, Any]
     confidence_level: float
+    p_value: Optional[float] = None
     effect_size: Optional[float] = None
+    interpretation: str = ""
+    recommendations: List[str] = None
+
 
 @dataclass
-class AnomalyDetectionResult:
-    anomalies: List[int]
-    anomaly_scores: List[float]
-    threshold: float
-    method: str
-    total_anomalies: int
-    anomaly_percentage: float
+class MLInsight:
+    """Machine learning powered insight"""
+    insight_type: InsightType
+    title: str
+    description: str
+    confidence_score: float
+    impact_score: float
+    data_points: List[Dict] = None
+    visualizations: List[Dict] = None
+    action_items: List[str] = None
+    metadata: Dict[str, Any] = None
+
 
 @dataclass
-class ClusterAnalysisResult:
-    cluster_labels: List[int]
-    cluster_centers: List[List[float]]
-    n_clusters: int
-    silhouette_score: float
-    inertia: Optional[float]
-    method: str
+class AnalysisConfig:
+    """Configuration for statistical analysis"""
+    analysis_types: List[AnalysisType]
+    confidence_level: float = 0.95
+    significance_threshold: float = 0.05
+    min_data_points: int = 30
+    include_visualizations: bool = True
+    custom_parameters: Dict[str, Any] = None
 
-@dataclass
-class TrendAnalysisResult:
-    trend_direction: str
-    trend_strength: float
-    seasonal_component: Optional[List[float]]
-    residuals: List[float]
-    forecast: List[float]
-    confidence_intervals: List[Tuple[float, float]]
-
-@dataclass
-class CorrelationAnalysisResult:
-    correlation_matrix: Dict[str, Dict[str, float]]
-    significant_correlations: List[Dict[str, Any]]
-    correlation_method: str
-    p_values: Optional[Dict[str, Dict[str, float]]]
 
 class AdvancedStatisticalAnalytics:
-    """Advanced statistical analysis engine with ML insights"""
+    """
+    Advanced statistical analysis and ML-powered insights engine
+    """
     
     def __init__(self):
-        self.scaler = StandardScaler()
+        self.logger = logging.getLogger(__name__)
+        self.scaler = StandardScaler() if ADVANCED_STATS_AVAILABLE else None
+        self.models = {}
         self.analysis_cache = {}
+        
+        if not ADVANCED_STATS_AVAILABLE:
+            self.logger.warning("Advanced statistical libraries not available. Some features will be limited.")
     
-    def comprehensive_analysis(self, data: pd.DataFrame, target_column: Optional[str] = None) -> Dict[str, Any]:
-        """Perform comprehensive statistical analysis on dataset"""
-        results = {
-            'descriptive_statistics': self.descriptive_statistics(data),
-            'correlation_analysis': self.correlation_analysis(data),
-            'distribution_analysis': self.distribution_analysis(data),
-            'outlier_detection': self.detect_outliers(data),
-            'normality_tests': self.test_normality(data),
-            'timestamp': datetime.now().isoformat()
-        }
+    async def perform_comprehensive_analysis(
+        self, 
+        data: pd.DataFrame, 
+        config: AnalysisConfig
+    ) -> Dict[str, List[StatisticalResult]]:
+        """
+        Perform comprehensive statistical analysis on the provided data
         
-        # Add clustering if enough numeric columns
-        numeric_cols = data.select_dtypes(include=[np.number]).columns
-        if len(numeric_cols) >= 2:
-            results['cluster_analysis'] = self.cluster_analysis(data[numeric_cols])
+        Args:
+            data: DataFrame containing the data to analyze
+            config: Analysis configuration
+            
+        Returns:
+            Dictionary of analysis results grouped by type
+        """
+        try:
+            self.logger.info("Starting comprehensive statistical analysis")
+            
+            results = {}
+            
+            # Validate data
+            if data.empty or len(data) < config.min_data_points:
+                raise ValueError(f"Insufficient data points. Minimum required: {config.min_data_points}")
+            
+            # Perform each requested analysis type
+            for analysis_type in config.analysis_types:
+                self.logger.info(f"Performing {analysis_type.value} analysis")
+                
+                if analysis_type == AnalysisType.DESCRIPTIVE:
+                    results[analysis_type.value] = await self._descriptive_analysis(data, config)
+                elif analysis_type == AnalysisType.CORRELATION:
+                    results[analysis_type.value] = await self._correlation_analysis(data, config)
+                elif analysis_type == AnalysisType.REGRESSION:
+                    results[analysis_type.value] = await self._regression_analysis(data, config)
+                elif analysis_type == AnalysisType.TIME_SERIES:
+                    results[analysis_type.value] = await self._time_series_analysis(data, config)
+                elif analysis_type == AnalysisType.ANOMALY_DETECTION:
+                    results[analysis_type.value] = await self._anomaly_detection(data, config)
+                elif analysis_type == AnalysisType.CLUSTERING:
+                    results[analysis_type.value] = await self._clustering_analysis(data, config)
+                elif analysis_type == AnalysisType.FORECASTING:
+                    results[analysis_type.value] = await self._forecasting_analysis(data, config)
+                elif analysis_type == AnalysisType.HYPOTHESIS_TESTING:
+                    results[analysis_type.value] = await self._hypothesis_testing(data, config)
+                elif analysis_type == AnalysisType.TREND_ANALYSIS:
+                    results[analysis_type.value] = await self._trend_analysis(data, config)
+                elif analysis_type == AnalysisType.SEASONALITY:
+                    results[analysis_type.value] = await self._seasonality_analysis(data, config)
+            
+            self.logger.info("Comprehensive statistical analysis completed")
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Error in comprehensive analysis: {str(e)}")
+            raise
+    
+    async def generate_ml_insights(
+        self, 
+        data: pd.DataFrame, 
+        analysis_results: Dict[str, List[StatisticalResult]]
+    ) -> List[MLInsight]:
+        """
+        Generate ML-powered insights from statistical analysis results
         
-        # Add trend analysis if target column specified
-        if target_column and target_column in data.columns:
-            results['trend_analysis'] = self.trend_analysis(data, target_column)
-            results['feature_importance'] = self.feature_importance_analysis(data, target_column)
+        Args:
+            data: Original data
+            analysis_results: Results from statistical analysis
+            
+        Returns:
+            List of ML-powered insights
+        """
+        try:
+            self.logger.info("Generating ML-powered insights")
+            
+            insights = []
+            
+            # Pattern detection insights
+            pattern_insights = await self._detect_patterns(data, analysis_results)
+            insights.extend(pattern_insights)
+            
+            # Trend identification insights
+            trend_insights = await self._identify_trends(data, analysis_results)
+            insights.extend(trend_insights)
+            
+            # Anomaly alerts
+            anomaly_insights = await self._generate_anomaly_alerts(data, analysis_results)
+            insights.extend(anomaly_insights)
+            
+            # Correlation discoveries
+            correlation_insights = await self._discover_correlations(data, analysis_results)
+            insights.extend(correlation_insights)
+            
+            # Forecast predictions
+            forecast_insights = await self._generate_forecast_insights(data, analysis_results)
+            insights.extend(forecast_insights)
+            
+            # Performance optimization suggestions
+            optimization_insights = await self._suggest_optimizations(data, analysis_results)
+            insights.extend(optimization_insights)
+            
+            # Risk assessments
+            risk_insights = await self._assess_risks(data, analysis_results)
+            insights.extend(risk_insights)
+            
+            # Sort insights by impact and confidence
+            insights.sort(key=lambda x: (x.impact_score * x.confidence_score), reverse=True)
+            
+            self.logger.info(f"Generated {len(insights)} ML-powered insights")
+            return insights
+            
+        except Exception as e:
+            self.logger.error(f"Error generating ML insights: {str(e)}")
+            raise
+    
+    async def _descriptive_analysis(self, data: pd.DataFrame, config: AnalysisConfig) -> List[StatisticalResult]:
+        """Perform descriptive statistical analysis"""
+        results = []
+        
+        try:
+            numeric_columns = data.select_dtypes(include=[np.number]).columns
+            
+            for column in numeric_columns:
+                series = data[column].dropna()
+                
+                if len(series) < config.min_data_points:
+                    continue
+                
+                # Basic statistics
+                desc_stats = {
+                    "count": len(series),
+                    "mean": float(series.mean()),
+                    "median": float(series.median()),
+                    "std": float(series.std()),
+                    "min": float(series.min()),
+                    "max": float(series.max()),
+                    "q25": float(series.quantile(0.25)),
+                    "q75": float(series.quantile(0.75)),
+                    "skewness": float(series.skew()),
+                    "kurtosis": float(series.kurtosis())
+                }
+                
+                # Normality test
+                if ADVANCED_STATS_AVAILABLE and len(series) >= 8:
+                    shapiro_stat, shapiro_p = stats.shapiro(series.sample(min(5000, len(series))))
+                    desc_stats["normality_test"] = {
+                        "statistic": float(shapiro_stat),
+                        "p_value": float(shapiro_p),
+                        "is_normal": shapiro_p > config.significance_threshold
+                    }
+                
+                # Interpretation
+                interpretation = self._interpret_descriptive_stats(desc_stats)
+                
+                results.append(StatisticalResult(
+                    analysis_type=AnalysisType.DESCRIPTIVE,
+                    metric_name=column,
+                    result=desc_stats,
+                    confidence_level=config.confidence_level,
+                    interpretation=interpretation
+                ))
+            
+        except Exception as e:
+            self.logger.error(f"Error in descriptive analysis: {str(e)}")
         
         return results
     
-    def descriptive_statistics(self, data: pd.DataFrame) -> Dict[str, Any]:
-        """Calculate comprehensive descriptive statistics"""
-        numeric_data = data.select_dtypes(include=[np.number])
+    async def _correlation_analysis(self, data: pd.DataFrame, config: AnalysisConfig) -> List[StatisticalResult]:
+        """Perform correlation analysis"""
+        results = []
         
-        if numeric_data.empty:
-            return {'error': 'No numeric columns found'}
-        
-        stats_dict = {}
-        
-        for column in numeric_data.columns:
-            col_data = numeric_data[column].dropna()
+        try:
+            numeric_data = data.select_dtypes(include=[np.number])
             
-            if len(col_data) == 0:
-                continue
+            if numeric_data.shape[1] < 2:
+                return results
             
-            stats_dict[column] = {
-                'count': len(col_data),
-                'mean': float(col_data.mean()),
-                'median': float(col_data.median()),
-                'mode': float(col_data.mode().iloc[0]) if not col_data.mode().empty else None,
-                'std': float(col_data.std()),
-                'variance': float(col_data.var()),
-                'min': float(col_data.min()),
-                'max': float(col_data.max()),
-                'range': float(col_data.max() - col_data.min()),
-                'q1': float(col_data.quantile(0.25)),
-                'q3': float(col_data.quantile(0.75)),
-                'iqr': float(col_data.quantile(0.75) - col_data.quantile(0.25)),
-                'skewness': float(col_data.skew()),
-                'kurtosis': float(col_data.kurtosis()),
-                'coefficient_of_variation': float(col_data.std() / col_data.mean()) if col_data.mean() != 0 else None
-            }
-        
-        return {
-            'column_statistics': stats_dict,
-            'dataset_summary': {
-                'total_rows': len(data),
-                'total_columns': len(data.columns),
-                'numeric_columns': len(numeric_data.columns),
-                'categorical_columns': len(data.select_dtypes(include=['object']).columns),
-                'missing_values': data.isnull().sum().to_dict(),
-                'memory_usage': data.memory_usage(deep=True).sum()
-            }
-        }
-    
-    def correlation_analysis(self, data: pd.DataFrame, method: str = 'pearson') -> CorrelationAnalysisResult:
-        """Perform correlation analysis with significance testing"""
-        numeric_data = data.select_dtypes(include=[np.number])
-        
-        if len(numeric_data.columns) < 2:
-            return CorrelationAnalysisResult(
-                correlation_matrix={},
-                significant_correlations=[],
-                correlation_method=method,
-                p_values=None
-            )
-        
-        # Calculate correlation matrix
-        if method == 'pearson':
-            corr_matrix = numeric_data.corr(method='pearson')
-        elif method == 'spearman':
-            corr_matrix = numeric_data.corr(method='spearman')
-        else:
-            corr_matrix = numeric_data.corr(method='kendall')
-        
-        # Calculate p-values for correlations
-        p_values = {}
-        for col1 in numeric_data.columns:
-            p_values[col1] = {}
-            for col2 in numeric_data.columns:
-                if col1 != col2:
-                    if method == 'pearson':
-                        _, p_val = stats.pearsonr(numeric_data[col1].dropna(), numeric_data[col2].dropna())
-                    elif method == 'spearman':
-                        _, p_val = stats.spearmanr(numeric_data[col1].dropna(), numeric_data[col2].dropna())
-                    else:
-                        _, p_val = stats.kendalltau(numeric_data[col1].dropna(), numeric_data[col2].dropna())
-                    p_values[col1][col2] = p_val
-                else:
-                    p_values[col1][col2] = 0.0
-        
-        # Find significant correlations
-        significant_correlations = []
-        for col1 in corr_matrix.columns:
-            for col2 in corr_matrix.columns:
-                if col1 < col2:  # Avoid duplicates
-                    corr_val = corr_matrix.loc[col1, col2]
-                    p_val = p_values[col1][col2]
+            # Pearson correlation matrix
+            corr_matrix = numeric_data.corr()
+            
+            # Find significant correlations
+            for i in range(len(corr_matrix.columns)):
+                for j in range(i + 1, len(corr_matrix.columns)):
+                    col1, col2 = corr_matrix.columns[i], corr_matrix.columns[j]
+                    correlation = corr_matrix.iloc[i, j]
                     
-                    if abs(corr_val) > 0.3 and p_val < 0.05:  # Significant correlation
-                        significant_correlations.append({
-                            'variable1': col1,
-                            'variable2': col2,
-                            'correlation': float(corr_val),
-                            'p_value': float(p_val),
-                            'strength': self._interpret_correlation_strength(abs(corr_val)),
-                            'direction': 'positive' if corr_val > 0 else 'negative'
-                        })
-        
-        return CorrelationAnalysisResult(
-            correlation_matrix=corr_matrix.to_dict(),
-            significant_correlations=significant_correlations,
-            correlation_method=method,
-            p_values=p_values
-        )
-    
-    def distribution_analysis(self, data: pd.DataFrame) -> Dict[str, Any]:
-        """Analyze distributions of numeric variables"""
-        numeric_data = data.select_dtypes(include=[np.number])
-        
-        if numeric_data.empty:
-            return {'error': 'No numeric columns found'}
-        
-        distribution_results = {}
-        
-        for column in numeric_data.columns:
-            col_data = numeric_data[column].dropna()
+                    if abs(correlation) > 0.3:  # Threshold for meaningful correlation
+                        # Calculate p-value if possible
+                        p_value = None
+                        if ADVANCED_STATS_AVAILABLE:
+                            try:
+                                _, p_value = stats.pearsonr(
+                                    numeric_data[col1].dropna(), 
+                                    numeric_data[col2].dropna()
+                                )
+                            except:
+                                pass
+                        
+                        interpretation = self._interpret_correlation(correlation, p_value)
+                        
+                        results.append(StatisticalResult(
+                            analysis_type=AnalysisType.CORRELATION,
+                            metric_name=f"{col1} vs {col2}",
+                            result={
+                                "correlation": float(correlation),
+                                "strength": self._correlation_strength(correlation),
+                                "direction": "positive" if correlation > 0 else "negative"
+                            },
+                            confidence_level=config.confidence_level,
+                            p_value=float(p_value) if p_value else None,
+                            interpretation=interpretation
+                        ))
             
-            if len(col_data) < 10:  # Need sufficient data
-                continue
-            
-            # Test for various distributions
-            distributions = {
-                'normal': stats.normaltest(col_data),
-                'uniform': stats.kstest(col_data, 'uniform'),
-                'exponential': stats.kstest(col_data, 'expon')
-            }
-            
-            # Find best fitting distribution
-            best_fit = min(distributions.items(), key=lambda x: x[1][1])  # Lowest p-value
-            
-            distribution_results[column] = {
-                'distribution_tests': {
-                    name: {'statistic': float(stat), 'p_value': float(p_val)}
-                    for name, (stat, p_val) in distributions.items()
-                },
-                'best_fit_distribution': best_fit[0],
-                'best_fit_p_value': float(best_fit[1][1]),
-                'histogram_bins': self._calculate_optimal_bins(col_data),
-                'distribution_parameters': self._estimate_distribution_parameters(col_data)
-            }
-        
-        return distribution_results
-    
-    def detect_outliers(self, data: pd.DataFrame, method: str = 'isolation_forest') -> AnomalyDetectionResult:
-        """Detect outliers using various methods"""
-        numeric_data = data.select_dtypes(include=[np.number]).dropna()
-        
-        if numeric_data.empty or len(numeric_data) < 10:
-            return AnomalyDetectionResult(
-                anomalies=[],
-                anomaly_scores=[],
-                threshold=0.0,
-                method=method,
-                total_anomalies=0,
-                anomaly_percentage=0.0
-            )
-        
-        if method == 'isolation_forest':
-            detector = IsolationForest(contamination=0.1, random_state=42)
-            outlier_labels = detector.fit_predict(numeric_data)
-            anomaly_scores = detector.decision_function(numeric_data)
-            anomalies = np.where(outlier_labels == -1)[0].tolist()
-            threshold = np.percentile(anomaly_scores, 10)
-            
-        elif method == 'statistical':
-            # Z-score method
-            z_scores = np.abs(stats.zscore(numeric_data))
-            threshold = 3.0
-            anomalies = np.where((z_scores > threshold).any(axis=1))[0].tolist()
-            anomaly_scores = np.max(z_scores, axis=1).tolist()
-            
-        elif method == 'iqr':
-            # Interquartile range method
-            Q1 = numeric_data.quantile(0.25)
-            Q3 = numeric_data.quantile(0.75)
-            IQR = Q3 - Q1
-            lower_bound = Q1 - 1.5 * IQR
-            upper_bound = Q3 + 1.5 * IQR
-            
-            outlier_mask = ((numeric_data < lower_bound) | (numeric_data > upper_bound)).any(axis=1)
-            anomalies = np.where(outlier_mask)[0].tolist()
-            anomaly_scores = np.sum((numeric_data < lower_bound) | (numeric_data > upper_bound), axis=1).tolist()
-            threshold = 1.0
-        
-        return AnomalyDetectionResult(
-            anomalies=anomalies,
-            anomaly_scores=anomaly_scores,
-            threshold=threshold,
-            method=method,
-            total_anomalies=len(anomalies),
-            anomaly_percentage=len(anomalies) / len(numeric_data) * 100
-        )
-    
-    def cluster_analysis(self, data: pd.DataFrame, method: str = 'kmeans', n_clusters: Optional[int] = None) -> ClusterAnalysisResult:
-        """Perform cluster analysis"""
-        numeric_data = data.select_dtypes(include=[np.number]).dropna()
-        
-        if numeric_data.empty or len(numeric_data) < 10:
-            return ClusterAnalysisResult(
-                cluster_labels=[],
-                cluster_centers=[],
-                n_clusters=0,
-                silhouette_score=0.0,
-                inertia=None,
-                method=method
-            )
-        
-        # Standardize data
-        scaled_data = self.scaler.fit_transform(numeric_data)
-        
-        if method == 'kmeans':
-            if n_clusters is None:
-                # Find optimal number of clusters using elbow method
-                n_clusters = self._find_optimal_clusters(scaled_data)
-            
-            clusterer = KMeans(n_clusters=n_clusters, random_state=42)
-            cluster_labels = clusterer.fit_predict(scaled_data)
-            cluster_centers = clusterer.cluster_centers_.tolist()
-            inertia = clusterer.inertia_
-            
-        elif method == 'dbscan':
-            clusterer = DBSCAN(eps=0.5, min_samples=5)
-            cluster_labels = clusterer.fit_predict(scaled_data)
-            n_clusters = len(set(cluster_labels)) - (1 if -1 in cluster_labels else 0)
-            cluster_centers = []
-            inertia = None
-            
-            # Calculate cluster centers for DBSCAN
-            for cluster_id in set(cluster_labels):
-                if cluster_id != -1:  # Ignore noise points
-                    cluster_points = scaled_data[cluster_labels == cluster_id]
-                    center = np.mean(cluster_points, axis=0).tolist()
-                    cluster_centers.append(center)
-        
-        # Calculate silhouette score
-        if len(set(cluster_labels)) > 1:
-            sil_score = silhouette_score(scaled_data, cluster_labels)
-        else:
-            sil_score = 0.0
-        
-        return ClusterAnalysisResult(
-            cluster_labels=cluster_labels.tolist(),
-            cluster_centers=cluster_centers,
-            n_clusters=n_clusters,
-            silhouette_score=float(sil_score),
-            inertia=inertia,
-            method=method
-        )
-    
-    def trend_analysis(self, data: pd.DataFrame, target_column: str, time_column: Optional[str] = None) -> TrendAnalysisResult:
-        """Perform trend analysis on time series data"""
-        if target_column not in data.columns:
-            raise ValueError(f"Target column '{target_column}' not found in data")
-        
-        # Prepare data
-        if time_column and time_column in data.columns:
-            time_series = data.set_index(time_column)[target_column].dropna()
-        else:
-            time_series = data[target_column].dropna()
-        
-        if len(time_series) < 10:
-            return TrendAnalysisResult(
-                trend_direction='insufficient_data',
-                trend_strength=0.0,
-                seasonal_component=None,
-                residuals=[],
-                forecast=[],
-                confidence_intervals=[]
-            )
-        
-        # Calculate trend using linear regression
-        x = np.arange(len(time_series)).reshape(-1, 1)
-        y = time_series.values
-        
-        reg = LinearRegression().fit(x, y)
-        trend_slope = reg.coef_[0]
-        trend_strength = abs(reg.score(x, y))  # R-squared
-        
-        # Determine trend direction
-        if abs(trend_slope) < 0.01:
-            trend_direction = 'stable'
-        elif trend_slope > 0:
-            trend_direction = 'increasing'
-        else:
-            trend_direction = 'decreasing'
-        
-        # Calculate residuals
-        predicted = reg.predict(x)
-        residuals = (y - predicted).tolist()
-        
-        # Simple forecast (extend trend)
-        forecast_steps = min(10, len(time_series) // 4)
-        future_x = np.arange(len(time_series), len(time_series) + forecast_steps).reshape(-1, 1)
-        forecast = reg.predict(future_x).tolist()
-        
-        # Calculate confidence intervals (simplified)
-        residual_std = np.std(residuals)
-        confidence_intervals = [
-            (pred - 1.96 * residual_std, pred + 1.96 * residual_std)
-            for pred in forecast
-        ]
-        
-        return TrendAnalysisResult(
-            trend_direction=trend_direction,
-            trend_strength=float(trend_strength),
-            seasonal_component=None,  # Would need more sophisticated analysis
-            residuals=residuals,
-            forecast=forecast,
-            confidence_intervals=confidence_intervals
-        )
-    
-    def feature_importance_analysis(self, data: pd.DataFrame, target_column: str) -> Dict[str, Any]:
-        """Analyze feature importance using Random Forest"""
-        if target_column not in data.columns:
-            return {'error': f"Target column '{target_column}' not found"}
-        
-        # Prepare features and target
-        features = data.select_dtypes(include=[np.number]).drop(columns=[target_column], errors='ignore')
-        target = data[target_column]
-        
-        if features.empty or len(features.columns) < 1:
-            return {'error': 'No numeric features found'}
-        
-        # Handle missing values
-        features = features.fillna(features.mean())
-        target = target.fillna(target.mean())
-        
-        # Split data
-        X_train, X_test, y_train, y_test = train_test_split(
-            features, target, test_size=0.2, random_state=42
-        )
-        
-        # Train Random Forest
-        rf = RandomForestRegressor(n_estimators=100, random_state=42)
-        rf.fit(X_train, y_train)
-        
-        # Get feature importances
-        importances = rf.feature_importances_
-        feature_names = features.columns.tolist()
-        
-        # Create importance ranking
-        importance_ranking = [
-            {
-                'feature': feature_names[i],
-                'importance': float(importances[i]),
-                'rank': i + 1
-            }
-            for i in np.argsort(importances)[::-1]
-        ]
-        
-        # Model performance
-        train_score = rf.score(X_train, y_train)
-        test_score = rf.score(X_test, y_test)
-        
-        return {
-            'feature_importance_ranking': importance_ranking,
-            'model_performance': {
-                'train_r2': float(train_score),
-                'test_r2': float(test_score),
-                'overfitting_indicator': float(train_score - test_score)
-            },
-            'top_features': importance_ranking[:5]  # Top 5 features
-        }
-    
-    def test_normality(self, data: pd.DataFrame) -> Dict[str, StatisticalResult]:
-        """Test normality of numeric columns"""
-        numeric_data = data.select_dtypes(include=[np.number])
-        results = {}
-        
-        for column in numeric_data.columns:
-            col_data = numeric_data[column].dropna()
-            
-            if len(col_data) < 8:  # Minimum sample size for normality tests
-                continue
-            
-            # Shapiro-Wilk test (for smaller samples)
-            if len(col_data) <= 5000:
-                stat, p_val = stats.shapiro(col_data)
-                test_name = 'Shapiro-Wilk'
-            else:
-                # D'Agostino's normality test (for larger samples)
-                stat, p_val = stats.normaltest(col_data)
-                test_name = "D'Agostino"
-            
-            # Interpretation
-            if p_val > 0.05:
-                interpretation = "Data appears to be normally distributed (fail to reject H0)"
-            else:
-                interpretation = "Data does not appear to be normally distributed (reject H0)"
-            
-            results[column] = StatisticalResult(
-                test_name=test_name,
-                statistic=float(stat),
-                p_value=float(p_val),
-                critical_value=None,
-                interpretation=interpretation,
-                confidence_level=0.95
-            )
+        except Exception as e:
+            self.logger.error(f"Error in correlation analysis: {str(e)}")
         
         return results
     
-    def _interpret_correlation_strength(self, correlation: float) -> str:
-        """Interpret correlation strength"""
-        if correlation < 0.3:
-            return 'weak'
-        elif correlation < 0.7:
-            return 'moderate'
-        else:
-            return 'strong'
+    async def _time_series_analysis(self, data: pd.DataFrame, config: AnalysisConfig) -> List[StatisticalResult]:
+        """Perform time series analysis"""
+        results = []
+        
+        try:
+            # Look for datetime columns
+            datetime_cols = data.select_dtypes(include=['datetime64']).columns
+            numeric_cols = data.select_dtypes(include=[np.number]).columns
+            
+            if len(datetime_cols) == 0 or len(numeric_cols) == 0:
+                return results
+            
+            # Use first datetime column as index
+            time_col = datetime_cols[0]
+            ts_data = data.set_index(time_col).sort_index()
+            
+            for metric in numeric_cols:
+                series = ts_data[metric].dropna()
+                
+                if len(series) < config.min_data_points:
+                    continue
+                
+                # Trend analysis
+                if ADVANCED_STATS_AVAILABLE:
+                    try:
+                        # Decomposition
+                        decomposition = seasonal_decompose(
+                            series, 
+                            model='additive', 
+                            period=min(12, len(series) // 2)
+                        )
+                        
+                        trend_slope = self._calculate_trend_slope(decomposition.trend.dropna())
+                        
+                        results.append(StatisticalResult(
+                            analysis_type=AnalysisType.TIME_SERIES,
+                            metric_name=metric,
+                            result={
+                                "trend_slope": float(trend_slope),
+                                "trend_direction": "increasing" if trend_slope > 0 else "decreasing",
+                                "seasonality_strength": float(np.std(decomposition.seasonal.dropna())),
+                                "residual_variance": float(np.var(decomposition.resid.dropna()))
+                            },
+                            confidence_level=config.confidence_level,
+                            interpretation=self._interpret_time_series(trend_slope)
+                        ))
+                    except Exception as e:
+                        self.logger.warning(f"Time series decomposition failed for {metric}: {str(e)}")
+            
+        except Exception as e:
+            self.logger.error(f"Error in time series analysis: {str(e)}")
+        
+        return results
     
-    def _calculate_optimal_bins(self, data: np.ndarray) -> int:
-        """Calculate optimal number of bins for histogram"""
-        # Sturges' rule
-        return int(np.ceil(np.log2(len(data)) + 1))
+    async def _anomaly_detection(self, data: pd.DataFrame, config: AnalysisConfig) -> List[StatisticalResult]:
+        """Perform anomaly detection"""
+        results = []
+        
+        try:
+            if not ADVANCED_STATS_AVAILABLE:
+                return results
+            
+            numeric_data = data.select_dtypes(include=[np.number]).dropna()
+            
+            if numeric_data.empty:
+                return results
+            
+            # Isolation Forest for anomaly detection
+            iso_forest = IsolationForest(contamination=0.1, random_state=42)
+            anomaly_labels = iso_forest.fit_predict(numeric_data)
+            
+            anomaly_count = np.sum(anomaly_labels == -1)
+            anomaly_percentage = (anomaly_count / len(anomaly_labels)) * 100
+            
+            # Get anomaly scores
+            anomaly_scores = iso_forest.decision_function(numeric_data)
+            
+            results.append(StatisticalResult(
+                analysis_type=AnalysisType.ANOMALY_DETECTION,
+                metric_name="Overall Dataset",
+                result={
+                    "anomaly_count": int(anomaly_count),
+                    "anomaly_percentage": float(anomaly_percentage),
+                    "mean_anomaly_score": float(np.mean(anomaly_scores)),
+                    "anomaly_threshold": float(np.percentile(anomaly_scores, 10))
+                },
+                confidence_level=config.confidence_level,
+                interpretation=self._interpret_anomalies(anomaly_percentage)
+            ))
+            
+        except Exception as e:
+            self.logger.error(f"Error in anomaly detection: {str(e)}")
+        
+        return results
     
-    def _estimate_distribution_parameters(self, data: np.ndarray) -> Dict[str, float]:
-        """Estimate parameters for common distributions"""
-        return {
-            'mean': float(np.mean(data)),
-            'std': float(np.std(data)),
-            'min': float(np.min(data)),
-            'max': float(np.max(data))
-        }
+    async def _clustering_analysis(self, data: pd.DataFrame, config: AnalysisConfig) -> List[StatisticalResult]:
+        """Perform clustering analysis"""
+        results = []
+        
+        try:
+            if not ADVANCED_STATS_AVAILABLE:
+                return results
+            
+            numeric_data = data.select_dtypes(include=[np.number]).dropna()
+            
+            if numeric_data.empty or len(numeric_data) < 10:
+                return results
+            
+            # Standardize data
+            scaled_data = self.scaler.fit_transform(numeric_data)
+            
+            # K-means clustering with different k values
+            best_k = 2
+            best_score = -1
+            
+            for k in range(2, min(10, len(numeric_data) // 2)):
+                try:
+                    kmeans = KMeans(n_clusters=k, random_state=42, n_init=10)
+                    cluster_labels = kmeans.fit_predict(scaled_data)
+                    score = silhouette_score(scaled_data, cluster_labels)
+                    
+                    if score > best_score:
+                        best_score = score
+                        best_k = k
+                except:
+                    continue
+            
+            # Final clustering with best k
+            kmeans = KMeans(n_clusters=best_k, random_state=42, n_init=10)
+            cluster_labels = kmeans.fit_predict(scaled_data)
+            
+            results.append(StatisticalResult(
+                analysis_type=AnalysisType.CLUSTERING,
+                metric_name="Dataset Clustering",
+                result={
+                    "optimal_clusters": int(best_k),
+                    "silhouette_score": float(best_score),
+                    "cluster_sizes": [int(np.sum(cluster_labels == i)) for i in range(best_k)],
+                    "inertia": float(kmeans.inertia_)
+                },
+                confidence_level=config.confidence_level,
+                interpretation=self._interpret_clustering(best_k, best_score)
+            ))
+            
+        except Exception as e:
+            self.logger.error(f"Error in clustering analysis: {str(e)}")
+        
+        return results
     
-    def _find_optimal_clusters(self, data: np.ndarray, max_clusters: int = 10) -> int:
-        """Find optimal number of clusters using elbow method"""
-        inertias = []
-        k_range = range(2, min(max_clusters + 1, len(data)))
+    async def _forecasting_analysis(self, data: pd.DataFrame, config: AnalysisConfig) -> List[StatisticalResult]:
+        """Perform forecasting analysis"""
+        results = []
         
-        for k in k_range:
-            kmeans = KMeans(n_clusters=k, random_state=42)
-            kmeans.fit(data)
-            inertias.append(kmeans.inertia_)
+        try:
+            if not ADVANCED_STATS_AVAILABLE:
+                return results
+            
+            # Look for time series data
+            datetime_cols = data.select_dtypes(include=['datetime64']).columns
+            numeric_cols = data.select_dtypes(include=[np.number]).columns
+            
+            if len(datetime_cols) == 0 or len(numeric_cols) == 0:
+                return results
+            
+            time_col = datetime_cols[0]
+            ts_data = data.set_index(time_col).sort_index()
+            
+            for metric in numeric_cols[:3]:  # Limit to first 3 metrics
+                series = ts_data[metric].dropna()
+                
+                if len(series) < config.min_data_points:
+                    continue
+                
+                try:
+                    # Simple ARIMA forecast
+                    model = ARIMA(series, order=(1, 1, 1))
+                    fitted_model = model.fit()
+                    
+                    # Forecast next 5 periods
+                    forecast = fitted_model.forecast(steps=5)
+                    forecast_conf_int = fitted_model.get_forecast(steps=5).conf_int()
+                    
+                    results.append(StatisticalResult(
+                        analysis_type=AnalysisType.FORECASTING,
+                        metric_name=metric,
+                        result={
+                            "forecast_values": [float(x) for x in forecast],
+                            "confidence_intervals": {
+                                "lower": [float(x) for x in forecast_conf_int.iloc[:, 0]],
+                                "upper": [float(x) for x in forecast_conf_int.iloc[:, 1]]
+                            },
+                            "model_aic": float(fitted_model.aic),
+                            "model_bic": float(fitted_model.bic)
+                        },
+                        confidence_level=config.confidence_level,
+                        interpretation=self._interpret_forecast(forecast, series)
+                    ))
+                    
+                except Exception as e:
+                    self.logger.warning(f"Forecasting failed for {metric}: {str(e)}")
+            
+        except Exception as e:
+            self.logger.error(f"Error in forecasting analysis: {str(e)}")
         
-        # Find elbow point (simplified)
-        if len(inertias) < 2:
-            return 2
-        
-        # Calculate rate of change
-        rates = [inertias[i-1] - inertias[i] for i in range(1, len(inertias))]
-        
-        # Find the point where rate of change starts to level off
-        optimal_k = 2
-        for i in range(1, len(rates)):
-            if rates[i] < rates[i-1] * 0.5:  # Significant decrease in rate
-                optimal_k = i + 2
-                break
-        
-        return min(optimal_k, max_clusters)
+        return results
     
-    def generate_insights(self, analysis_results: Dict[str, Any]) -> List[str]:
-        """Generate natural language insights from analysis results"""
+    async def _hypothesis_testing(self, data: pd.DataFrame, config: AnalysisConfig) -> List[StatisticalResult]:
+        """Perform hypothesis testing"""
+        results = []
+        
+        try:
+            if not ADVANCED_STATS_AVAILABLE:
+                return results
+            
+            numeric_cols = data.select_dtypes(include=[np.number]).columns
+            
+            # One-sample t-tests against zero
+            for col in numeric_cols:
+                series = data[col].dropna()
+                
+                if len(series) < config.min_data_points:
+                    continue
+                
+                # One-sample t-test
+                t_stat, p_value = stats.ttest_1samp(series, 0)
+                
+                results.append(StatisticalResult(
+                    analysis_type=AnalysisType.HYPOTHESIS_TESTING,
+                    metric_name=f"{col} vs Zero",
+                    result={
+                        "t_statistic": float(t_stat),
+                        "degrees_freedom": len(series) - 1,
+                        "test_type": "one_sample_t_test",
+                        "null_hypothesis": f"Mean of {col} equals 0",
+                        "alternative_hypothesis": f"Mean of {col} does not equal 0"
+                    },
+                    confidence_level=config.confidence_level,
+                    p_value=float(p_value),
+                    interpretation=self._interpret_hypothesis_test(p_value, config.significance_threshold)
+                ))
+            
+        except Exception as e:
+            self.logger.error(f"Error in hypothesis testing: {str(e)}")
+        
+        return results
+    
+    async def _trend_analysis(self, data: pd.DataFrame, config: AnalysisConfig) -> List[StatisticalResult]:
+        """Perform trend analysis"""
+        results = []
+        
+        try:
+            numeric_cols = data.select_dtypes(include=[np.number]).columns
+            
+            for col in numeric_cols:
+                series = data[col].dropna()
+                
+                if len(series) < config.min_data_points:
+                    continue
+                
+                # Calculate trend using linear regression
+                x = np.arange(len(series))
+                slope, intercept, r_value, p_value, std_err = stats.linregress(x, series)
+                
+                # Mann-Kendall trend test if available
+                mk_trend = None
+                mk_p_value = None
+                
+                results.append(StatisticalResult(
+                    analysis_type=AnalysisType.TREND_ANALYSIS,
+                    metric_name=col,
+                    result={
+                        "linear_slope": float(slope),
+                        "r_squared": float(r_value ** 2),
+                        "trend_direction": "increasing" if slope > 0 else "decreasing",
+                        "trend_strength": abs(float(r_value)),
+                        "standard_error": float(std_err)
+                    },
+                    confidence_level=config.confidence_level,
+                    p_value=float(p_value),
+                    interpretation=self._interpret_trend(slope, r_value, p_value)
+                ))
+            
+        except Exception as e:
+            self.logger.error(f"Error in trend analysis: {str(e)}")
+        
+        return results
+    
+    async def _seasonality_analysis(self, data: pd.DataFrame, config: AnalysisConfig) -> List[StatisticalResult]:
+        """Perform seasonality analysis"""
+        results = []
+        
+        try:
+            if not ADVANCED_STATS_AVAILABLE:
+                return results
+            
+            datetime_cols = data.select_dtypes(include=['datetime64']).columns
+            numeric_cols = data.select_dtypes(include=[np.number]).columns
+            
+            if len(datetime_cols) == 0 or len(numeric_cols) == 0:
+                return results
+            
+            time_col = datetime_cols[0]
+            ts_data = data.set_index(time_col).sort_index()
+            
+            for metric in numeric_cols:
+                series = ts_data[metric].dropna()
+                
+                if len(series) < config.min_data_points:
+                    continue
+                
+                try:
+                    # Seasonal decomposition
+                    decomposition = seasonal_decompose(
+                        series, 
+                        model='additive', 
+                        period=min(12, len(series) // 2)
+                    )
+                    
+                    seasonal_strength = np.std(decomposition.seasonal.dropna()) / np.std(series)
+                    
+                    results.append(StatisticalResult(
+                        analysis_type=AnalysisType.SEASONALITY,
+                        metric_name=metric,
+                        result={
+                            "seasonal_strength": float(seasonal_strength),
+                            "has_seasonality": seasonal_strength > 0.1,
+                            "seasonal_period": min(12, len(series) // 2),
+                            "seasonal_variance": float(np.var(decomposition.seasonal.dropna()))
+                        },
+                        confidence_level=config.confidence_level,
+                        interpretation=self._interpret_seasonality(seasonal_strength)
+                    ))
+                    
+                except Exception as e:
+                    self.logger.warning(f"Seasonality analysis failed for {metric}: {str(e)}")
+            
+        except Exception as e:
+            self.logger.error(f"Error in seasonality analysis: {str(e)}")
+        
+        return results
+    
+    # ML Insight Generation Methods
+    
+    async def _detect_patterns(self, data: pd.DataFrame, analysis_results: Dict) -> List[MLInsight]:
+        """Detect patterns in the data"""
         insights = []
         
-        # Descriptive statistics insights
-        if 'descriptive_statistics' in analysis_results:
-            stats = analysis_results['descriptive_statistics']
-            if 'column_statistics' in stats:
-                for col, col_stats in stats['column_statistics'].items():
-                    if col_stats.get('coefficient_of_variation', 0) > 1:
-                        insights.append(f"{col} shows high variability (CV > 1)")
-                    
-                    if abs(col_stats.get('skewness', 0)) > 1:
-                        skew_direction = "right" if col_stats['skewness'] > 0 else "left"
-                        insights.append(f"{col} is significantly skewed to the {skew_direction}")
-        
-        # Correlation insights
-        if 'correlation_analysis' in analysis_results:
-            corr = analysis_results['correlation_analysis']
-            if corr.get('significant_correlations'):
-                strong_corrs = [c for c in corr['significant_correlations'] if c['strength'] == 'strong']
-                if strong_corrs:
-                    insights.append(f"Found {len(strong_corrs)} strong correlations between variables")
-        
-        # Outlier insights
-        if 'outlier_detection' in analysis_results:
-            outliers = analysis_results['outlier_detection']
-            if outliers.get('anomaly_percentage', 0) > 10:
-                insights.append(f"High percentage of outliers detected ({outliers['anomaly_percentage']:.1f}%)")
-        
-        # Cluster insights
-        if 'cluster_analysis' in analysis_results:
-            clusters = analysis_results['cluster_analysis']
-            if clusters.get('silhouette_score', 0) > 0.5:
-                insights.append(f"Data shows good clustering structure with {clusters['n_clusters']} distinct groups")
-        
-        # Trend insights
-        if 'trend_analysis' in analysis_results:
-            trend = analysis_results['trend_analysis']
-            if trend.get('trend_strength', 0) > 0.7:
-                direction = trend.get('trend_direction', 'unknown')
-                insights.append(f"Strong {direction} trend detected in the data")
+        try:
+            # Look for correlation patterns
+            if 'correlation' in analysis_results:
+                strong_correlations = [
+                    result for result in analysis_results['correlation']
+                    if abs(result.result.get('correlation', 0)) > 0.7
+                ]
+                
+                if strong_correlations:
+                    insights.append(MLInsight(
+                        insight_type=InsightType.PATTERN_DETECTION,
+                        title="Strong Correlation Patterns Detected",
+                        description=f"Found {len(strong_correlations)} strong correlations between metrics",
+                        confidence_score=0.85,
+                        impact_score=0.7,
+                        action_items=[
+                            "Investigate causal relationships between strongly correlated metrics",
+                            "Consider using correlated metrics for predictive modeling",
+                            "Monitor for changes in correlation patterns"
+                        ]
+                    ))
+            
+        except Exception as e:
+            self.logger.error(f"Error detecting patterns: {str(e)}")
         
         return insights
+    
+    async def _identify_trends(self, data: pd.DataFrame, analysis_results: Dict) -> List[MLInsight]:
+        """Identify significant trends"""
+        insights = []
+        
+        try:
+            if 'trend_analysis' in analysis_results:
+                significant_trends = [
+                    result for result in analysis_results['trend_analysis']
+                    if result.p_value and result.p_value < 0.05 and 
+                    result.result.get('trend_strength', 0) > 0.5
+                ]
+                
+                for trend in significant_trends:
+                    direction = trend.result.get('trend_direction', 'unknown')
+                    strength = trend.result.get('trend_strength', 0)
+                    
+                    insights.append(MLInsight(
+                        insight_type=InsightType.TREND_IDENTIFICATION,
+                        title=f"Significant {direction.title()} Trend in {trend.metric_name}",
+                        description=f"Strong {direction} trend detected with {strength:.2f} correlation strength",
+                        confidence_score=min(0.95, strength + 0.2),
+                        impact_score=strength,
+                        action_items=[
+                            f"Monitor {trend.metric_name} closely for continued {direction} movement",
+                            "Investigate underlying factors driving this trend",
+                            "Consider adjusting strategies based on trend direction"
+                        ]
+                    ))
+            
+        except Exception as e:
+            self.logger.error(f"Error identifying trends: {str(e)}")
+        
+        return insights
+    
+    async def _generate_anomaly_alerts(self, data: pd.DataFrame, analysis_results: Dict) -> List[MLInsight]:
+        """Generate anomaly alerts"""
+        insights = []
+        
+        try:
+            if 'anomaly_detection' in analysis_results:
+                for result in analysis_results['anomaly_detection']:
+                    anomaly_pct = result.result.get('anomaly_percentage', 0)
+                    
+                    if anomaly_pct > 5:  # More than 5% anomalies
+                        insights.append(MLInsight(
+                            insight_type=InsightType.ANOMALY_ALERT,
+                            title="High Anomaly Rate Detected",
+                            description=f"Detected {anomaly_pct:.1f}% anomalous data points",
+                            confidence_score=0.8,
+                            impact_score=min(1.0, anomaly_pct / 10),
+                            action_items=[
+                                "Investigate root causes of anomalous data points",
+                                "Review data collection and processing procedures",
+                                "Consider implementing real-time anomaly monitoring"
+                            ]
+                        ))
+            
+        except Exception as e:
+            self.logger.error(f"Error generating anomaly alerts: {str(e)}")
+        
+        return insights
+    
+    async def _discover_correlations(self, data: pd.DataFrame, analysis_results: Dict) -> List[MLInsight]:
+        """Discover interesting correlations"""
+        insights = []
+        
+        try:
+            if 'correlation' in analysis_results:
+                unexpected_correlations = [
+                    result for result in analysis_results['correlation']
+                    if abs(result.result.get('correlation', 0)) > 0.6 and
+                    result.p_value and result.p_value < 0.01
+                ]
+                
+                if unexpected_correlations:
+                    insights.append(MLInsight(
+                        insight_type=InsightType.CORRELATION_DISCOVERY,
+                        title="Unexpected Correlations Discovered",
+                        description=f"Found {len(unexpected_correlations)} statistically significant correlations",
+                        confidence_score=0.9,
+                        impact_score=0.8,
+                        action_items=[
+                            "Explore business implications of discovered correlations",
+                            "Test for causation vs correlation",
+                            "Leverage correlations for predictive analytics"
+                        ]
+                    ))
+            
+        except Exception as e:
+            self.logger.error(f"Error discovering correlations: {str(e)}")
+        
+        return insights
+    
+    async def _generate_forecast_insights(self, data: pd.DataFrame, analysis_results: Dict) -> List[MLInsight]:
+        """Generate forecast-based insights"""
+        insights = []
+        
+        try:
+            if 'forecasting' in analysis_results:
+                for result in analysis_results['forecasting']:
+                    forecast_values = result.result.get('forecast_values', [])
+                    
+                    if forecast_values:
+                        current_value = data[result.metric_name].iloc[-1] if result.metric_name in data.columns else 0
+                        forecast_change = (forecast_values[-1] - current_value) / current_value * 100
+                        
+                        insights.append(MLInsight(
+                            insight_type=InsightType.FORECAST_PREDICTION,
+                            title=f"Forecast for {result.metric_name}",
+                            description=f"Predicted {forecast_change:+.1f}% change over next 5 periods",
+                            confidence_score=0.75,
+                            impact_score=min(1.0, abs(forecast_change) / 50),
+                            action_items=[
+                                "Plan for predicted changes in metrics",
+                                "Monitor actual vs predicted values",
+                                "Adjust strategies based on forecasts"
+                            ]
+                        ))
+            
+        except Exception as e:
+            self.logger.error(f"Error generating forecast insights: {str(e)}")
+        
+        return insights
+    
+    async def _suggest_optimizations(self, data: pd.DataFrame, analysis_results: Dict) -> List[MLInsight]:
+        """Suggest performance optimizations"""
+        insights = []
+        
+        try:
+            # Look for optimization opportunities based on analysis
+            if 'descriptive' in analysis_results:
+                high_variance_metrics = [
+                    result for result in analysis_results['descriptive']
+                    if result.result.get('std', 0) / result.result.get('mean', 1) > 0.5
+                ]
+                
+                if high_variance_metrics:
+                    insights.append(MLInsight(
+                        insight_type=InsightType.PERFORMANCE_OPTIMIZATION,
+                        title="High Variability Metrics Identified",
+                        description=f"Found {len(high_variance_metrics)} metrics with high variability",
+                        confidence_score=0.8,
+                        impact_score=0.7,
+                        action_items=[
+                            "Investigate causes of high variability",
+                            "Implement process controls to reduce variance",
+                            "Monitor variability trends over time"
+                        ]
+                    ))
+            
+        except Exception as e:
+            self.logger.error(f"Error suggesting optimizations: {str(e)}")
+        
+        return insights
+    
+    async def _assess_risks(self, data: pd.DataFrame, analysis_results: Dict) -> List[MLInsight]:
+        """Assess risks based on analysis"""
+        insights = []
+        
+        try:
+            # Risk assessment based on trends and anomalies
+            risk_factors = []
+            
+            if 'trend_analysis' in analysis_results:
+                declining_trends = [
+                    result for result in analysis_results['trend_analysis']
+                    if result.result.get('trend_direction') == 'decreasing' and
+                    result.result.get('trend_strength', 0) > 0.5
+                ]
+                risk_factors.extend(declining_trends)
+            
+            if 'anomaly_detection' in analysis_results:
+                high_anomaly_results = [
+                    result for result in analysis_results['anomaly_detection']
+                    if result.result.get('anomaly_percentage', 0) > 10
+                ]
+                risk_factors.extend(high_anomaly_results)
+            
+            if risk_factors:
+                insights.append(MLInsight(
+                    insight_type=InsightType.RISK_ASSESSMENT,
+                    title="Potential Risk Factors Identified",
+                    description=f"Identified {len(risk_factors)} potential risk indicators",
+                    confidence_score=0.75,
+                    impact_score=0.9,
+                    action_items=[
+                        "Develop mitigation strategies for identified risks",
+                        "Implement early warning systems",
+                        "Regular monitoring of risk indicators"
+                    ]
+                ))
+            
+        except Exception as e:
+            self.logger.error(f"Error assessing risks: {str(e)}")
+        
+        return insights
+    
+    # Helper methods for interpretation
+    
+    def _interpret_descriptive_stats(self, stats: Dict) -> str:
+        """Interpret descriptive statistics"""
+        skewness = stats.get('skewness', 0)
+        kurtosis = stats.get('kurtosis', 0)
+        
+        interpretation = f"Mean: {stats['mean']:.2f}, Std: {stats['std']:.2f}. "
+        
+        if abs(skewness) > 1:
+            interpretation += f"High {'positive' if skewness > 0 else 'negative'} skewness ({skewness:.2f}). "
+        
+        if abs(kurtosis) > 1:
+            interpretation += f"{'Heavy' if kurtosis > 0 else 'Light'} tails (kurtosis: {kurtosis:.2f}). "
+        
+        return interpretation
+    
+    def _interpret_correlation(self, correlation: float, p_value: Optional[float]) -> str:
+        """Interpret correlation results"""
+        strength = self._correlation_strength(correlation)
+        direction = "positive" if correlation > 0 else "negative"
+        
+        interpretation = f"{strength.title()} {direction} correlation ({correlation:.3f}). "
+        
+        if p_value:
+            if p_value < 0.01:
+                interpretation += "Highly statistically significant."
+            elif p_value < 0.05:
+                interpretation += "Statistically significant."
+            else:
+                interpretation += "Not statistically significant."
+        
+        return interpretation
+    
+    def _correlation_strength(self, correlation: float) -> str:
+        """Determine correlation strength"""
+        abs_corr = abs(correlation)
+        if abs_corr >= 0.7:
+            return "strong"
+        elif abs_corr >= 0.3:
+            return "moderate"
+        else:
+            return "weak"
+    
+    def _interpret_time_series(self, trend_slope: float) -> str:
+        """Interpret time series analysis"""
+        if abs(trend_slope) < 0.01:
+            return "No significant trend detected."
+        elif trend_slope > 0:
+            return f"Increasing trend with slope {trend_slope:.4f}."
+        else:
+            return f"Decreasing trend with slope {trend_slope:.4f}."
+    
+    def _interpret_anomalies(self, anomaly_percentage: float) -> str:
+        """Interpret anomaly detection results"""
+        if anomaly_percentage < 5:
+            return "Normal anomaly rate detected."
+        elif anomaly_percentage < 15:
+            return "Elevated anomaly rate - investigation recommended."
+        else:
+            return "High anomaly rate - immediate attention required."
+    
+    def _interpret_clustering(self, n_clusters: int, silhouette_score: float) -> str:
+        """Interpret clustering results"""
+        if silhouette_score > 0.7:
+            quality = "excellent"
+        elif silhouette_score > 0.5:
+            quality = "good"
+        elif silhouette_score > 0.25:
+            quality = "fair"
+        else:
+            quality = "poor"
+        
+        return f"Optimal {n_clusters} clusters identified with {quality} separation (silhouette: {silhouette_score:.3f})."
+    
+    def _interpret_forecast(self, forecast: np.ndarray, historical: pd.Series) -> str:
+        """Interpret forecasting results"""
+        forecast_mean = np.mean(forecast)
+        historical_mean = historical.mean()
+        change_pct = (forecast_mean - historical_mean) / historical_mean * 100
+        
+        return f"Forecast shows {change_pct:+.1f}% change from historical average."
+    
+    def _interpret_hypothesis_test(self, p_value: float, alpha: float) -> str:
+        """Interpret hypothesis test results"""
+        if p_value < alpha:
+            return f"Reject null hypothesis (p={p_value:.4f} < α={alpha})."
+        else:
+            return f"Fail to reject null hypothesis (p={p_value:.4f} ≥ α={alpha})."
+    
+    def _interpret_trend(self, slope: float, r_value: float, p_value: float) -> str:
+        """Interpret trend analysis"""
+        direction = "increasing" if slope > 0 else "decreasing"
+        strength = "strong" if abs(r_value) > 0.7 else "moderate" if abs(r_value) > 0.3 else "weak"
+        significance = "significant" if p_value < 0.05 else "not significant"
+        
+        return f"{strength.title()} {direction} trend (R²={r_value**2:.3f}), {significance} (p={p_value:.4f})."
+    
+    def _interpret_seasonality(self, seasonal_strength: float) -> str:
+        """Interpret seasonality analysis"""
+        if seasonal_strength > 0.3:
+            return f"Strong seasonality detected (strength: {seasonal_strength:.3f})."
+        elif seasonal_strength > 0.1:
+            return f"Moderate seasonality detected (strength: {seasonal_strength:.3f})."
+        else:
+            return "No significant seasonality detected."
+    
+    def _calculate_trend_slope(self, trend_series: pd.Series) -> float:
+        """Calculate trend slope from decomposed trend"""
+        if len(trend_series) < 2:
+            return 0.0
+        
+        x = np.arange(len(trend_series))
+        slope, _, _, _, _ = stats.linregress(x, trend_series)
+        return slope

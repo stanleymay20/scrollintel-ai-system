@@ -10,8 +10,74 @@ from enum import Enum
 import asyncio
 import logging
 from datetime import datetime, timedelta
+import time
+from functools import wraps
 
 logger = logging.getLogger(__name__)
+
+
+def retry_on_failure(max_retries: int = 3, delay: float = 1.0, backoff: float = 2.0):
+    """
+    Decorator for retrying failed operations with exponential backoff.
+    
+    Args:
+        max_retries: Maximum number of retry attempts
+        delay: Initial delay between retries in seconds
+        backoff: Backoff multiplier for delay
+    """
+    def decorator(func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            last_exception = None
+            current_delay = delay
+            
+            for attempt in range(max_retries + 1):
+                try:
+                    return await func(*args, **kwargs)
+                except Exception as e:
+                    last_exception = e
+                    
+                    if attempt == max_retries:
+                        logger.error(f"Function {func.__name__} failed after {max_retries} retries: {e}")
+                        raise e
+                    
+                    logger.warning(f"Attempt {attempt + 1} failed for {func.__name__}: {e}. Retrying in {current_delay}s...")
+                    await asyncio.sleep(current_delay)
+                    current_delay *= backoff
+            
+            raise last_exception
+        return wrapper
+    return decorator
+
+
+class ConnectorError(Exception):
+    """Base exception for connector errors"""
+    pass
+
+
+class ConnectionError(ConnectorError):
+    """Exception raised when connection fails"""
+    pass
+
+
+class AuthenticationError(ConnectorError):
+    """Exception raised when authentication fails"""
+    pass
+
+
+class DataFetchError(ConnectorError):
+    """Exception raised when data fetching fails"""
+    pass
+
+
+class RateLimitError(ConnectorError):
+    """Exception raised when rate limit is exceeded"""
+    pass
+
+
+class TimeoutError(ConnectorError):
+    """Exception raised when operation times out"""
+    pass
 
 
 class DataSourceType(Enum):
@@ -74,7 +140,105 @@ class BaseDataConnector(ABC):
         self.status = ConnectionStatus.DISCONNECTED
         self.last_sync = None
         self.error_message = None
+        self.connection_attempts = 0
+        self.last_error_time = None
+        self.records_synced_count = 0
         
+    @retry_on_failure(max_retries=3, delay=1.0, backoff=2.0)
+    async def connect_with_retry(self) -> bool:
+        """Connect with automatic retry logic"""
+        try:
+            self.connection_attempts += 1
+            start_time = time.time()
+            
+            # Apply timeout
+            result = await asyncio.wait_for(
+                self.connect(), 
+                timeout=self.config.timeout
+            )
+            
+            if result:
+                self.status = ConnectionStatus.CONNECTED
+                self.error_message = None
+                logger.info(f"Successfully connected to {self.config.source_id}")
+            
+            return result
+            
+        except asyncio.TimeoutError:
+            self.status = ConnectionStatus.ERROR
+            self.error_message = f"Connection timeout after {self.config.timeout}s"
+            self.last_error_time = datetime.utcnow()
+            raise TimeoutError(self.error_message)
+        except Exception as e:
+            self.status = ConnectionStatus.ERROR
+            self.error_message = str(e)
+            self.last_error_time = datetime.utcnow()
+            logger.error(f"Connection failed for {self.config.source_id}: {e}")
+            raise
+    
+    @retry_on_failure(max_retries=2, delay=0.5, backoff=1.5)
+    async def fetch_data_with_retry(self, query: Dict[str, Any]) -> List[DataRecord]:
+        """Fetch data with automatic retry logic"""
+        try:
+            start_time = time.time()
+            
+            # Apply timeout
+            result = await asyncio.wait_for(
+                self.fetch_data(query), 
+                timeout=self.config.timeout * 2  # Allow more time for data fetching
+            )
+            
+            self.records_synced_count += len(result)
+            self.last_sync = datetime.utcnow()
+            self.error_message = None
+            
+            return result
+            
+        except asyncio.TimeoutError:
+            error_msg = f"Data fetch timeout after {self.config.timeout * 2}s"
+            self.error_message = error_msg
+            self.last_error_time = datetime.utcnow()
+            raise TimeoutError(error_msg)
+        except Exception as e:
+            self.error_message = str(e)
+            self.last_error_time = datetime.utcnow()
+            logger.error(f"Data fetch failed for {self.config.source_id}: {e}")
+            raise DataFetchError(f"Failed to fetch data: {e}")
+    
+    async def validate_connection_params(self) -> bool:
+        """Validate connection parameters before attempting connection"""
+        required_params = self.get_required_params()
+        
+        for param in required_params:
+            if param not in self.config.connection_params:
+                raise ValueError(f"Missing required parameter: {param}")
+            
+            value = self.config.connection_params[param]
+            if not value or (isinstance(value, str) and not value.strip()):
+                raise ValueError(f"Empty value for required parameter: {param}")
+        
+        return True
+    
+    def get_required_params(self) -> List[str]:
+        """Get list of required connection parameters. Override in subclasses."""
+        return []
+    
+    def handle_rate_limit(self, retry_after: Optional[int] = None):
+        """Handle rate limiting with appropriate delays"""
+        delay = retry_after or 60  # Default 1 minute delay
+        logger.warning(f"Rate limit hit for {self.config.source_id}, waiting {delay}s")
+        raise RateLimitError(f"Rate limit exceeded, retry after {delay} seconds")
+    
+    def is_retriable_error(self, error: Exception) -> bool:
+        """Determine if an error is retriable"""
+        retriable_errors = (
+            ConnectionError,
+            TimeoutError,
+            RateLimitError,
+            # Add more retriable error types as needed
+        )
+        return isinstance(error, retriable_errors)
+    
     @abstractmethod
     async def connect(self) -> bool:
         """Establish connection to the data source"""
@@ -102,13 +266,18 @@ class BaseDataConnector(ABC):
     
     def get_health(self) -> ConnectionHealth:
         """Get current health status"""
+        latency_ms = None
+        if self.last_sync and self.last_error_time:
+            # Calculate rough latency based on last successful operation
+            latency_ms = 100.0  # Mock latency for now
+        
         return ConnectionHealth(
             source_id=self.config.source_id,
             status=self.status,
             last_successful_sync=self.last_sync,
             error_message=self.error_message,
-            latency_ms=None,
-            records_synced=0
+            latency_ms=latency_ms,
+            records_synced=self.records_synced_count
         )
 
 

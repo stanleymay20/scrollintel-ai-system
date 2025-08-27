@@ -1,0 +1,32 @@
+FROM python:3.11-slim
+
+# Environment variables
+ENV PYTHONUNBUFFERED=1
+ENV TF_CPP_MIN_LOG_LEVEL=2
+ENV MPLCONFIGDIR=/tmp/matplotlib
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y gcc g++ libpq-dev curl && rm -rf /var/lib/apt/lists/*
+
+# Create directories
+RUN mkdir -p /tmp/matplotlib && chmod 777 /tmp/matplotlib
+
+# Set work directory
+WORKDIR /app
+
+# Copy and install requirements
+COPY requirements_docker.txt .
+RUN pip install --upgrade pip && pip install tf-keras>=2.15.0 && pip install -r requirements_docker.txt
+
+# Copy app
+COPY . .
+
+# Create user
+RUN useradd -m scrollintel && chown -R scrollintel:scrollintel /app
+USER scrollintel
+
+# Expose port
+EXPOSE 8000
+
+# Simple command
+CMD ["python", "-m", "uvicorn", "scrollintel.api.simple_main:app", "--host", "0.0.0.0", "--port", "8000"]

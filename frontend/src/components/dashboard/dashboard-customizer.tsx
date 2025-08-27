@@ -1,142 +1,242 @@
-'use client';
+/**
+ * Dashboard Customizer Component
+ * 
+ * Provides drag-and-drop interface for customizing dashboard templates
+ */
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { DndProvider, useDrag, useDrop } from 'react-dnd';
 import { HTML5Backend } from 'react-dnd-html5-backend';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
+import { Button } from '../ui/button';
+import { Badge } from '../ui/badge';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/tabs';
 import { 
   Settings, 
-  Save, 
-  Undo, 
-  Redo, 
-  Copy, 
+  Plus, 
   Trash2, 
-  Plus,
-  Grid,
-  Eye,
-  Share2
+  Copy, 
+  Move, 
+  Palette,
+  Layout,
+  BarChart3,
+  PieChart,
+  LineChart,
+  Table,
+  Gauge
 } from 'lucide-react';
 
-interface WidgetPosition {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-interface DashboardWidget {
+// Types
+interface WidgetConfig {
   id: string;
   type: string;
   title: string;
-  position: WidgetPosition;
-  config: Record<string, any>;
-  dataSource: string;
+  position: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  data_source: string;
+  visualization_config: Record<string, any>;
+  filters: Array<Record<string, any>>;
+  refresh_interval?: number;
 }
 
 interface DashboardTemplate {
   id: string;
   name: string;
   description: string;
-  widgets: DashboardWidget[];
-  layoutConfig: {
-    gridSize: number;
-    rowHeight: number;
+  widgets: WidgetConfig[];
+  layout_config: {
+    grid_size: number;
+    row_height: number;
+    margin: [number, number];
+    responsive_breakpoints?: Record<string, number>;
   };
+  default_filters: Array<Record<string, any>>;
 }
 
 interface DragItem {
   type: string;
   id: string;
   widgetType?: string;
+  widget?: WidgetConfig;
 }
 
+// Widget type definitions
 const WIDGET_TYPES = [
-  { type: 'metrics_grid', name: 'Metrics Grid', icon: '📊' },
-  { type: 'line_chart', name: 'Line Chart', icon: '📈' },
-  { type: 'bar_chart', name: 'Bar Chart', icon: '📊' },
-  { type: 'pie_chart', name: 'Pie Chart', icon: '🥧' },
-  { type: 'gauge_chart', name: 'Gauge Chart', icon: '⏲️' },
-  { type: 'status_grid', name: 'Status Grid', icon: '🟢' },
-  { type: 'alert_list', name: 'Alert List', icon: '🚨' },
-  { type: 'kanban_board', name: 'Kanban Board', icon: '📋' },
-  { type: 'area_chart', name: 'Area Chart', icon: '📊' },
-  { type: 'table', name: 'Data Table', icon: '📋' }
+  { type: 'metric_card', name: 'Metric Card', icon: Gauge, category: 'metrics' },
+  { type: 'line_chart', name: 'Line Chart', icon: LineChart, category: 'charts' },
+  { type: 'bar_chart', name: 'Bar Chart', icon: BarChart3, category: 'charts' },
+  { type: 'pie_chart', name: 'Pie Chart', icon: PieChart, category: 'charts' },
+  { type: 'data_table', name: 'Data Table', icon: Table, category: 'tables' },
+  { type: 'kpi_grid', name: 'KPI Grid', icon: Layout, category: 'metrics' },
 ];
 
-const WidgetPalette: React.FC = () => {
+// Draggable Widget Component
+const DraggableWidget: React.FC<{
+  widget: WidgetConfig;
+  onSelect: (widget: WidgetConfig) => void;
+  onDelete: (widgetId: string) => void;
+  onDuplicate: (widget: WidgetConfig) => void;
+  isSelected: boolean;
+}> = ({ widget, onSelect, onDelete, onDuplicate, isSelected }) => {
+  const [{ isDragging }, drag] = useDrag({
+    type: 'widget',
+    item: { type: 'widget', id: widget.id, widget },
+    collect: (monitor) => ({
+      isDragging: monitor.isDragging(),
+    }),
+  });
+
+  const getWidgetIcon = (type: string) => {
+    const widgetType = WIDGET_TYPES.find(wt => wt.type === type);
+    return widgetType?.icon || BarChart3;
+  };
+
+  const Icon = getWidgetIcon(widget.type);
+
   return (
-    <div className="w-64 bg-gray-50 border-r p-4">
-      <h3 className="font-semibold mb-4">Widget Palette</h3>
-      <div className="space-y-2">
-        {WIDGET_TYPES.map((widgetType) => (
-          <DraggableWidget key={widgetType.type} widgetType={widgetType} />
+    <Card
+      ref={drag}
+      className={`cursor-move transition-all duration-200 ${
+        isDragging ? 'opacity-50 scale-95' : 'opacity-100 scale-100'
+      } ${isSelected ? 'ring-2 ring-blue-500' : ''} hover:shadow-md`}
+      onClick={() => onSelect(widget)}
+      style={{
+        gridColumn: `span ${widget.position.width}`,
+        gridRow: `span ${widget.position.height}`,
+      }}
+    >
+      <CardHeader className="pb-2">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Icon className="h-4 w-4" />
+            <CardTitle className="text-sm">{widget.title}</CardTitle>
+          </div>
+          <div className="flex gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDuplicate(widget);
+              }}
+            >
+              <Copy className="h-3 w-3" />
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete(widget.id);
+              }}
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="text-xs text-muted-foreground">
+          <Badge variant="secondary">{widget.type}</Badge>
+          <div className="mt-1">Source: {widget.data_source}</div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
+// Widget Palette Component
+const WidgetPalette: React.FC = () => {
+  const [selectedCategory, setSelectedCategory] = useState('all');
+
+  const categories = [
+    { id: 'all', name: 'All Widgets' },
+    { id: 'metrics', name: 'Metrics' },
+    { id: 'charts', name: 'Charts' },
+    { id: 'tables', name: 'Tables' },
+  ];
+
+  const filteredWidgets = selectedCategory === 'all' 
+    ? WIDGET_TYPES 
+    : WIDGET_TYPES.filter(w => w.category === selectedCategory);
+
+  const PaletteWidget: React.FC<{ widgetType: typeof WIDGET_TYPES[0] }> = ({ widgetType }) => {
+    const [{ isDragging }, drag] = useDrag({
+      type: 'new-widget',
+      item: { type: 'new-widget', widgetType: widgetType.type },
+      collect: (monitor) => ({
+        isDragging: monitor.isDragging(),
+      }),
+    });
+
+    const Icon = widgetType.icon;
+
+    return (
+      <Card
+        ref={drag}
+        className={`cursor-move transition-all duration-200 ${
+          isDragging ? 'opacity-50' : 'opacity-100'
+        } hover:shadow-md`}
+      >
+        <CardContent className="p-4 text-center">
+          <Icon className="h-8 w-8 mx-auto mb-2" />
+          <div className="text-sm font-medium">{widgetType.name}</div>
+        </CardContent>
+      </Card>
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 flex-wrap">
+        {categories.map((category) => (
+          <Button
+            key={category.id}
+            size="sm"
+            variant={selectedCategory === category.id ? 'default' : 'outline'}
+            onClick={() => setSelectedCategory(category.id)}
+          >
+            {category.name}
+          </Button>
+        ))}
+      </div>
+      
+      <div className="grid grid-cols-2 gap-2">
+        {filteredWidgets.map((widgetType) => (
+          <PaletteWidget key={widgetType.type} widgetType={widgetType} />
         ))}
       </div>
     </div>
   );
 };
 
-const DraggableWidget: React.FC<{ widgetType: any }> = ({ widgetType }) => {
-  const [{ isDragging }, drag] = useDrag({
-    type: 'widget',
-    item: { type: 'widget', widgetType: widgetType.type },
-    collect: (monitor) => ({
-      isDragging: monitor.isDragging(),
-    }),
-  });
-
-  return (
-    <div
-      ref={drag as any}
-      className={`p-3 bg-white border rounded-lg cursor-move hover:shadow-md transition-shadow ${
-        isDragging ? 'opacity-50' : ''
-      }`}
-    >
-      <div className="flex items-center space-x-2">
-        <span className="text-lg">{widgetType.icon}</span>
-        <span className="text-sm font-medium">{widgetType.name}</span>
-      </div>
-    </div>
-  );
-};
-
-const DroppableCanvas: React.FC<{
-  widgets: DashboardWidget[];
+// Drop Zone Component
+const DropZone: React.FC<{
+  template: DashboardTemplate;
   onWidgetAdd: (widgetType: string, position: { x: number; y: number }) => void;
-  onWidgetMove: (widgetId: string, position: WidgetPosition) => void;
-  onWidgetSelect: (widgetId: string) => void;
-  selectedWidget: string | null;
-  gridSize: number;
-  rowHeight: number;
-}> = ({ 
-  widgets, 
-  onWidgetAdd, 
-  onWidgetMove, 
-  onWidgetSelect, 
-  selectedWidget,
-  gridSize,
-  rowHeight 
-}) => {
-  const canvasRef = useRef<HTMLDivElement>(null);
-
+  onWidgetMove: (widgetId: string, position: { x: number; y: number }) => void;
+  onWidgetResize: (widgetId: string, size: { width: number; height: number }) => void;
+  children: React.ReactNode;
+}> = ({ template, onWidgetAdd, onWidgetMove, onWidgetResize, children }) => {
   const [{ isOver }, drop] = useDrop({
-    accept: 'widget',
+    accept: ['new-widget', 'widget'],
     drop: (item: DragItem, monitor) => {
-      if (!canvasRef.current) return;
-
-      const canvasRect = canvasRef.current.getBoundingClientRect();
-      const clientOffset = monitor.getClientOffset();
+      const offset = monitor.getClientOffset();
+      const dropZoneRect = dropZoneRef.current?.getBoundingClientRect();
       
-      if (clientOffset) {
-        const x = Math.floor((clientOffset.x - canvasRect.left) / (canvasRect.width / gridSize));
-        const y = Math.floor((clientOffset.y - canvasRect.top) / rowHeight);
-        
-        if (item.widgetType) {
-          onWidgetAdd(item.widgetType, { x: Math.max(0, x), y: Math.max(0, y) });
-        }
+      if (!offset || !dropZoneRect) return;
+
+      const x = Math.floor((offset.x - dropZoneRect.left) / (dropZoneRect.width / template.layout_config.grid_size));
+      const y = Math.floor((offset.y - dropZoneRect.top) / template.layout_config.row_height);
+
+      if (item.type === 'new-widget' && item.widgetType) {
+        onWidgetAdd(item.widgetType, { x: Math.max(0, x), y: Math.max(0, y) });
+      } else if (item.type === 'widget' && item.widget) {
+        onWidgetMove(item.widget.id, { x: Math.max(0, x), y: Math.max(0, y) });
       }
     },
     collect: (monitor) => ({
@@ -144,366 +244,334 @@ const DroppableCanvas: React.FC<{
     }),
   });
 
+  const dropZoneRef = useRef<HTMLDivElement>(null);
+
   return (
     <div
       ref={(node) => {
         drop(node);
-        if (canvasRef.current !== node) {
-          (canvasRef as any).current = node;
-        }
+        dropZoneRef.current = node;
       }}
-      className={`flex-1 relative bg-white border-2 border-dashed ${
-        isOver ? 'border-blue-400 bg-blue-50' : 'border-gray-300'
-      } min-h-[600px] overflow-auto`}
+      className={`min-h-[600px] border-2 border-dashed transition-colors ${
+        isOver ? 'border-blue-500 bg-blue-50' : 'border-gray-300'
+      } rounded-lg p-4`}
       style={{
-        backgroundImage: `
-          linear-gradient(to right, #f0f0f0 1px, transparent 1px),
-          linear-gradient(to bottom, #f0f0f0 1px, transparent 1px)
-        `,
-        backgroundSize: `${100 / gridSize}% ${rowHeight}px`,
+        display: 'grid',
+        gridTemplateColumns: `repeat(${template.layout_config.grid_size}, 1fr)`,
+        gap: `${template.layout_config.margin[0]}px`,
+        gridAutoRows: `${template.layout_config.row_height}px`,
       }}
     >
-      {widgets.map((widget) => (
-        <DashboardWidgetComponent
-          key={widget.id}
-          widget={widget}
-          onMove={onWidgetMove}
-          onSelect={onWidgetSelect}
-          isSelected={selectedWidget === widget.id}
-          gridSize={gridSize}
-          rowHeight={rowHeight}
-        />
-      ))}
-      {isOver && (
-        <div className="absolute inset-0 bg-blue-100 bg-opacity-50 flex items-center justify-center">
-          <div className="text-blue-600 font-semibold">Drop widget here</div>
-        </div>
-      )}
+      {children}
     </div>
   );
 };
 
-const DashboardWidgetComponent: React.FC<{
-  widget: DashboardWidget;
-  onMove: (widgetId: string, position: WidgetPosition) => void;
-  onSelect: (widgetId: string) => void;
-  isSelected: boolean;
-  gridSize: number;
-  rowHeight: number;
-}> = ({ widget, onMove, onSelect, isSelected, gridSize, rowHeight }) => {
-  const [{ isDragging }, drag] = useDrag({
-    type: 'existing-widget',
-    item: { type: 'existing-widget', id: widget.id },
-    collect: (monitor) => ({
-      isDragging: monitor.isDragging(),
-    }),
-  });
-
-  const widgetStyle = {
-    position: 'absolute' as const,
-    left: `${(widget.position.x / gridSize) * 100}%`,
-    top: `${widget.position.y * rowHeight}px`,
-    width: `${(widget.position.width / gridSize) * 100}%`,
-    height: `${widget.position.height * rowHeight}px`,
-    zIndex: isDragging ? 1000 : 1,
-  };
-
-  return (
-    <div
-      ref={drag as any}
-      style={widgetStyle}
-      className={`border-2 rounded-lg p-2 cursor-move ${
-        isSelected 
-          ? 'border-blue-500 bg-blue-50' 
-          : 'border-gray-300 bg-white hover:border-gray-400'
-      } ${isDragging ? 'opacity-50' : ''}`}
-      onClick={() => onSelect(widget.id)}
-    >
-      <div className="flex items-center justify-between mb-2">
-        <h4 className="font-medium text-sm truncate">{widget.title}</h4>
-        <Badge variant="secondary" className="text-xs">
-          {widget.type}
-        </Badge>
-      </div>
-      <div className="text-xs text-gray-500 mb-2">
-        {widget.position.width}x{widget.position.height} grid units
-      </div>
-      <div className="bg-gray-100 rounded h-full min-h-[60px] flex items-center justify-center">
-        <span className="text-gray-400 text-sm">Widget Preview</span>
-      </div>
-    </div>
-  );
-};
-
+// Widget Properties Panel
 const WidgetPropertiesPanel: React.FC<{
-  widget: DashboardWidget | null;
-  onUpdate: (widgetId: string, updates: Partial<DashboardWidget>) => void;
-  onDelete: (widgetId: string) => void;
-}> = ({ widget, onUpdate, onDelete }) => {
-  if (!widget) {
+  widget: WidgetConfig | null;
+  onUpdate: (widgetId: string, updates: Partial<WidgetConfig>) => void;
+}> = ({ widget, onUpdate }) => {
+  const [localWidget, setLocalWidget] = useState<WidgetConfig | null>(null);
+
+  useEffect(() => {
+    setLocalWidget(widget);
+  }, [widget]);
+
+  if (!localWidget) {
     return (
-      <div className="w-80 bg-gray-50 border-l p-4">
-        <h3 className="font-semibold mb-4">Properties</h3>
-        <p className="text-gray-500 text-sm">Select a widget to edit its properties</p>
+      <div className="p-4 text-center text-muted-foreground">
+        Select a widget to edit its properties
       </div>
     );
   }
 
+  const handleUpdate = (field: string, value: any) => {
+    const updated = { ...localWidget, [field]: value };
+    setLocalWidget(updated);
+    onUpdate(localWidget.id, { [field]: value });
+  };
+
   return (
-    <div className="w-80 bg-gray-50 border-l p-4">
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="font-semibold">Properties</h3>
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => onDelete(widget.id)}
-        >
-          <Trash2 className="h-4 w-4" />
-        </Button>
+    <div className="space-y-4 p-4">
+      <div>
+        <label className="text-sm font-medium">Title</label>
+        <input
+          type="text"
+          value={localWidget.title}
+          onChange={(e) => handleUpdate('title', e.target.value)}
+          className="w-full mt-1 px-3 py-2 border rounded-md"
+        />
       </div>
-      
-      <div className="space-y-4">
+
+      <div>
+        <label className="text-sm font-medium">Data Source</label>
+        <select
+          value={localWidget.data_source}
+          onChange={(e) => handleUpdate('data_source', e.target.value)}
+          className="w-full mt-1 px-3 py-2 border rounded-md"
+        >
+          <option value="roi_calculator">ROI Calculator</option>
+          <option value="performance_monitor">Performance Monitor</option>
+          <option value="cost_tracker">Cost Tracker</option>
+          <option value="deployment_tracker">Deployment Tracker</option>
+        </select>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="block text-sm font-medium mb-1">Title</label>
+          <label className="text-sm font-medium">Width</label>
           <input
-            type="text"
-            value={widget.title}
-            onChange={(e) => onUpdate(widget.id, { title: e.target.value })}
-            className="w-full px-3 py-2 border rounded-md text-sm"
+            type="number"
+            min="1"
+            max="12"
+            value={localWidget.position.width}
+            onChange={(e) => handleUpdate('position', {
+              ...localWidget.position,
+              width: parseInt(e.target.value)
+            })}
+            className="w-full mt-1 px-3 py-2 border rounded-md"
           />
         </div>
-        
         <div>
-          <label className="block text-sm font-medium mb-1">Type</label>
-          <select
-            value={widget.type}
-            onChange={(e) => onUpdate(widget.id, { type: e.target.value })}
-            className="w-full px-3 py-2 border rounded-md text-sm"
-          >
-            {WIDGET_TYPES.map((type) => (
-              <option key={type.type} value={type.type}>
-                {type.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        
-        <div className="grid grid-cols-2 gap-2">
-          <div>
-            <label className="block text-sm font-medium mb-1">Width</label>
-            <input
-              type="number"
-              min="1"
-              max="12"
-              value={widget.position.width}
-              onChange={(e) => onUpdate(widget.id, {
-                position: { ...widget.position, width: parseInt(e.target.value) }
-              })}
-              className="w-full px-3 py-2 border rounded-md text-sm"
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Height</label>
-            <input
-              type="number"
-              min="1"
-              value={widget.position.height}
-              onChange={(e) => onUpdate(widget.id, {
-                position: { ...widget.position, height: parseInt(e.target.value) }
-              })}
-              className="w-full px-3 py-2 border rounded-md text-sm"
-            />
-          </div>
-        </div>
-        
-        <div>
-          <label className="block text-sm font-medium mb-1">Data Source</label>
+          <label className="text-sm font-medium">Height</label>
           <input
-            type="text"
-            value={widget.dataSource}
-            onChange={(e) => onUpdate(widget.id, { dataSource: e.target.value })}
-            className="w-full px-3 py-2 border rounded-md text-sm"
-            placeholder="e.g., metrics_api"
+            type="number"
+            min="1"
+            value={localWidget.position.height}
+            onChange={(e) => handleUpdate('position', {
+              ...localWidget.position,
+              height: parseInt(e.target.value)
+            })}
+            className="w-full mt-1 px-3 py-2 border rounded-md"
           />
         </div>
-        
-        <div>
-          <label className="block text-sm font-medium mb-1">Configuration</label>
-          <textarea
-            value={JSON.stringify(widget.config, null, 2)}
-            onChange={(e) => {
-              try {
-                const config = JSON.parse(e.target.value);
-                onUpdate(widget.id, { config });
-              } catch (error) {
-                // Invalid JSON, ignore
-              }
-            }}
-            className="w-full px-3 py-2 border rounded-md text-sm font-mono"
-            rows={6}
-            placeholder="JSON configuration"
-          />
-        </div>
+      </div>
+
+      <div>
+        <label className="text-sm font-medium">Refresh Interval (seconds)</label>
+        <input
+          type="number"
+          min="30"
+          value={localWidget.refresh_interval || 300}
+          onChange={(e) => handleUpdate('refresh_interval', parseInt(e.target.value))}
+          className="w-full mt-1 px-3 py-2 border rounded-md"
+        />
       </div>
     </div>
   );
 };
 
+// Main Dashboard Customizer Component
 export const DashboardCustomizer: React.FC<{
   template: DashboardTemplate;
-  onSave: (template: DashboardTemplate) => void;
+  onTemplateUpdate: (template: DashboardTemplate) => void;
+  onSave: () => void;
   onPreview: () => void;
-  onShare: () => void;
-}> = ({ template, onSave, onPreview, onShare }) => {
-  const [widgets, setWidgets] = useState<DashboardWidget[]>(template.widgets);
-  const [selectedWidget, setSelectedWidget] = useState<string | null>(null);
-  const [history, setHistory] = useState<DashboardWidget[][]>([template.widgets]);
-  const [historyIndex, setHistoryIndex] = useState(0);
+}> = ({ template, onTemplateUpdate, onSave, onPreview }) => {
+  const [selectedWidget, setSelectedWidget] = useState<WidgetConfig | null>(null);
+  const [activeTab, setActiveTab] = useState('design');
 
-  const saveToHistory = useCallback((newWidgets: DashboardWidget[]) => {
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push([...newWidgets]);
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
-  }, [history, historyIndex]);
+  const generateWidgetId = () => `widget_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
   const handleWidgetAdd = useCallback((widgetType: string, position: { x: number; y: number }) => {
-    const newWidget: DashboardWidget = {
-      id: `widget_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    const newWidget: WidgetConfig = {
+      id: generateWidgetId(),
       type: widgetType,
-      title: `New ${WIDGET_TYPES.find(t => t.type === widgetType)?.name || 'Widget'}`,
+      title: `New ${widgetType.replace('_', ' ')}`,
       position: {
         x: position.x,
         y: position.y,
         width: 4,
         height: 3,
       },
-      config: {},
-      dataSource: '',
+      data_source: 'roi_calculator',
+      visualization_config: {},
+      filters: [],
+      refresh_interval: 300,
     };
 
-    const newWidgets = [...widgets, newWidget];
-    setWidgets(newWidgets);
-    saveToHistory(newWidgets);
-    setSelectedWidget(newWidget.id);
-  }, [widgets, saveToHistory]);
+    const updatedTemplate = {
+      ...template,
+      widgets: [...template.widgets, newWidget],
+    };
 
-  const handleWidgetMove = useCallback((widgetId: string, position: WidgetPosition) => {
-    const newWidgets = widgets.map(widget =>
-      widget.id === widgetId ? { ...widget, position } : widget
+    onTemplateUpdate(updatedTemplate);
+    setSelectedWidget(newWidget);
+  }, [template, onTemplateUpdate]);
+
+  const handleWidgetMove = useCallback((widgetId: string, position: { x: number; y: number }) => {
+    const updatedWidgets = template.widgets.map(widget =>
+      widget.id === widgetId
+        ? { ...widget, position: { ...widget.position, ...position } }
+        : widget
     );
-    setWidgets(newWidgets);
-    saveToHistory(newWidgets);
-  }, [widgets, saveToHistory]);
 
-  const handleWidgetUpdate = useCallback((widgetId: string, updates: Partial<DashboardWidget>) => {
-    const newWidgets = widgets.map(widget =>
+    onTemplateUpdate({
+      ...template,
+      widgets: updatedWidgets,
+    });
+  }, [template, onTemplateUpdate]);
+
+  const handleWidgetUpdate = useCallback((widgetId: string, updates: Partial<WidgetConfig>) => {
+    const updatedWidgets = template.widgets.map(widget =>
       widget.id === widgetId ? { ...widget, ...updates } : widget
     );
-    setWidgets(newWidgets);
-    saveToHistory(newWidgets);
-  }, [widgets, saveToHistory]);
+
+    onTemplateUpdate({
+      ...template,
+      widgets: updatedWidgets,
+    });
+  }, [template, onTemplateUpdate]);
 
   const handleWidgetDelete = useCallback((widgetId: string) => {
-    const newWidgets = widgets.filter(widget => widget.id !== widgetId);
-    setWidgets(newWidgets);
-    saveToHistory(newWidgets);
-    setSelectedWidget(null);
-  }, [widgets, saveToHistory]);
-
-  const handleUndo = useCallback(() => {
-    if (historyIndex > 0) {
-      const newIndex = historyIndex - 1;
-      setHistoryIndex(newIndex);
-      setWidgets([...history[newIndex]]);
-    }
-  }, [history, historyIndex]);
-
-  const handleRedo = useCallback(() => {
-    if (historyIndex < history.length - 1) {
-      const newIndex = historyIndex + 1;
-      setHistoryIndex(newIndex);
-      setWidgets([...history[newIndex]]);
-    }
-  }, [history, historyIndex]);
-
-  const handleSave = useCallback(() => {
-    const updatedTemplate: DashboardTemplate = {
+    const updatedWidgets = template.widgets.filter(widget => widget.id !== widgetId);
+    
+    onTemplateUpdate({
       ...template,
-      widgets,
-    };
-    onSave(updatedTemplate);
-  }, [template, widgets, onSave]);
+      widgets: updatedWidgets,
+    });
 
-  const selectedWidgetData = selectedWidget 
-    ? widgets.find(w => w.id === selectedWidget) || null 
-    : null;
+    if (selectedWidget?.id === widgetId) {
+      setSelectedWidget(null);
+    }
+  }, [template, onTemplateUpdate, selectedWidget]);
+
+  const handleWidgetDuplicate = useCallback((widget: WidgetConfig) => {
+    const duplicatedWidget: WidgetConfig = {
+      ...widget,
+      id: generateWidgetId(),
+      title: `${widget.title} (Copy)`,
+      position: {
+        ...widget.position,
+        x: Math.min(widget.position.x + 1, template.layout_config.grid_size - widget.position.width),
+        y: widget.position.y + 1,
+      },
+    };
+
+    const updatedTemplate = {
+      ...template,
+      widgets: [...template.widgets, duplicatedWidget],
+    };
+
+    onTemplateUpdate(updatedTemplate);
+  }, [template, onTemplateUpdate]);
 
   return (
     <DndProvider backend={HTML5Backend}>
-      <div className="h-screen flex flex-col">
-        {/* Toolbar */}
-        <div className="bg-white border-b px-4 py-2 flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <h2 className="font-semibold">Dashboard Customizer</h2>
-            <Badge variant="outline">{template.name}</Badge>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleUndo}
-              disabled={historyIndex === 0}
-            >
-              <Undo className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleRedo}
-              disabled={historyIndex === history.length - 1}
-            >
-              <Redo className="h-4 w-4" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={onPreview}>
-              <Eye className="h-4 w-4 mr-1" />
-              Preview
-            </Button>
-            <Button variant="outline" size="sm" onClick={onShare}>
-              <Share2 className="h-4 w-4 mr-1" />
-              Share
-            </Button>
-            <Button onClick={handleSave}>
-              <Save className="h-4 w-4 mr-1" />
-              Save
-            </Button>
-          </div>
+      <div className="flex h-screen bg-gray-50">
+        {/* Left Sidebar - Widget Palette */}
+        <div className="w-64 bg-white border-r p-4 overflow-y-auto">
+          <h3 className="font-semibold mb-4">Widget Palette</h3>
+          <WidgetPalette />
         </div>
 
-        {/* Main Content */}
-        <div className="flex-1 flex">
-          <WidgetPalette />
-          
-          <DroppableCanvas
-            widgets={widgets}
+        {/* Main Canvas */}
+        <div className="flex-1 p-4 overflow-auto">
+          <div className="mb-4 flex justify-between items-center">
+            <h2 className="text-xl font-semibold">{template.name}</h2>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={onPreview}>
+                Preview
+              </Button>
+              <Button onClick={onSave}>
+                Save Template
+              </Button>
+            </div>
+          </div>
+
+          <DropZone
+            template={template}
             onWidgetAdd={handleWidgetAdd}
             onWidgetMove={handleWidgetMove}
-            onWidgetSelect={setSelectedWidget}
-            selectedWidget={selectedWidget}
-            gridSize={template.layoutConfig.gridSize}
-            rowHeight={template.layoutConfig.rowHeight}
-          />
-          
-          <WidgetPropertiesPanel
-            widget={selectedWidgetData}
-            onUpdate={handleWidgetUpdate}
-            onDelete={handleWidgetDelete}
-          />
+            onWidgetResize={(widgetId, size) => {
+              handleWidgetUpdate(widgetId, {
+                position: {
+                  ...template.widgets.find(w => w.id === widgetId)?.position!,
+                  ...size
+                }
+              });
+            }}
+          >
+            {template.widgets.map((widget) => (
+              <DraggableWidget
+                key={widget.id}
+                widget={widget}
+                onSelect={setSelectedWidget}
+                onDelete={handleWidgetDelete}
+                onDuplicate={handleWidgetDuplicate}
+                isSelected={selectedWidget?.id === widget.id}
+              />
+            ))}
+          </DropZone>
+        </div>
+
+        {/* Right Sidebar - Properties Panel */}
+        <div className="w-80 bg-white border-l">
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="grid w-full grid-cols-2">
+              <TabsTrigger value="design">Design</TabsTrigger>
+              <TabsTrigger value="settings">Settings</TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="design">
+              <WidgetPropertiesPanel
+                widget={selectedWidget}
+                onUpdate={handleWidgetUpdate}
+              />
+            </TabsContent>
+            
+            <TabsContent value="settings" className="p-4">
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Template Name</label>
+                  <input
+                    type="text"
+                    value={template.name}
+                    onChange={(e) => onTemplateUpdate({
+                      ...template,
+                      name: e.target.value
+                    })}
+                    className="w-full mt-1 px-3 py-2 border rounded-md"
+                  />
+                </div>
+                
+                <div>
+                  <label className="text-sm font-medium">Description</label>
+                  <textarea
+                    value={template.description}
+                    onChange={(e) => onTemplateUpdate({
+                      ...template,
+                      description: e.target.value
+                    })}
+                    className="w-full mt-1 px-3 py-2 border rounded-md"
+                    rows={3}
+                  />
+                </div>
+
+                <div>
+                  <label className="text-sm font-medium">Grid Size</label>
+                  <select
+                    value={template.layout_config.grid_size}
+                    onChange={(e) => onTemplateUpdate({
+                      ...template,
+                      layout_config: {
+                        ...template.layout_config,
+                        grid_size: parseInt(e.target.value)
+                      }
+                    })}
+                    className="w-full mt-1 px-3 py-2 border rounded-md"
+                  >
+                    <option value="12">12 Columns</option>
+                    <option value="16">16 Columns</option>
+                    <option value="24">24 Columns</option>
+                  </select>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     </DndProvider>
   );
 };
-
-export default DashboardCustomizer;

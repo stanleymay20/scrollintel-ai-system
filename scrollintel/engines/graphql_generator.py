@@ -499,7 +499,7 @@ Custom GraphQL Scalars
 import json
 from datetime import datetime, date
 from uuid import UUID
-from graphene import Scalar
+# from graphene import Scalar  # Temporarily disabled for Docker build
 from graphql.language import ast
 
 '''
@@ -592,7 +592,7 @@ class UUID(Scalar):
 GraphQL Directives
 """
 
-from graphene import Directive, String, Boolean, Int
+# from graphene import Directive, String, Boolean, Int  # Temporarily disabled for Docker build
 
 class AuthDirective(Directive):
     """Authentication directive."""

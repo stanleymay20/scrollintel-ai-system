@@ -1,710 +1,615 @@
 """
-Comprehensive prompt performance tracking system.
-Provides real-time analytics, performance monitoring, and usage insights.
+Real-time prompt performance tracking and analytics system.
+Provides comprehensive tracking of prompt usage, performance metrics, and analytics.
 """
 
 import asyncio
+import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Any, Tuple
-from sqlalchemy.orm import Session
-from sqlalchemy import func, and_, or_
-import numpy as np
-import pandas as pd
-from collections import defaultdict
+from dataclasses import dataclass, asdict
+from collections import defaultdict, Counter
+import uuid
+import statistics
 import logging
 
-from ..models.analytics_models import (
-    PromptMetrics, UsageAnalytics, AnalyticsReport, AlertRule,
-    TrendAnalysis, PatternRecognition
-)
-from ..models.database import get_db_session
+from ..core.config import get_settings
+from ..core.logging_config import get_logger
 
-logger = logging.getLogger(__name__)
+settings = get_settings()
+logger = get_logger(__name__)
+
+@dataclass
+class PromptUsageEvent:
+    """Individual prompt usage event."""
+    event_id: str
+    prompt_id: str
+    version_id: Optional[str]
+    user_id: Optional[str]
+    team_id: Optional[str]
+    
+    # Performance metrics
+    accuracy_score: Optional[float] = None
+    relevance_score: Optional[float] = None
+    efficiency_score: Optional[float] = None
+    user_satisfaction: Optional[float] = None
+    response_time_ms: Optional[int] = None
+    token_usage: Optional[int] = None
+    cost_per_request: Optional[float] = None
+    
+    # Context information
+    use_case: Optional[str] = None
+    model_used: Optional[str] = None
+    input_length: Optional[int] = None
+    output_length: Optional[int] = None
+    
+    # Metadata
+    timestamp: datetime = None
+    success: bool = True
+    error_message: Optional[str] = None
+    
+    def __post_init__(self):
+        if self.timestamp is None:
+            self.timestamp = datetime.utcnow()
+
+@dataclass
+class PromptPerformanceSummary:
+    """Summary of prompt performance over a time period."""
+    prompt_id: str
+    version_id: Optional[str]
+    period_start: datetime
+    period_end: datetime
+    
+    # Usage statistics
+    total_requests: int = 0
+    successful_requests: int = 0
+    failed_requests: int = 0
+    unique_users: int = 0
+    
+    # Performance metrics (averages)
+    avg_accuracy_score: Optional[float] = None
+    avg_relevance_score: Optional[float] = None
+    avg_efficiency_score: Optional[float] = None
+    avg_user_satisfaction: Optional[float] = None
+    avg_response_time_ms: Optional[float] = None
+    avg_token_usage: Optional[float] = None
+    avg_cost_per_request: Optional[float] = None
+    
+    # Performance trends
+    accuracy_trend: Optional[str] = None  # 'improving', 'declining', 'stable'
+    usage_trend: Optional[str] = None
+    cost_trend: Optional[str] = None
+    
+    # Time-based patterns
+    hourly_usage: Dict[int, int] = None
+    daily_usage: Dict[str, int] = None
+    peak_usage_hour: Optional[int] = None
+    
+    def __post_init__(self):
+        if self.hourly_usage is None:
+            self.hourly_usage = {}
+        if self.daily_usage is None:
+            self.daily_usage = {}
 
 class PromptPerformanceTracker:
-    """Tracks and analyzes prompt performance in real-time."""
+    """Real-time prompt performance tracking system."""
     
     def __init__(self):
-        self.metrics_cache = {}
-        self.performance_thresholds = {
-            'accuracy_score': {'good': 0.8, 'poor': 0.6},
-            'relevance_score': {'good': 0.85, 'poor': 0.7},
-            'efficiency_score': {'good': 0.9, 'poor': 0.7},
-            'response_time_ms': {'good': 1000, 'poor': 3000},
-            'user_satisfaction': {'good': 4.0, 'poor': 3.0}
-        }
-    
+        self.logger = get_logger(__name__)
+        self.events_buffer: List[PromptUsageEvent] = []
+        self.performance_cache: Dict[str, PromptPerformanceSummary] = {}
+        self.real_time_metrics: Dict[str, Dict[str, Any]] = defaultdict(dict)
+        self.running = False
+        
     async def record_prompt_usage(
         self,
         prompt_id: str,
         version_id: Optional[str] = None,
-        performance_metrics: Optional[Dict[str, Any]] = None,
+        user_id: Optional[str] = None,
+        team_id: Optional[str] = None,
+        performance_metrics: Optional[Dict[str, float]] = None,
         context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Record a prompt usage event with performance metrics."""
         try:
-            with get_db_session() as db:
-                # Create metrics record
-                metrics = PromptMetrics(
-                    prompt_id=prompt_id,
-                    version_id=version_id,
-                    accuracy_score=performance_metrics.get('accuracy_score') if performance_metrics else None,
-                    relevance_score=performance_metrics.get('relevance_score') if performance_metrics else None,
-                    efficiency_score=performance_metrics.get('efficiency_score') if performance_metrics else None,
-                    user_satisfaction=performance_metrics.get('user_satisfaction') if performance_metrics else None,
-                    response_time_ms=performance_metrics.get('response_time_ms') if performance_metrics else None,
-                    token_usage=performance_metrics.get('token_usage') if performance_metrics else None,
-                    cost_per_request=performance_metrics.get('cost_per_request') if performance_metrics else None,
-                    use_case=context.get('use_case') if context else None,
-                    model_used=context.get('model_used') if context else None,
-                    user_id=context.get('user_id') if context else None,
-                    team_id=context.get('team_id') if context else None
-                )
-                
-                db.add(metrics)
-                db.commit()
-                
-                # Update usage analytics asynchronously
-                asyncio.create_task(self._update_usage_analytics(prompt_id, metrics.id))
-                
-                logger.info(f"Recorded prompt usage for {prompt_id}")
-                return metrics.id
-                
+            event = PromptUsageEvent(
+                event_id=str(uuid.uuid4()),
+                prompt_id=prompt_id,
+                version_id=version_id,
+                user_id=user_id,
+                team_id=team_id
+            )
+            
+            # Add performance metrics if provided
+            if performance_metrics:
+                event.accuracy_score = performance_metrics.get('accuracy_score')
+                event.relevance_score = performance_metrics.get('relevance_score')
+                event.efficiency_score = performance_metrics.get('efficiency_score')
+                event.user_satisfaction = performance_metrics.get('user_satisfaction')
+                event.response_time_ms = performance_metrics.get('response_time_ms')
+                event.token_usage = performance_metrics.get('token_usage')
+                event.cost_per_request = performance_metrics.get('cost_per_request')
+            
+            # Add context information if provided
+            if context:
+                event.use_case = context.get('use_case')
+                event.model_used = context.get('model_used')
+                event.input_length = context.get('input_length')
+                event.output_length = context.get('output_length')
+                event.success = context.get('success', True)
+                event.error_message = context.get('error_message')
+            
+            # Add to buffer
+            self.events_buffer.append(event)
+            
+            # Update real-time metrics
+            await self._update_real_time_metrics(event)
+            
+            self.logger.info(
+                f"Recorded prompt usage: {prompt_id}",
+                prompt_id=prompt_id,
+                version_id=version_id,
+                user_id=user_id,
+                team_id=team_id,
+                success=event.success
+            )
+            
+            return event.event_id
+            
         except Exception as e:
-            logger.error(f"Error recording prompt usage: {str(e)}")
+            self.logger.error(f"Error recording prompt usage: {e}")
             raise
     
-    async def _update_usage_analytics(self, prompt_id: str, metrics_id: str):
-        """Update usage analytics for a prompt."""
-        try:
-            with get_db_session() as db:
-                # Get or create analytics record for current period
-                today = datetime.utcnow().date()
-                period_start = datetime.combine(today, datetime.min.time())
-                period_end = period_start + timedelta(days=1)
-                
-                analytics = db.query(UsageAnalytics).filter(
-                    and_(
-                        UsageAnalytics.prompt_id == prompt_id,
-                        UsageAnalytics.analysis_period_start == period_start
-                    )
-                ).first()
-                
-                if not analytics:
-                    analytics = UsageAnalytics(
-                        prompt_id=prompt_id,
-                        analysis_period_start=period_start,
-                        analysis_period_end=period_end,
-                        total_requests=0,
-                        successful_requests=0,
-                        failed_requests=0,
-                        daily_usage={},
-                        hourly_patterns={str(i): 0 for i in range(24)},
-                        team_usage={},
-                        user_adoption={}
-                    )
-                    db.add(analytics)
-                
-                # Update counters
-                analytics.total_requests += 1
-                analytics.successful_requests += 1  # Assume success for now
-                
-                # Update hourly patterns
-                current_hour = datetime.utcnow().hour
-                hourly_patterns = analytics.hourly_patterns or {str(i): 0 for i in range(24)}
-                hourly_patterns[str(current_hour)] = hourly_patterns.get(str(current_hour), 0) + 1
-                analytics.hourly_patterns = hourly_patterns
-                
-                # Update daily usage
-                today_str = today.isoformat()
-                daily_usage = analytics.daily_usage or {}
-                daily_usage[today_str] = daily_usage.get(today_str, 0) + 1
-                analytics.daily_usage = daily_usage
-                
-                db.commit()
-                
-        except Exception as e:
-            logger.error(f"Error updating usage analytics: {str(e)}")
+    async def _update_real_time_metrics(self, event: PromptUsageEvent):
+        """Update real-time metrics for immediate access."""
+        key = f"{event.prompt_id}:{event.version_id or 'latest'}"
+        
+        if key not in self.real_time_metrics:
+            self.real_time_metrics[key] = {
+                'total_requests': 0,
+                'successful_requests': 0,
+                'failed_requests': 0,
+                'response_times': [],
+                'accuracy_scores': [],
+                'last_updated': datetime.utcnow()
+            }
+        
+        metrics = self.real_time_metrics[key]
+        metrics['total_requests'] += 1
+        
+        if event.success:
+            metrics['successful_requests'] += 1
+        else:
+            metrics['failed_requests'] += 1
+        
+        if event.response_time_ms is not None:
+            metrics['response_times'].append(event.response_time_ms)
+            # Keep only last 100 measurements for real-time calculations
+            if len(metrics['response_times']) > 100:
+                metrics['response_times'] = metrics['response_times'][-100:]
+        
+        if event.accuracy_score is not None:
+            metrics['accuracy_scores'].append(event.accuracy_score)
+            if len(metrics['accuracy_scores']) > 100:
+                metrics['accuracy_scores'] = metrics['accuracy_scores'][-100:]
+        
+        metrics['last_updated'] = datetime.utcnow()
+    
+    async def get_real_time_metrics(self, prompt_id: str, version_id: Optional[str] = None) -> Dict[str, Any]:
+        """Get real-time metrics for a prompt."""
+        key = f"{prompt_id}:{version_id or 'latest'}"
+        
+        if key not in self.real_time_metrics:
+            return {
+                'prompt_id': prompt_id,
+                'version_id': version_id,
+                'total_requests': 0,
+                'successful_requests': 0,
+                'failed_requests': 0,
+                'success_rate': 0.0,
+                'avg_response_time': None,
+                'avg_accuracy_score': None,
+                'last_updated': None
+            }
+        
+        metrics = self.real_time_metrics[key]
+        
+        # Calculate averages
+        avg_response_time = None
+        if metrics['response_times']:
+            avg_response_time = statistics.mean(metrics['response_times'])
+        
+        avg_accuracy_score = None
+        if metrics['accuracy_scores']:
+            avg_accuracy_score = statistics.mean(metrics['accuracy_scores'])
+        
+        success_rate = 0.0
+        if metrics['total_requests'] > 0:
+            success_rate = metrics['successful_requests'] / metrics['total_requests'] * 100
+        
+        return {
+            'prompt_id': prompt_id,
+            'version_id': version_id,
+            'total_requests': metrics['total_requests'],
+            'successful_requests': metrics['successful_requests'],
+            'failed_requests': metrics['failed_requests'],
+            'success_rate': round(success_rate, 2),
+            'avg_response_time': round(avg_response_time, 2) if avg_response_time else None,
+            'avg_accuracy_score': round(avg_accuracy_score, 3) if avg_accuracy_score else None,
+            'last_updated': metrics['last_updated']
+        }
     
     async def get_prompt_performance_summary(
         self,
         prompt_id: str,
+        version_id: Optional[str] = None,
         days: int = 30
     ) -> Dict[str, Any]:
         """Get comprehensive performance summary for a prompt."""
         try:
-            with get_db_session() as db:
-                # Get metrics for the specified period
-                cutoff_date = datetime.utcnow() - timedelta(days=days)
-                
-                metrics = db.query(PromptMetrics).filter(
-                    and_(
-                        PromptMetrics.prompt_id == prompt_id,
-                        PromptMetrics.created_at >= cutoff_date
-                    )
-                ).all()
-                
-                if not metrics:
-                    return {"error": "No metrics found for this prompt"}
-                
-                # Calculate summary statistics
-                summary = {
-                    "prompt_id": prompt_id,
-                    "period_days": days,
-                    "total_usage": len(metrics),
-                    "performance_metrics": {},
-                    "trends": {},
-                    "recommendations": []
-                }
-                
-                # Calculate performance metrics
-                for metric_name in ['accuracy_score', 'relevance_score', 'efficiency_score', 
-                                  'user_satisfaction', 'response_time_ms', 'token_usage', 'cost_per_request']:
-                    values = [getattr(m, metric_name) for m in metrics if getattr(m, metric_name) is not None]
-                    
-                    if values:
-                        summary["performance_metrics"][metric_name] = {
-                            "average": np.mean(values),
-                            "median": np.median(values),
-                            "std_dev": np.std(values),
-                            "min": min(values),
-                            "max": max(values),
-                            "trend": self._calculate_trend(values)
-                        }
-                
-                # Add usage patterns
-                summary["usage_patterns"] = await self._analyze_usage_patterns(prompt_id, days)
-                
-                # Generate recommendations
-                summary["recommendations"] = self._generate_performance_recommendations(summary)
-                
-                return summary
-                
-        except Exception as e:
-            logger.error(f"Error getting performance summary: {str(e)}")
-            return {"error": str(e)}
-    
-    def _calculate_trend(self, values: List[float]) -> str:
-        """Calculate trend direction for a series of values."""
-        if len(values) < 2:
-            return "insufficient_data"
-        
-        # Simple linear regression to determine trend
-        x = np.arange(len(values))
-        slope = np.polyfit(x, values, 1)[0]
-        
-        if abs(slope) < 0.01:  # Threshold for "stable"
-            return "stable"
-        elif slope > 0:
-            return "improving"
-        else:
-            return "declining"
-    
-    async def _analyze_usage_patterns(self, prompt_id: str, days: int) -> Dict[str, Any]:
-        """Analyze usage patterns for a prompt."""
-        try:
-            with get_db_session() as db:
-                cutoff_date = datetime.utcnow() - timedelta(days=days)
-                
-                analytics = db.query(UsageAnalytics).filter(
-                    and_(
-                        UsageAnalytics.prompt_id == prompt_id,
-                        UsageAnalytics.analysis_period_start >= cutoff_date
-                    )
-                ).all()
-                
-                if not analytics:
-                    return {}
-                
-                # Aggregate patterns
-                total_requests = sum(a.total_requests for a in analytics)
-                avg_response_time = np.mean([a.avg_response_time for a in analytics if a.avg_response_time])
-                
-                # Combine hourly patterns
-                combined_hourly = defaultdict(int)
-                for a in analytics:
-                    if a.hourly_patterns:
-                        for hour, count in a.hourly_patterns.items():
-                            combined_hourly[hour] += count
-                
-                # Find peak usage hours
-                peak_hours = sorted(combined_hourly.items(), key=lambda x: x[1], reverse=True)[:3]
-                
+            end_date = datetime.utcnow()
+            start_date = end_date - timedelta(days=days)
+            
+            # Filter events for the specified prompt and time period
+            relevant_events = [
+                event for event in self.events_buffer
+                if event.prompt_id == prompt_id
+                and (version_id is None or event.version_id == version_id)
+                and start_date <= event.timestamp <= end_date
+            ]
+            
+            if not relevant_events:
                 return {
-                    "total_requests": total_requests,
-                    "avg_response_time": avg_response_time,
-                    "peak_usage_hours": [{"hour": int(h), "requests": c} for h, c in peak_hours],
-                    "usage_distribution": dict(combined_hourly)
+                    'prompt_id': prompt_id,
+                    'version_id': version_id,
+                    'period_start': start_date,
+                    'period_end': end_date,
+                    'total_requests': 0,
+                    'message': 'No usage data found for the specified period'
                 }
-                
+            
+            # Calculate summary statistics
+            total_requests = len(relevant_events)
+            successful_requests = sum(1 for e in relevant_events if e.success)
+            failed_requests = total_requests - successful_requests
+            unique_users = len(set(e.user_id for e in relevant_events if e.user_id))
+            
+            # Calculate performance metrics averages
+            accuracy_scores = [e.accuracy_score for e in relevant_events if e.accuracy_score is not None]
+            relevance_scores = [e.relevance_score for e in relevant_events if e.relevance_score is not None]
+            efficiency_scores = [e.efficiency_score for e in relevant_events if e.efficiency_score is not None]
+            satisfaction_scores = [e.user_satisfaction for e in relevant_events if e.user_satisfaction is not None]
+            response_times = [e.response_time_ms for e in relevant_events if e.response_time_ms is not None]
+            token_usage = [e.token_usage for e in relevant_events if e.token_usage is not None]
+            costs = [e.cost_per_request for e in relevant_events if e.cost_per_request is not None]
+            
+            # Calculate hourly and daily usage patterns
+            hourly_usage = defaultdict(int)
+            daily_usage = defaultdict(int)
+            
+            for event in relevant_events:
+                hour = event.timestamp.hour
+                day = event.timestamp.date().isoformat()
+                hourly_usage[hour] += 1
+                daily_usage[day] += 1
+            
+            # Find peak usage hour
+            peak_usage_hour = max(hourly_usage.items(), key=lambda x: x[1])[0] if hourly_usage else None
+            
+            # Calculate trends (simplified)
+            accuracy_trend = self._calculate_trend(accuracy_scores) if accuracy_scores else None
+            usage_trend = self._calculate_usage_trend(daily_usage)
+            
+            summary = {
+                'prompt_id': prompt_id,
+                'version_id': version_id,
+                'period_start': start_date,
+                'period_end': end_date,
+                'total_requests': total_requests,
+                'successful_requests': successful_requests,
+                'failed_requests': failed_requests,
+                'success_rate': round(successful_requests / total_requests * 100, 2) if total_requests > 0 else 0,
+                'unique_users': unique_users,
+                'avg_accuracy_score': round(statistics.mean(accuracy_scores), 3) if accuracy_scores else None,
+                'avg_relevance_score': round(statistics.mean(relevance_scores), 3) if relevance_scores else None,
+                'avg_efficiency_score': round(statistics.mean(efficiency_scores), 3) if efficiency_scores else None,
+                'avg_user_satisfaction': round(statistics.mean(satisfaction_scores), 3) if satisfaction_scores else None,
+                'avg_response_time_ms': round(statistics.mean(response_times), 2) if response_times else None,
+                'avg_token_usage': round(statistics.mean(token_usage), 2) if token_usage else None,
+                'avg_cost_per_request': round(statistics.mean(costs), 4) if costs else None,
+                'total_cost': round(sum(costs), 2) if costs else None,
+                'accuracy_trend': accuracy_trend,
+                'usage_trend': usage_trend,
+                'hourly_usage': dict(hourly_usage),
+                'daily_usage': dict(daily_usage),
+                'peak_usage_hour': peak_usage_hour
+            }
+            
+            return summary
+            
         except Exception as e:
-            logger.error(f"Error analyzing usage patterns: {str(e)}")
-            return {}
+            self.logger.error(f"Error getting prompt performance summary: {e}")
+            return {'error': str(e)}
     
-    def _generate_performance_recommendations(self, summary: Dict[str, Any]) -> List[str]:
-        """Generate AI-powered performance recommendations."""
-        recommendations = []
-        
-        performance_metrics = summary.get("performance_metrics", {})
-        
-        # Check accuracy
-        if "accuracy_score" in performance_metrics:
-            avg_accuracy = performance_metrics["accuracy_score"]["average"]
-            if avg_accuracy < self.performance_thresholds["accuracy_score"]["poor"]:
-                recommendations.append("Consider revising prompt structure to improve accuracy")
-            elif performance_metrics["accuracy_score"]["trend"] == "declining":
-                recommendations.append("Accuracy is declining - review recent changes")
-        
-        # Check response time
-        if "response_time_ms" in performance_metrics:
-            avg_time = performance_metrics["response_time_ms"]["average"]
-            if avg_time > self.performance_thresholds["response_time_ms"]["poor"]:
-                recommendations.append("Response time is high - consider prompt optimization")
-        
-        # Check user satisfaction
-        if "user_satisfaction" in performance_metrics:
-            avg_satisfaction = performance_metrics["user_satisfaction"]["average"]
-            if avg_satisfaction < self.performance_thresholds["user_satisfaction"]["poor"]:
-                recommendations.append("User satisfaction is low - gather feedback for improvements")
-        
-        # Usage-based recommendations
-        usage_patterns = summary.get("usage_patterns", {})
-        if usage_patterns.get("total_requests", 0) > 1000:
-            recommendations.append("High usage detected - consider A/B testing for optimization")
-        
-        return recommendations
-    
-    async def get_team_analytics(
-        self,
-        team_id: str,
-        days: int = 30
-    ) -> Dict[str, Any]:
+    async def get_team_analytics(self, team_id: str, days: int = 30) -> Dict[str, Any]:
         """Get comprehensive analytics for a team."""
         try:
-            with get_db_session() as db:
-                cutoff_date = datetime.utcnow() - timedelta(days=days)
-                
-                # Get all metrics for team
-                metrics = db.query(PromptMetrics).filter(
-                    and_(
-                        PromptMetrics.team_id == team_id,
-                        PromptMetrics.created_at >= cutoff_date
-                    )
-                ).all()
-                
-                if not metrics:
-                    return {"error": "No metrics found for this team"}
-                
-                # Group by prompt
-                prompt_metrics = defaultdict(list)
-                for metric in metrics:
-                    prompt_metrics[metric.prompt_id].append(metric)
-                
-                # Calculate team summary
-                team_summary = {
-                    "team_id": team_id,
-                    "period_days": days,
-                    "total_prompts": len(prompt_metrics),
-                    "total_usage": len(metrics),
-                    "prompt_performance": {},
-                    "top_performers": [],
-                    "improvement_opportunities": []
+            end_date = datetime.utcnow()
+            start_date = end_date - timedelta(days=days)
+            
+            # Filter events for the team
+            team_events = [
+                event for event in self.events_buffer
+                if event.team_id == team_id
+                and start_date <= event.timestamp <= end_date
+            ]
+            
+            if not team_events:
+                return {
+                    'team_id': team_id,
+                    'period_start': start_date,
+                    'period_end': end_date,
+                    'total_requests': 0,
+                    'message': 'No usage data found for the specified team and period'
                 }
-                
-                # Analyze each prompt
-                for prompt_id, prompt_metrics_list in prompt_metrics.items():
-                    performance = self._calculate_prompt_performance_score(prompt_metrics_list)
-                    team_summary["prompt_performance"][prompt_id] = performance
-                
-                # Identify top performers and improvement opportunities
-                sorted_prompts = sorted(
-                    team_summary["prompt_performance"].items(),
-                    key=lambda x: x[1]["overall_score"],
-                    reverse=True
-                )
-                
-                team_summary["top_performers"] = sorted_prompts[:5]
-                team_summary["improvement_opportunities"] = sorted_prompts[-5:]
-                
-                return team_summary
-                
+            
+            # Calculate team-wide statistics
+            total_requests = len(team_events)
+            successful_requests = sum(1 for e in team_events if e.success)
+            unique_prompts = len(set(e.prompt_id for e in team_events))
+            unique_users = len(set(e.user_id for e in team_events if e.user_id))
+            
+            # Prompt usage breakdown
+            prompt_usage = Counter(e.prompt_id for e in team_events)
+            top_prompts = [
+                {'prompt_id': prompt_id, 'usage_count': count}
+                for prompt_id, count in prompt_usage.most_common(10)
+            ]
+            
+            # User activity breakdown
+            user_activity = Counter(e.user_id for e in team_events if e.user_id)
+            top_users = [
+                {'user_id': user_id, 'request_count': count}
+                for user_id, count in user_activity.most_common(10)
+            ]
+            
+            # Performance metrics
+            accuracy_scores = [e.accuracy_score for e in team_events if e.accuracy_score is not None]
+            response_times = [e.response_time_ms for e in team_events if e.response_time_ms is not None]
+            costs = [e.cost_per_request for e in team_events if e.cost_per_request is not None]
+            
+            # Daily usage pattern
+            daily_usage = defaultdict(int)
+            for event in team_events:
+                day = event.timestamp.date().isoformat()
+                daily_usage[day] += 1
+            
+            analytics = {
+                'team_id': team_id,
+                'period_start': start_date,
+                'period_end': end_date,
+                'summary': {
+                    'total_requests': total_requests,
+                    'successful_requests': successful_requests,
+                    'success_rate': round(successful_requests / total_requests * 100, 2) if total_requests > 0 else 0,
+                    'unique_prompts': unique_prompts,
+                    'unique_users': unique_users,
+                    'avg_accuracy_score': round(statistics.mean(accuracy_scores), 3) if accuracy_scores else None,
+                    'avg_response_time_ms': round(statistics.mean(response_times), 2) if response_times else None,
+                    'total_cost': round(sum(costs), 2) if costs else None
+                },
+                'top_prompts': top_prompts,
+                'top_users': top_users,
+                'daily_usage': dict(daily_usage),
+                'usage_trend': self._calculate_usage_trend(daily_usage)
+            }
+            
+            return analytics
+            
         except Exception as e:
-            logger.error(f"Error getting team analytics: {str(e)}")
-            return {"error": str(e)}
+            self.logger.error(f"Error getting team analytics: {e}")
+            return {'error': str(e)}
     
-    def _calculate_prompt_performance_score(self, metrics: List[PromptMetrics]) -> Dict[str, Any]:
-        """Calculate overall performance score for a prompt."""
-        scores = []
+    def _calculate_trend(self, values: List[float]) -> str:
+        """Calculate trend direction from a list of values."""
+        if len(values) < 2:
+            return 'stable'
         
-        # Weight different metrics
-        weights = {
-            'accuracy_score': 0.3,
-            'relevance_score': 0.25,
-            'efficiency_score': 0.2,
-            'user_satisfaction': 0.25
-        }
+        # Simple trend calculation using first and last quartiles
+        n = len(values)
+        first_quarter = values[:n//4] if n >= 4 else values[:1]
+        last_quarter = values[-n//4:] if n >= 4 else values[-1:]
         
-        for metric_name, weight in weights.items():
-            values = [getattr(m, metric_name) for m in metrics if getattr(m, metric_name) is not None]
-            if values:
-                avg_value = np.mean(values)
-                scores.append(avg_value * weight)
+        if not first_quarter or not last_quarter:
+            return 'stable'
         
-        overall_score = sum(scores) if scores else 0
+        first_avg = statistics.mean(first_quarter)
+        last_avg = statistics.mean(last_quarter)
         
-        return {
-            "overall_score": overall_score,
-            "usage_count": len(metrics),
-            "performance_category": self._categorize_performance(overall_score)
-        }
-    
-    def _categorize_performance(self, score: float) -> str:
-        """Categorize performance based on score."""
-        if score >= 0.8:
-            return "excellent"
-        elif score >= 0.7:
-            return "good"
-        elif score >= 0.6:
-            return "fair"
+        change_percent = ((last_avg - first_avg) / first_avg * 100) if first_avg != 0 else 0
+        
+        if change_percent > 5:
+            return 'improving'
+        elif change_percent < -5:
+            return 'declining'
         else:
-            return "needs_improvement"
+            return 'stable'
+    
+    def _calculate_usage_trend(self, daily_usage: Dict[str, int]) -> str:
+        """Calculate usage trend from daily usage data."""
+        if len(daily_usage) < 2:
+            return 'stable'
+        
+        # Sort by date and get values
+        sorted_days = sorted(daily_usage.keys())
+        values = [daily_usage[day] for day in sorted_days]
+        
+        return self._calculate_trend(values)
+    
+    async def flush_events_to_storage(self):
+        """Flush events buffer to persistent storage."""
+        if not self.events_buffer:
+            return
+        
+        try:
+            # In a real implementation, this would save to database
+            # For now, we'll just log the flush operation
+            self.logger.info(f"Flushing {len(self.events_buffer)} events to storage")
+            
+            # Keep only recent events in memory (last 10000)
+            if len(self.events_buffer) > 10000:
+                self.events_buffer = self.events_buffer[-10000:]
+            
+        except Exception as e:
+            self.logger.error(f"Error flushing events to storage: {e}")
+    
+    async def start_background_tasks(self):
+        """Start background tasks for analytics processing."""
+        self.running = True
+        
+        # Start periodic flush task
+        asyncio.create_task(self._periodic_flush())
+        
+        self.logger.info("Prompt performance tracker started")
+    
+    async def stop_background_tasks(self):
+        """Stop background tasks."""
+        self.running = False
+        self.logger.info("Prompt performance tracker stopped")
+    
+    async def _periodic_flush(self):
+        """Periodically flush events to storage."""
+        while self.running:
+            try:
+                await self.flush_events_to_storage()
+                await asyncio.sleep(300)  # Flush every 5 minutes
+            except Exception as e:
+                self.logger.error(f"Error in periodic flush: {e}")
+                await asyncio.sleep(60)
 
 class AnalyticsEngine:
-    """Main analytics engine for prompt management system."""
+    """Advanced analytics engine for prompt performance analysis."""
     
     def __init__(self):
+        self.logger = get_logger(__name__)
         self.performance_tracker = PromptPerformanceTracker()
-        self.trend_analyzer = TrendAnalyzer()
-        self.pattern_recognizer = PatternRecognizer()
     
-    async def generate_comprehensive_report(
-        self,
-        report_type: str,
-        scope: Dict[str, Any],
-        date_range: Tuple[datetime, datetime]
-    ) -> str:
-        """Generate comprehensive analytics report."""
-        try:
-            report_data = {
-                "report_type": report_type,
-                "scope": scope,
-                "date_range": date_range,
-                "generated_at": datetime.utcnow(),
-                "summary": {},
-                "detailed_analysis": {},
-                "recommendations": []
-            }
-            
-            if report_type == "performance":
-                report_data = await self._generate_performance_report(report_data)
-            elif report_type == "usage":
-                report_data = await self._generate_usage_report(report_data)
-            elif report_type == "team":
-                report_data = await self._generate_team_report(report_data)
-            elif report_type == "trend":
-                report_data = await self._generate_trend_report(report_data)
-            
-            # Save report to database
-            with get_db_session() as db:
-                report = AnalyticsReport(
-                    report_type=report_type,
-                    title=f"{report_type.title()} Report - {datetime.utcnow().strftime('%Y-%m-%d')}",
-                    description=f"Comprehensive {report_type} analysis",
-                    prompt_ids=scope.get("prompt_ids"),
-                    team_ids=scope.get("team_ids"),
-                    date_range_start=date_range[0],
-                    date_range_end=date_range[1],
-                    summary=report_data["summary"],
-                    detailed_data=report_data["detailed_analysis"],
-                    recommendations=report_data["recommendations"],
-                    status="generated"
-                )
-                
-                db.add(report)
-                db.commit()
-                
-                logger.info(f"Generated {report_type} report: {report.id}")
-                return report.id
-                
-        except Exception as e:
-            logger.error(f"Error generating report: {str(e)}")
-            raise
-    
-    async def _generate_performance_report(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate performance-focused report."""
-        # Implementation for performance report
-        report_data["summary"]["report_focus"] = "Performance Analysis"
-        return report_data
-    
-    async def _generate_usage_report(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate usage-focused report."""
-        # Implementation for usage report
-        report_data["summary"]["report_focus"] = "Usage Analysis"
-        return report_data
-    
-    async def _generate_team_report(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate team-focused report."""
-        # Implementation for team report
-        report_data["summary"]["report_focus"] = "Team Analysis"
-        return report_data
-    
-    async def _generate_trend_report(self, report_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate trend-focused report."""
-        # Implementation for trend report
-        report_data["summary"]["report_focus"] = "Trend Analysis"
-        return report_data
-
-class TrendAnalyzer:
-    """Analyzes trends in prompt performance and usage."""
-    
-    def __init__(self):
-        self.trend_algorithms = ['linear', 'polynomial', 'seasonal']
-    
-    async def analyze_trends(
+    async def generate_performance_insights(
         self,
         prompt_id: str,
-        metric_name: str,
         days: int = 30
-    ) -> TrendAnalysis:
-        """Analyze trends for a specific metric."""
+    ) -> Dict[str, Any]:
+        """Generate AI-powered insights about prompt performance."""
         try:
-            with get_db_session() as db:
-                cutoff_date = datetime.utcnow() - timedelta(days=days)
-                
-                metrics = db.query(PromptMetrics).filter(
-                    and_(
-                        PromptMetrics.prompt_id == prompt_id,
-                        PromptMetrics.created_at >= cutoff_date
-                    )
-                ).order_by(PromptMetrics.created_at).all()
-                
-                values = [getattr(m, metric_name) for m in metrics if getattr(m, metric_name) is not None]
-                timestamps = [m.created_at for m in metrics if getattr(m, metric_name) is not None]
-                
-                if len(values) < 3:
-                    return TrendAnalysis(
-                        metric_name=metric_name,
-                        trend_direction="insufficient_data",
-                        trend_strength=0.0,
-                        confidence_level=0.0,
-                        data_points=[],
-                        forecast=None
-                    )
-                
-                # Calculate trend
-                trend_direction, trend_strength, confidence = self._calculate_advanced_trend(values)
-                
-                # Prepare data points
-                data_points = [
-                    {"timestamp": ts.isoformat(), "value": val}
-                    for ts, val in zip(timestamps, values)
-                ]
-                
-                # Generate forecast
-                forecast = self._generate_forecast(values, timestamps)
-                
-                return TrendAnalysis(
-                    metric_name=metric_name,
-                    trend_direction=trend_direction,
-                    trend_strength=trend_strength,
-                    confidence_level=confidence,
-                    data_points=data_points,
-                    forecast=forecast
-                )
-                
-        except Exception as e:
-            logger.error(f"Error analyzing trends: {str(e)}")
-            raise
-    
-    def _calculate_advanced_trend(self, values: List[float]) -> Tuple[str, float, float]:
-        """Calculate advanced trend analysis."""
-        if len(values) < 3:
-            return "insufficient_data", 0.0, 0.0
-        
-        # Linear regression
-        x = np.arange(len(values))
-        slope, intercept = np.polyfit(x, values, 1)
-        
-        # Calculate R-squared for confidence
-        y_pred = slope * x + intercept
-        ss_res = np.sum((values - y_pred) ** 2)
-        ss_tot = np.sum((values - np.mean(values)) ** 2)
-        r_squared = 1 - (ss_res / ss_tot) if ss_tot != 0 else 0
-        
-        # Determine trend direction and strength
-        trend_strength = abs(slope) / (max(values) - min(values)) if max(values) != min(values) else 0
-        
-        if abs(slope) < 0.01:
-            trend_direction = "stable"
-        elif slope > 0:
-            trend_direction = "increasing"
-        else:
-            trend_direction = "decreasing"
-        
-        return trend_direction, min(trend_strength, 1.0), max(0.0, min(r_squared, 1.0))
-    
-    def _generate_forecast(self, values: List[float], timestamps: List[datetime]) -> List[Dict[str, Any]]:
-        """Generate simple forecast based on trend."""
-        if len(values) < 3:
-            return []
-        
-        # Simple linear extrapolation
-        x = np.arange(len(values))
-        slope, intercept = np.polyfit(x, values, 1)
-        
-        # Forecast next 7 days
-        forecast_points = []
-        last_timestamp = timestamps[-1]
-        
-        for i in range(1, 8):
-            future_timestamp = last_timestamp + timedelta(days=i)
-            future_value = slope * (len(values) + i - 1) + intercept
+            # Get performance summary
+            summary = await self.performance_tracker.get_prompt_performance_summary(
+                prompt_id=prompt_id,
+                days=days
+            )
             
-            forecast_points.append({
-                "timestamp": future_timestamp.isoformat(),
-                "predicted_value": max(0, future_value),  # Ensure non-negative
-                "confidence": max(0, 1 - (i * 0.1))  # Decreasing confidence
-            })
-        
-        return forecast_points
-
-class PatternRecognizer:
-    """Recognizes patterns in prompt usage and performance."""
+            if 'error' in summary:
+                return summary
+            
+            insights = []
+            recommendations = []
+            
+            # Analyze success rate
+            success_rate = summary.get('success_rate', 0)
+            if success_rate < 90:
+                insights.append(f"Success rate is {success_rate}%, which is below optimal (>95%)")
+                recommendations.append("Review error patterns and improve prompt reliability")
+            elif success_rate > 98:
+                insights.append(f"Excellent success rate of {success_rate}%")
+            
+            # Analyze response time
+            avg_response_time = summary.get('avg_response_time_ms')
+            if avg_response_time and avg_response_time > 5000:
+                insights.append(f"Average response time is {avg_response_time}ms, which may impact user experience")
+                recommendations.append("Consider optimizing prompt length or model selection")
+            
+            # Analyze accuracy trend
+            accuracy_trend = summary.get('accuracy_trend')
+            if accuracy_trend == 'declining':
+                insights.append("Accuracy scores are declining over time")
+                recommendations.append("Review recent prompt changes and consider A/B testing")
+            elif accuracy_trend == 'improving':
+                insights.append("Accuracy scores are improving over time")
+            
+            # Analyze usage patterns
+            hourly_usage = summary.get('hourly_usage', {})
+            if hourly_usage:
+                peak_hour = max(hourly_usage.items(), key=lambda x: x[1])[0]
+                insights.append(f"Peak usage occurs at hour {peak_hour}")
+            
+            # Cost analysis
+            total_cost = summary.get('total_cost')
+            avg_cost = summary.get('avg_cost_per_request')
+            if total_cost and avg_cost:
+                if avg_cost > 0.01:  # Threshold for expensive requests
+                    insights.append(f"Average cost per request is ${avg_cost:.4f}")
+                    recommendations.append("Consider cost optimization strategies")
+            
+            return {
+                'prompt_id': prompt_id,
+                'analysis_period': f"{days} days",
+                'insights': insights,
+                'recommendations': recommendations,
+                'performance_summary': summary,
+                'generated_at': datetime.utcnow()
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error generating performance insights: {e}")
+            return {'error': str(e)}
     
-    def __init__(self):
-        self.pattern_types = ['seasonal', 'cyclical', 'anomaly', 'usage_spike', 'performance_drop']
-    
-    async def recognize_patterns(
+    async def compare_prompt_versions(
         self,
-        prompt_ids: List[str],
+        prompt_id: str,
+        version_ids: List[str],
         days: int = 30
-    ) -> List[PatternRecognition]:
-        """Recognize patterns across multiple prompts."""
-        patterns = []
-        
+    ) -> Dict[str, Any]:
+        """Compare performance between different prompt versions."""
         try:
-            with get_db_session() as db:
-                cutoff_date = datetime.utcnow() - timedelta(days=days)
-                
-                for prompt_id in prompt_ids:
-                    # Get usage analytics
-                    analytics = db.query(UsageAnalytics).filter(
-                        and_(
-                            UsageAnalytics.prompt_id == prompt_id,
-                            UsageAnalytics.analysis_period_start >= cutoff_date
-                        )
-                    ).all()
+            comparisons = {}
+            
+            for version_id in version_ids:
+                summary = await self.performance_tracker.get_prompt_performance_summary(
+                    prompt_id=prompt_id,
+                    version_id=version_id,
+                    days=days
+                )
+                comparisons[version_id] = summary
+            
+            # Find best performing version
+            best_version = None
+            best_score = 0
+            
+            for version_id, summary in comparisons.items():
+                if 'error' not in summary:
+                    # Calculate composite score
+                    accuracy = summary.get('avg_accuracy_score', 0) or 0
+                    success_rate = summary.get('success_rate', 0) / 100
+                    response_time_score = 1 - min(summary.get('avg_response_time_ms', 1000) / 10000, 1)
                     
-                    if analytics:
-                        prompt_patterns = self._analyze_prompt_patterns(prompt_id, analytics)
-                        patterns.extend(prompt_patterns)
-                
-                return patterns
-                
-        except Exception as e:
-            logger.error(f"Error recognizing patterns: {str(e)}")
-            return []
-    
-    def _analyze_prompt_patterns(
-        self,
-        prompt_id: str,
-        analytics: List[UsageAnalytics]
-    ) -> List[PatternRecognition]:
-        """Analyze patterns for a specific prompt."""
-        patterns = []
-        
-        # Analyze hourly usage patterns
-        hourly_pattern = self._detect_hourly_patterns(analytics)
-        if hourly_pattern:
-            patterns.append(PatternRecognition(
-                pattern_type="cyclical",
-                pattern_description=f"Daily usage cycle detected for prompt {prompt_id}",
-                confidence_score=hourly_pattern["confidence"],
-                affected_prompts=[prompt_id],
-                recommendations=[
-                    "Consider scheduling optimization during low-usage hours",
-                    "Prepare for peak usage periods"
-                ]
-            ))
-        
-        # Analyze usage anomalies
-        anomaly_pattern = self._detect_usage_anomalies(analytics)
-        if anomaly_pattern:
-            patterns.append(PatternRecognition(
-                pattern_type="anomaly",
-                pattern_description=f"Usage anomaly detected for prompt {prompt_id}",
-                confidence_score=anomaly_pattern["confidence"],
-                affected_prompts=[prompt_id],
-                recommendations=[
-                    "Investigate cause of usage anomaly",
-                    "Monitor for continued unusual patterns"
-                ]
-            ))
-        
-        return patterns
-    
-    def _detect_hourly_patterns(self, analytics: List[UsageAnalytics]) -> Optional[Dict[str, Any]]:
-        """Detect hourly usage patterns."""
-        if not analytics:
-            return None
-        
-        # Combine hourly patterns
-        combined_hourly = defaultdict(int)
-        for a in analytics:
-            if a.hourly_patterns:
-                for hour, count in a.hourly_patterns.items():
-                    combined_hourly[int(hour)] += count
-        
-        if len(combined_hourly) < 12:  # Need sufficient data
-            return None
-        
-        # Calculate pattern strength
-        hourly_values = [combined_hourly.get(i, 0) for i in range(24)]
-        pattern_strength = np.std(hourly_values) / np.mean(hourly_values) if np.mean(hourly_values) > 0 else 0
-        
-        if pattern_strength > 0.5:  # Threshold for significant pattern
-            return {
-                "confidence": min(pattern_strength, 1.0),
-                "peak_hours": sorted(combined_hourly.items(), key=lambda x: x[1], reverse=True)[:3]
-            }
-        
-        return None
-    
-    def _detect_usage_anomalies(self, analytics: List[UsageAnalytics]) -> Optional[Dict[str, Any]]:
-        """Detect usage anomalies."""
-        if len(analytics) < 7:  # Need at least a week of data
-            return None
-        
-        # Get daily usage counts
-        daily_usage = []
-        for a in analytics:
-            if a.daily_usage:
-                daily_total = sum(a.daily_usage.values())
-                daily_usage.append(daily_total)
-        
-        if len(daily_usage) < 7:
-            return None
-        
-        # Calculate z-scores to detect anomalies
-        mean_usage = np.mean(daily_usage)
-        std_usage = np.std(daily_usage)
-        
-        if std_usage == 0:
-            return None
-        
-        z_scores = [(usage - mean_usage) / std_usage for usage in daily_usage]
-        anomaly_threshold = 2.0  # Standard threshold for anomalies
-        
-        anomalies = [abs(z) > anomaly_threshold for z in z_scores]
-        
-        if any(anomalies):
-            anomaly_count = sum(anomalies)
-            confidence = min(anomaly_count / len(daily_usage), 1.0)
+                    composite_score = (accuracy * 0.4 + success_rate * 0.4 + response_time_score * 0.2)
+                    
+                    if composite_score > best_score:
+                        best_score = composite_score
+                        best_version = version_id
             
             return {
-                "confidence": confidence,
-                "anomaly_days": anomaly_count,
-                "total_days": len(daily_usage)
+                'prompt_id': prompt_id,
+                'comparison_period': f"{days} days",
+                'version_comparisons': comparisons,
+                'best_version': best_version,
+                'best_score': round(best_score, 3),
+                'generated_at': datetime.utcnow()
             }
-        
-        return None
+            
+        except Exception as e:
+            self.logger.error(f"Error comparing prompt versions: {e}")
+            return {'error': str(e)}
+
+# Global instances
+prompt_performance_tracker = PromptPerformanceTracker()
+analytics_engine = AnalyticsEngine()

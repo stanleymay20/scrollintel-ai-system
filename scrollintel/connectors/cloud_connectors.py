@@ -9,13 +9,21 @@ from datetime import datetime, timedelta
 import aiohttp
 import json
 
-from ..core.data_connector import BaseDataConnector, DataRecord, ConnectionStatus
+from ..core.data_connector import (
+    BaseDataConnector, DataRecord, ConnectionStatus,
+    ConnectorError, ConnectionError, AuthenticationError, 
+    DataFetchError, TimeoutError, retry_on_failure
+)
 
 logger = logging.getLogger(__name__)
 
 
 class AWSConnector(BaseDataConnector):
     """Connector for AWS Cost and Usage APIs"""
+    
+    def get_required_params(self) -> List[str]:
+        """Get required AWS connection parameters"""
+        return ['access_key_id', 'secret_access_key']
     
     async def connect(self) -> bool:
         """Connect to AWS"""
@@ -201,6 +209,10 @@ class AWSConnector(BaseDataConnector):
 
 class AzureConnector(BaseDataConnector):
     """Connector for Azure Cost Management and Monitor APIs"""
+    
+    def get_required_params(self) -> List[str]:
+        """Get required Azure connection parameters"""
+        return ['client_id', 'client_secret', 'tenant_id', 'subscription_id']
     
     async def connect(self) -> bool:
         """Connect to Azure"""
@@ -389,6 +401,10 @@ class AzureConnector(BaseDataConnector):
 
 class GCPConnector(BaseDataConnector):
     """Connector for Google Cloud Platform Billing and Monitoring APIs"""
+    
+    def get_required_params(self) -> List[str]:
+        """Get required GCP connection parameters"""
+        return ['service_account_key', 'project_id']
     
     async def connect(self) -> bool:
         """Connect to GCP"""
