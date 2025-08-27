@@ -2,6 +2,21 @@
 
 This comprehensive guide will help you deploy ScrollIntel.com to production with full automation, monitoring, and security features.
 
+## 🚀 Quick Fix Deployment (Recommended)
+
+If you're having deployment issues, use our quick fix script:
+
+```bash
+# Fix common issues and deploy
+python3 deploy_scrollintel_quick_fix.py
+
+# Or use the simple fix
+python3 fix_and_deploy.py
+
+# Test the deployment
+python3 test_scrollintel_health.py
+```
+
 ## 🚀 One-Command Deployment
 
 For the fastest deployment, run our automated setup:
@@ -136,6 +151,46 @@ Your complete ScrollIntel.com platform includes:
 - **Audit Logging**: Comprehensive activity tracking
 - **Compliance Reporting**: Regulatory compliance tools
 - **Access Control**: Role-based permissions
+
+## � Trioubleshooting Common Issues
+
+### Docker Build Issues
+If you're seeing Docker build failures:
+```bash
+# Clean Docker and rebuild
+python3 fix_and_deploy.py
+```
+
+### Health Check Failures
+If health checks are failing:
+```bash
+# Test all endpoints
+python3 test_scrollintel_health.py
+
+# Check logs
+docker-compose logs backend
+
+# Restart services
+docker-compose restart
+```
+
+### Port Conflicts
+If port 8000 is in use:
+```bash
+# Find what's using the port
+lsof -i :8000
+
+# Kill the process or change the port in docker-compose.yml
+```
+
+### Database Connection Issues
+```bash
+# Reset database
+docker-compose down -v
+docker-compose up -d db
+# Wait 30 seconds
+docker-compose up -d backend
+```
 
 ## 🚨 Quick Deployment Options
 
