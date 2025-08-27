@@ -141,9 +141,6 @@ def create_health_router(agent_registry: AgentRegistry) -> APIRouter:
             "timestamp": time.time()
         }
     
-    return router
-
-
     @router.get("/metrics")
     async def system_metrics():
         """System metrics endpoint for monitoring."""
