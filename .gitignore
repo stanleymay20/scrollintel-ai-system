@@ -125,6 +125,7 @@ celerybeat.pid
 .env.development.local
 .env.test.local
 .env.production.local
+.env.production
 .venv
 env/
 venv/
@@ -424,4 +425,25 @@ board_testing_report_*.txt
 !.kiro/settings/.gitkeep
 
 # Keep spec files - these are important for the project
-!.kiro/specs/
+!.kiro/specs/# ===============================
+# 🔐 SECURITY & CREDENTIALS
+# ===============================
+# Never commit these sensitive files
+.env.secure*
+.env.backup*
+*.env.backup
+credentials_inventory.json
+*.gpg
+*.asc
+api_keys.txt
+secrets.txt
+private_keys/
+certificates/
+*.p12
+*.pfx
+RAILWAY_ENV_VARS.md
+
+# Encrypted backups (keep encrypted versions only)
+*.env.*.gpg
+*.key.gpg
+*.secret.gpg

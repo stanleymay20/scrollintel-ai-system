@@ -5,7 +5,8 @@ FROM python:3.11-slim
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PORT=8000
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -19,15 +20,14 @@ RUN apt-get update && apt-get install -y \
 WORKDIR /app
 
 # Copy requirements first for better caching
-COPY requirements_railway.txt .
+COPY requirements.railway.txt .
 
 # Install Python dependencies
 RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -r requirements_railway.txt
+    pip install --no-cache-dir -r requirements.railway.txt
 
 # Copy source code
-COPY scrollintel/ ./scrollintel/
-COPY start_railway.py .
+COPY . .
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/models /app/uploads
@@ -35,9 +35,9 @@ RUN mkdir -p /app/logs /app/models /app/uploads
 # Expose port (Railway will set PORT env var)
 EXPOSE $PORT
 
-# Health check (Railway uses port 8000 by default)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+# Health check
+HEALTHCHECK --interval=30s --timeout=30s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:$PORT/health || exit 1
 
-# Use Railway startup script
-CMD ["python", "start_railway.py"]
+# Start command
+CMD ["python", "start.py"]

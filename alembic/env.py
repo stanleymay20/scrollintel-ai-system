@@ -37,15 +37,24 @@ target_metadata = Base.metadata
 
 def get_database_url():
     """Get database URL from configuration."""
+    # First try environment variable (Railway provides this)
+    database_url = os.getenv("DATABASE_URL")
+    
+    if database_url:
+        # Handle Railway PostgreSQL URL format
+        if database_url.startswith('postgresql://'):
+            database_url = database_url.replace('postgresql://', 'postgresql+psycopg2://', 1)
+        return database_url
+    
+    # Try app config as fallback
     try:
         app_config = get_config()
-        return app_config.database_url
+        return getattr(app_config, 'database_url', None)
     except Exception:
-        # Fallback to environment variable or default
-        return os.getenv(
-            "DATABASE_URL",
-            os.getenv("DATABASE_URL", "postgresql://postgres:password@localhost:5432/scrollintel")
-        )
+        pass
+    
+    # Final fallback to SQLite for development
+    return "sqlite:///./scrollintel.db"
 
 
 def run_migrations_offline() -> None:

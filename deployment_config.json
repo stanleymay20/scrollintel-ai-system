@@ -1,0 +1,79 @@
+{
+  "core_services": [
+    {
+      "url": "http://localhost:8000/health",
+      "name": "Backend Health API",
+      "timeout": 10,
+      "expected_status": 200
+    },
+    {
+      "url": "http://localhost:8000/docs",
+      "name": "API Documentation",
+      "timeout": 10,
+      "expected_status": 200
+    },
+    {
+      "url": "http://localhost:3000",
+      "name": "Frontend Application",
+      "timeout": 10,
+      "expected_status": 200
+    }
+  ],
+  "api_endpoints": [
+    {
+      "url": "http://localhost:8000/api/v1/agents",
+      "name": "Agents API",
+      "timeout": 5,
+      "expected_status": 200
+    },
+    {
+      "url": "http://localhost:8000/api/v1/chat",
+      "name": "Chat API",
+      "timeout": 5,
+      "expected_status": 405
+    },
+    {
+      "url": "http://localhost:8000/api/v1/monitoring",
+      "name": "Monitoring API",
+      "timeout": 5,
+      "expected_status": 200
+    }
+  ],
+  "critical_files": [
+    {
+      "path": "frontend/src",
+      "name": "Frontend Source",
+      "type": "directory"
+    },
+    {
+      "path": "scrollintel",
+      "name": "Backend Source",
+      "type": "directory"
+    },
+    {
+      "path": "requirements.txt",
+      "name": "Requirements",
+      "type": "file"
+    },
+    {
+      "path": "docker-compose.yml",
+      "name": "Docker Compose",
+      "type": "file"
+    }
+  ],
+  "database": {
+    "type": "sqlite",
+    "paths": ["scrollintel.db", "database.db", "app.db"]
+  },
+  "system_thresholds": {
+    "cpu_warning": 80,
+    "memory_warning": 85,
+    "disk_warning": 90
+  },
+  "monitoring": {
+    "check_docker": true,
+    "check_system_resources": true,
+    "check_file_system": true,
+    "concurrent_checks": 5
+  }
+}
