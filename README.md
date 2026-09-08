@@ -1,201 +1,141 @@
-# ScrollIntel™ - AI-Powered CTO Platform
+# ScrollIntel
 
-> **Replace your CTO with AI agents that analyze data, build models, and make technical decisions**
+**Multi-Agent AI Engineering & Data Decision-Support Platform**
 
-ScrollIntel is a comprehensive AI platform that provides CTO-level capabilities through intelligent agents. Upload your data, get insights, build ML models, and make strategic technical decisions - all powered by advanced AI.
+ScrollIntel is an engineering project exploring how specialized AI agents can coordinate data analysis, machine-learning workflows, quality checks, reporting and technical decision support through a common platform.
 
-## 🚀 Quick Start
+The project should be understood as an **AI-assisted engineering system**, not as a replacement for accountable technical leadership, domain experts or data-science teams. Human review remains necessary for consequential technical, business and policy decisions.
 
-### Option 1: One-Click Launch (Recommended)
+## What the repository demonstrates
 
-```bash
-# Windows
-./launch-scrollintel.bat
+### Multi-agent workflow design
 
-# Linux/Mac
-./launch-scrollintel.sh
+The platform includes specialized agent roles for areas such as:
 
-# Or use quick start
-./quick-start.sh
+- technical architecture and planning;
+- data analysis;
+- machine-learning workflows;
+- AI engineering;
+- business analysis and reporting;
+- software quality and validation.
+
+These roles organize tasks and tools. They do not establish that an agent has the judgment, accountability or organizational authority of a human executive.
+
+### Data and ML capabilities
+
+- CSV, Excel, JSON and Parquet processing;
+- automated data profiling and exploratory analysis;
+- machine-learning workflow orchestration;
+- interactive visualisation and reporting;
+- natural-language interaction with analytical workflows;
+- system health and performance monitoring;
+- test and quality-assurance tooling.
+
+### Architecture
+
+**Backend:** Python · FastAPI · SQLAlchemy · PostgreSQL
+
+**Frontend:** Next.js · React · TypeScript · Tailwind CSS
+
+**Data/ML:** pandas · NumPy · scikit-learn · AI model integrations
+
+**Infrastructure:** Docker · Redis · Nginx · Prometheus/Grafana-oriented monitoring
+
+## Engineering workflow
+
+```text
+User / Dataset / Task
+        ↓
+Task decomposition
+        ↓
+Specialized agent/tool routing
+        ↓
+Data validation and analysis
+        ↓
+Model / report / technical output
+        ↓
+Quality checks
+        ↓
+Human review and decision
 ```
 
-### Option 2: Docker Compose
+## Potential public-interest relevance
+
+The underlying architecture could be adapted to data-intensive research and development workflows where analysts need repeatable data preparation, modelling, quality checks and reporting. Examples include programme analytics, socioeconomic datasets, operational monitoring and research support.
+
+These are potential applications of the architecture, **not claims of deployment by governments, UN agencies or development organisations**.
+
+## Evidence boundaries
+
+This repository contains substantial engineering and experimentation, but feature presence does not by itself prove production reliability, model validity, organizational impact or return on investment.
+
+Accordingly:
+
+- no customer testimonials are presented without verifiable evidence;
+- no claim is made that ScrollIntel replaces a CTO, consultant or data-science team;
+- model outputs require validation for the relevant dataset and use case;
+- production readiness should be established through current test, security and deployment evidence rather than README language.
+
+## Quick start
+
+### Docker
 
 ```bash
-# 1. Setup environment
 python scripts/setup-environment.py
-
-# 2. Start the system
 docker-compose up -d
-
-# 3. Check health
 python scripts/health-check.py
-
-# 4. Access the platform
-# Frontend: http://localhost:3000
-# API: http://localhost:8000
-# Docs: http://localhost:8000/docs
 ```
 
-### Option 3: Development Setup
+### Development
 
 ```bash
-# Backend
 pip install -r requirements.txt
 python init_database.py
 uvicorn scrollintel.api.main:app --reload
+```
 
-# Frontend (separate terminal)
+Frontend:
+
+```bash
 cd frontend
 npm install
 npm run dev
 ```
 
-## 🎯 Key Features
-
-### 🤖 AI Agents
-- **CTO Agent**: Strategic technical decision making
-- **Data Scientist**: Advanced analytics and insights
-- **ML Engineer**: Model building and deployment
-- **AI Engineer**: AI system architecture
-- **Business Analyst**: Business intelligence and reporting
-- **QA Agent**: Quality assurance and testing
-
-### 📊 Core Capabilities
-- **File Processing**: Upload CSV, Excel, JSON, Parquet files
-- **Auto-Analysis**: Automatic data profiling and insights
-- **ML Models**: AutoML with multiple algorithms
-- **Visualizations**: Interactive charts and dashboards
-- **Natural Language**: Chat with your data
-- **Real-time Monitoring**: System health and performance
-
-### 🔒 Enterprise Ready
-- **Security**: JWT authentication, role-based access
-- **Scalability**: Docker containers, horizontal scaling
-- **Monitoring**: Prometheus, Grafana, alerting
-- **Compliance**: Audit logging, data governance
-- **API**: RESTful API with comprehensive documentation
-
-## 📈 Use Cases
-
-- **Data Analysis**: Upload datasets and get instant insights
-- **ML Model Building**: Build and deploy machine learning models
-- **Business Intelligence**: Create dashboards and reports
-- **Technical Strategy**: Get CTO-level technical recommendations
-- **Quality Assurance**: Automated testing and validation
-- **Performance Monitoring**: Real-time system monitoring
-
-## 🛠️ Technology Stack
-
-- **Backend**: Python, FastAPI, SQLAlchemy, PostgreSQL
-- **Frontend**: Next.js 14, React, TypeScript, Tailwind CSS
-- **AI/ML**: OpenAI GPT, scikit-learn, pandas, numpy
-- **Infrastructure**: Docker, Redis, Nginx, Prometheus
-- **Security**: JWT, bcrypt, CORS, rate limiting
-
-## 📚 Documentation
-
-- [Installation Guide](INSTALLATION_GUIDE.md)
-- [Launch Implementation](SCROLLINTEL_LAUNCH_IMPLEMENTATION.md)
-- [Quick Start Guide](QUICK_START_GUIDE.md)
-- [Deployment Guide](docs/DEPLOYMENT.md)
-- [API Documentation](http://localhost:8000/docs)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-
-## 🔧 Configuration
-
-### Environment Variables
+## Testing
 
 ```bash
-# Required
-OPENAI_API_KEY=your_openai_api_key
-JWT_SECRET_KEY=your_jwt_secret_key
-DATABASE_URL=postgresql://user:pass@localhost/scrollintel
-
-# Optional
-REDIS_URL=redis://localhost:6379
-DEBUG=false
-LOG_LEVEL=INFO
-```
-
-### Database Setup
-
-```bash
-# Initialize database
-python init_database.py
-
-# Run migrations
-alembic upgrade head
-```
-
-## 🧪 Testing
-
-```bash
-# Backend tests
 pytest tests/
-
-# Frontend tests
-cd frontend && npm test
-
-# End-to-end tests
-python test_end_to_end_launch.py
-
-# Production readiness
-python production_readiness_check.py
 ```
 
-## 🚀 Deployment
+Additional repository checks include frontend tests, end-to-end validation and production-readiness tooling. A passing script should be treated as evidence for the conditions it actually tests, not as a blanket certification of the whole system.
 
-### Production Setup
+## Security and configuration
 
-```bash
-# Setup production environment
-python scripts/production-setup.py
+Secrets and deployment credentials must not be committed to source control. The repository is undergoing credential-hygiene remediation for legacy tracked environment files. Current or historical credentials should be treated as potentially exposed until they have been independently rotated/revoked where applicable.
 
-# Deploy to production
-docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+`.gitignore` defines local environment and credential files that should remain outside version control.
 
-# Validate deployment
-python scripts/health-check.py
-```
+## Documentation
 
-### Health Checks
+- `INSTALLATION_GUIDE.md`
+- `QUICK_START_GUIDE.md`
+- `docs/DEPLOYMENT.md`
+- `docs/TROUBLESHOOTING.md`
+- local FastAPI documentation at `/docs` when the API is running
 
-- **System Health**: `python scripts/health-check.py`
-- **API Health**: `GET /health`
-- **Detailed Health**: `GET /health/detailed`
-- **Metrics**: `GET /metrics`
+## Project direction
 
-## 📊 Monitoring
+The current goal is to make the system more defensible as an engineering portfolio project by improving:
 
-- **Prometheus**: http://localhost:9090
-- **Grafana**: http://localhost:3001
-- **Logs**: `docker-compose logs -f`
+- reproducible evaluation;
+- security and credential hygiene;
+- model-quality evidence;
+- data provenance;
+- human-review controls;
+- reliable deployment and observability;
+- documentation that separates implemented features from aspirations.
 
-## 🤝 Contributing
+## License
 
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests
-5. Submit a pull request
-
-## 📄 License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## 🆘 Support
-
-- **Documentation**: Check the docs/ directory
-- **Issues**: Create a GitHub issue
-- **Email**: support@scrollintel.com
-
-## 🎉 Success Stories
-
-> "ScrollIntel replaced our entire data science team. We're now making better decisions faster than ever." - Tech Startup CEO
-
-> "The AI agents understand our business better than most consultants. ROI was immediate." - Fortune 500 CTO
-
----
-
-**ScrollIntel™** - Where artificial intelligence meets unlimited potential. 🌟
+See `LICENSE` for repository licensing terms.
