@@ -119,4 +119,4 @@ class SystemLog(Base):
     message = Column(Text)
     component = Column(String(100))
     timestamp = Column(DateTime, default=datetime.utcnow)
-    metadata = Column(Text, nullable=True)  # JSON string
+    log_metadata = Column("metadata", Text, nullable=True)  # JSON string
