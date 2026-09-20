@@ -482,7 +482,7 @@ class SchemaCatalog:
                     bytes_processed=bytes_processed,
                     success=success,
                     error_message=error_message,
-                    metadata=metadata or {}
+                    usage_metadata=metadata or {}
                 )
                 
                 session.add(usage_record)

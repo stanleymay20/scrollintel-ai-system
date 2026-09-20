@@ -1,0 +1,33 @@
+name: Portfolio Security Hygiene
+
+on:
+  push:
+    branches: [main, "hardening/**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  tracked-secret-files:
+    name: Reject tracked environment files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Enforce environment-file policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          tracked="$(git ls-files | grep -E '(^|/)\.env($|\.)' | grep -v -E '\.(example|template)$' || true)"
+          if [ -n "$tracked" ]; then
+            echo "Real environment files must not be tracked:"
+            echo "$tracked"
+            exit 1
+          fi
+
+      - name: Confirm remediation document exists
+        run: test -f SECURITY_CREDENTIAL_REMEDIATION.md

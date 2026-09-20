@@ -176,7 +176,7 @@ class DatasetUsageModel(Base):
     bytes_processed = Column(Integer)
     success = Column(Boolean, default=True)
     error_message = Column(Text)
-    metadata = Column(JSON)  # Additional operation-specific metadata
+    usage_metadata = Column("metadata", JSON)  # Additional operation-specific metadata
 
 
 @dataclass
